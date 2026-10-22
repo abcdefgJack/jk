@@ -217,6 +217,20 @@ Test 'upcoming window and reminder selection' {
 Test 'renders the list views without errors' {
     Show-JkDue; Show-JkDueAll; Show-JkDueAll -Course cs350; Show-JkExams; Show-JkDueWeek; Show-JkCourses; Show-JkDashboard; Show-JkBrief -Force
 }
+Test 'an online exam window (opens + closes) shows as one exam' {
+    $d = Get-JkDueData
+    $win = Get-JkEventWindow @($d.events | Where-Object { $_.title -eq 'Midterm closes' })[0] $d
+    Assert-Eq $win.Title 'Midterm'
+    Assert-Eq $win.Opens.ToString('s') '2026-10-26T06:00:00'
+    Assert-Eq $win.Closes.ToString('s') '2026-10-27T23:59:00'
+    Assert-True ($null -eq (Get-JkEventWindow @($d.events | Where-Object { $_.title -eq 'A2A Synchronization' })[0] $d)) 'not a window'
+    $out = (Show-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-Eq ([regex]::Matches($out, 'Midterm\s+Mon Oct 26 6:00 am').Count) 1 'one row for the window'
+    Assert-True ($out -match 'open until Tue Oct 27 11:59 pm') 'closing time on the note line'
+    Assert-True ($out -notmatch 'Midterm (opens|closes)') 'both halves merged'
+    $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($dash -match 'NEXT EXAM\s+HEALTH 105 Midterm  in 4 days . Mon Oct 26 6:00 am . Tue 11:59 pm') 'dashboard callout spans the window'
+}
 Test 'weekly review renders, counts slipped items' {
     Show-JkReview
     $slipped = @((Get-JkDueData).events | Where-Object { -not $_.done -and $_.kind -eq 'due' -and (Get-JkEventDue $_) -lt (Get-JkNow) -and (Get-JkEventDue $_) -ge (Get-JkNow).Date.AddDays(-6) })
