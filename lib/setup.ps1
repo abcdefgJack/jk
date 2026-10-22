@@ -26,6 +26,7 @@ function Invoke-JkConfig {
             if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
             if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
             Set-JkConfig $key $val
+            Clear-JkBriefCache
             Say ((Paint 'green' "  $key = $val") + " $($script:G.check)")
             if ($key -eq 'remind.time' -and (Get-ScheduledTask -TaskName $script:JkTaskName -ErrorAction SilentlyContinue)) { $null = Install-JkRemindTask }
             return
@@ -46,13 +47,26 @@ function Invoke-JkConfig {
 
 function Get-JkModuleLink { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules\jk' }
 
+# The hook prints the cached one-line brief without loading the module (new shells stay
+# fast) and registers a stub completer that imports jk on the first <Tab>.
 function Get-JkProfileBlock {
-    @(
-        $script:ProfileStart,
-        '# jk toolkit: one-line summary when an interactive console starts (jk setup uninstall removes this)',
-        'if ($Host.Name -eq ''ConsoleHost'' -and [Environment]::UserInteractive -and -not ([Environment]::GetCommandLineArgs() -match ''^-NonI'')) { try { jk brief } catch { } }',
-        $script:ProfileEnd
-    ) -join "`r`n"
+    @'
+# >>> jk >>>
+# jk toolkit (jk setup uninstall removes this block)
+if ($Host.Name -eq 'ConsoleHost' -and [Environment]::UserInteractive -and -not ([Environment]::GetCommandLineArgs() -match '^-NonI')) {
+    $jkHome = $env:JK_HOME; if (-not $jkHome) { $jkHome = Join-Path $HOME '.jk' }
+    $jkCache = $null; try { $jkCache = [IO.File]::ReadAllLines((Join-Path $jkHome 'brief.cache')) } catch { }
+    if ($jkCache -and $jkCache[0] -eq (Get-Date).ToString('yyyy-MM-dd HH')) { if ($jkCache.Count -gt 1 -and $jkCache[1]) { Write-Host $jkCache[1] } }
+    else { try { jk brief } catch { } }
+    Remove-Variable jkHome, jkCache -ErrorAction SilentlyContinue
+}
+Register-ArgumentCompleter -Native -CommandName jk, j -ScriptBlock {
+    param($w, $ast, $pos)
+    $m = Get-Module jk; if (-not $m) { $m = Import-Module jk -PassThru }
+    & $m { param($w, $ast, $pos) Invoke-JkCompleter $w $ast $pos } $w $ast $pos
+}
+# <<< jk <<<
+'@ -replace "`r?`n", "`r`n"
 }
 
 function Get-JkProfilePath { $PROFILE.CurrentUserCurrentHost }
@@ -161,6 +175,9 @@ function Invoke-JkDoctor {
         if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $d += " $($script:G.dot) last result $($info.LastTaskResult)" }
         & $ok 'daily reminder task' $d
     } else { & $meh 'daily reminder task' 'not installed - jk remind install' }
+    $slow = @(Get-JkProfileFiles | Where-Object { ([IO.File]::ReadAllText($_.Path)) -match 'shell\.powershell" "hook"' })
+    if ($slow) { & $meh 'shell startup' "conda init hook adds ~2 s to every new terminal - jk speed fix" }
+    else { & $ok 'shell startup' 'no slow conda hook in your profiles' }
     $ts = Get-JkToastSetting
     $mode = Get-JkConfig 'notify'
     if ($ts -eq 'Enabled') { & $ok 'notifications' "Windows toasts enabled $($script:G.dot) mode $mode" }

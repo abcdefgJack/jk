@@ -149,10 +149,26 @@ function Show-JkDashboard {
     Say (Paint 'gray' "  tip: $tip")
 }
 
-# One line, fast: shown by the profile hook when a terminal opens.
+# One line, shown by the profile hook when a terminal opens. The rendered line is cached
+# (brief.cache: hour stamp + ANSI line) so new shells print it without loading the module;
+# saving deadlines or to-dos deletes the cache.
 function Show-JkBrief {
     param([switch]$Force)
-    if (-not $Force -and (Get-JkConfig 'banner') -eq 'off') { return }
+    $off = (Get-JkConfig 'banner') -eq 'off'
+    $useColor = $script:JkUseColor
+    $script:JkUseColor = $true
+    try { $line = Get-JkBriefLine } finally { $script:JkUseColor = $useColor }
+    $cacheLine = $line
+    if ($off) { $cacheLine = '' }
+    Write-JkText (Get-JkPath 'brief.cache') ((Get-JkNow).ToString('yyyy-MM-dd HH') + "`n" + $cacheLine + "`n")
+    if ($off -and -not $Force) { return }
+    if (-not $useColor) { $line = $line -replace "$([char]27)\[[0-9;]*m", '' }
+    Say $line
+}
+
+function Clear-JkBriefCache { Remove-Item -LiteralPath (Get-JkPath 'brief.cache') -ErrorAction SilentlyContinue }
+
+function Get-JkBriefLine {
     $now = Get-JkNow
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
@@ -176,5 +192,5 @@ function Show-JkBrief {
     $openTodo = @($td.items | Where-Object { -not $_.done }).Count
     if ($openTodo) { $line += Paint 'gray' "  $($script:G.vline)  $openTodo to-do" }
     $line += Paint 'gray' "   (jk for more)"
-    Say $line
+    $line
 }

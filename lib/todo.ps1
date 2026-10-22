@@ -11,6 +11,7 @@ function Get-JkTodoData {
 function Save-JkTodoData($Data) {
     $Data.items = @($Data.items)
     Save-JkJson 'todo.json' $Data
+    Clear-JkBriefCache
 }
 
 function Get-JkTodoDue($Item) {

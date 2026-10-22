@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -21,6 +21,7 @@ $script:JkCommands = [ordered]@{
     'repos'  = @{ Fn = 'Invoke-JkRepos'; Aliases = @('git'); Desc = 'status of every git repo on the Desktop: dirty, ahead, behind' }
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
+    'speed'  = @{ Fn = 'Invoke-JkSpeed'; Aliases = @('startup', 'slow'); Desc = 'why new terminals are slow; jk speed fix makes the conda hook instant' }
     'brief'  = @{ Fn = 'Show-JkBrief'; Aliases = @(); Desc = 'one-line summary (shown when PowerShell starts)' }
     'config' = @{ Fn = 'Invoke-JkConfig'; Aliases = @('cfg', 'settings'); Desc = 'show or change settings' }
     'doctor' = @{ Fn = 'Invoke-JkDoctor'; Aliases = @('check'); Desc = 'check that compilers, reminders and the profile hook are set up' }
@@ -110,6 +111,7 @@ $script:JkActions = @{
     'cp'     = @('new', 'test', 'run', 'add', 'stress', 'open', 'clean', 'help')
     'config' = @('set', 'reset', 'edit', 'path')
     'setup'  = @('install', 'uninstall', 'status')
+    'speed'  = @('fix', 'undo')
     'port'   = @()
     'go'     = @()
     'help'   = @()
@@ -211,11 +213,17 @@ function Get-JkCompletions {
     $out
 }
 
+# Entry point for both this module's completer and the lightweight one in the profile hook
+# (which imports the module on the first <Tab> so new shells start fast).
+function Invoke-JkCompleter($WordToComplete, $CommandAst, $CursorPosition) {
+    $tokens = @($CommandAst.CommandElements | Where-Object { $_.Extent.StartOffset -lt $CursorPosition } | ForEach-Object { $_.Extent.Text.Trim('"', "'") })
+    if ($tokens.Count -gt 0 -and $tokens[0] -eq 'j') { $tokens = @('jk', 'go') + @($tokens | Select-Object -Skip 1) }
+    try { Get-JkCompletions -Word $WordToComplete -Tokens $tokens } catch { }
+}
+
 Register-ArgumentCompleter -Native -CommandName 'jk', 'j' -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
-    $tokens = @($commandAst.CommandElements | Where-Object { $_.Extent.StartOffset -lt $cursorPosition } | ForEach-Object { $_.Extent.Text.Trim('"', "'") })
-    if ($tokens.Count -gt 0 -and $tokens[0] -eq 'j') { $tokens = @('jk', 'go') + @($tokens | Select-Object -Skip 1) }
-    try { Get-JkCompletions -Word $wordToComplete -Tokens $tokens } catch { }
+    Invoke-JkCompleter $wordToComplete $commandAst $cursorPosition
 }
 
 Export-ModuleMember -Function jk, j

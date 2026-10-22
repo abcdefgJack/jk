@@ -66,6 +66,15 @@ Test 'helper calls are not given stray arguments (Paint "a" "b" + c pitfall)' {
     }
     Assert-Eq ($hits -join ', ') ''
 }
+Test 'no "a", "b" + $c inside list literals (comma binds tighter than +)' {
+    $hits = @()
+    foreach ($f in Get-ChildItem (Get-JkRoot) -Recurse -Include *.ps1, *.psm1) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$null)
+        $bad = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.BinaryExpressionAst] -and $n.Operator -eq 'Plus' -and $n.Left -is [System.Management.Automation.Language.ArrayLiteralAst] }, $true)
+        foreach ($b in $bad) { $hits += "$($f.Name):$($b.Extent.StartLineNumber)" }
+    }
+    Assert-Eq ($hits -join ', ') ''
+}
 Test 'every command in the dispatch table resolves to a function' {
     foreach ($k in $script:JkCommands.Keys) { Assert-True (Get-Item "function:$($script:JkCommands[$k].Fn)" -ErrorAction SilentlyContinue) "missing $($script:JkCommands[$k].Fn)" }
     foreach ($k in $script:JkParamTargets.Keys) { Assert-True (Get-Item "function:$($script:JkParamTargets[$k])" -ErrorAction SilentlyContinue) "missing $($script:JkParamTargets[$k])" }

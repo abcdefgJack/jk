@@ -106,6 +106,13 @@ jk config set cp.root D:\cp    where jk cp new puts problems;  cp.lang cpp|py|ja
 jk config set tidy.minAge 7    keep files newer than 7 days in place
 jk config reset <key> | jk config edit | jk config path
 '@
+    'speed'  = @'
+jk speed                       time a new PowerShell with and without your profiles, and each profile file
+jk speed fix                   replace the conda init hook (about 2 s per terminal) with an instant equivalent:
+                               same PATH entries and CONDA_* variables, conda loads on first use.
+                               Verifies python and the active env are unchanged, else rolls back.
+jk speed undo                  restore the original conda block from the backup
+'@
     'setup'  = @'
 jk setup install               profile banner + daily reminder task + calendar page (safe to re-run)
 jk setup status                what is installed
@@ -149,7 +156,7 @@ function Show-JkHelp {
         'School'   = @('due', 'grade', 'todo')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
-        'Machine'  = @('tidy', 'sys', 'go', 'mark')
+        'Machine'  = @('tidy', 'sys', 'go', 'mark', 'speed')
         'jk'       = @('brief', 'config', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {

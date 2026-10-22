@@ -22,6 +22,7 @@ function Save-JkDueData($Data) {
     $Data.courses = @($Data.courses)
     $Data.events = @($Data.events | Sort-Object date, time, id)
     Save-JkJson 'deadlines.json' $Data
+    Clear-JkBriefCache
 }
 
 function Get-JkCourseMap($Data) {

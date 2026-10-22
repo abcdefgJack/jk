@@ -39,6 +39,7 @@ deadline check (8:30 am and at sign-in). To undo the profile line, task and link
 | Machine | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable); `dupes`, `old` |
 | | `j co250`, `j co250/final`, `j -` | Fuzzy jump; `jk mark` bookmarks the current folder |
 | | `jk sys` | CPU, memory, disks, battery, Wi-Fi, apps using the most RAM |
+| | `jk speed` / `jk speed fix` | Times shell startup per profile file; makes the `conda init` hook instant (about 2.4 s to 0.3 s) |
 
 ## Notable details
 
@@ -55,6 +56,11 @@ deadline check (8:30 am and at sign-in). To undo the profile line, task and link
   - Floats compare with a 1e-6 tolerance.
 - **Grades** reuse the weights stored with your deadlines. A quiz window's opens/closes pair counts
   once, and a note such as "best 6 of 8" turns into a drop-lowest rule automatically.
+- **Fast startup.** The profile hook prints a cached one-line brief without loading the module,
+  and tab completion loads it on first use. `jk speed fix` replaces conda's hook, which runs
+  `conda.exe` on every launch, with the same activation applied directly: the same PATH entries
+  and `CONDA_*` variables. Conda's module then loads the first time you type `conda`. The fix is
+  dry-run in throwaway shells first and rolled back if `python`, the env or PATH would change.
 - **Data** is plain JSON in `~\.jk`: `deadlines.json`, `grades.json`, `todo.json`,
   `focus.json`, `reminders.json`, `bookmarks.json`, `config.json`. Errors from background
   timers go to `~\.jk\background.log`.
