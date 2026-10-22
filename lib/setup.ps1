@@ -87,6 +87,24 @@ function Invoke-JkBackup {
     Say (Paint 'gray' "  the files you had before are in $aside")
 }
 
+# jk update: fast-forward the jk checkout from GitHub and reload the module.
+function Update-Jk {
+    $root = Get-JkRoot
+    if (-not (Test-Path -LiteralPath (Join-Path $root '.git'))) { throw "$root is not a git checkout" }
+    if (@(& git -C $root status --porcelain 2>$null).Count) { throw "the jk folder has uncommitted changes; commit or stash them first ($root)" }
+    $before = (& git -C $root rev-parse HEAD 2>$null)
+    $branch = (& git -C $root branch --show-current 2>$null)
+    Say (Paint 'gray' "  pulling $branch$($script:G.ell)")
+    $out = & git -C $root pull --ff-only 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git pull failed: $(($out | Select-Object -Last 2) -join ' ')" }
+    $after = (& git -C $root rev-parse HEAD 2>$null)
+    if ($before -eq $after) { Say (Paint 'green' "  already up to date $($script:G.check)"); return }
+    Say (Paint 'green' "  updated $($script:G.check)")
+    foreach ($l in @(& git -C $root log --oneline "$before..$after" 2>$null | Select-Object -First 15)) { Say ('    ' + (Paint 'muted' $l)) }
+    Import-Module (Join-Path $root 'jk.psd1') -Force -Global
+    Say (Paint 'gray' '  module reloaded')
+}
+
 function Get-JkModuleLink { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules\jk' }
 
 # The hook prints the cached one-line brief without loading the module (new shells stay

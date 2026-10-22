@@ -31,6 +31,7 @@ $script:JkCommands = [ordered]@{
     'brief'  = @{ Fn = 'Show-JkBrief'; Aliases = @(); Desc = 'one-line summary (shown when PowerShell starts)' }
     'config' = @{ Fn = 'Invoke-JkConfig'; Aliases = @('cfg', 'settings'); Desc = 'show or change settings' }
     'backup' = @{ Fn = 'Invoke-JkBackup'; Aliases = @('backups', 'restore'); Desc = 'daily snapshots of your jk data; restore a day' }
+    'update' = @{ Fn = 'Update-Jk'; Aliases = @('upgrade'); Desc = 'pull the latest jk from GitHub and reload it' }
     'doctor' = @{ Fn = 'Invoke-JkDoctor'; Aliases = @('check'); Desc = 'check that compilers, reminders and the profile hook are set up' }
     'setup'  = @{ Fn = 'Invoke-JkSetup'; Aliases = @('install'); Desc = 'install/uninstall the profile banner and daily reminder task' }
     'help'   = @{ Fn = 'Show-JkHelp'; Aliases = @('h', '?', '-h', '--help'); Desc = 'help for a command:  jk help due' }
