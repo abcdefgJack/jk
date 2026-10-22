@@ -54,10 +54,22 @@ function Show-JkDashboard {
         $due = Get-JkEventDue $e
         $days = [int]($due.Date - $now.Date).TotalDays
         $color = Get-JkCourseColor $e.course $cmap
-        $when = $due.ToString('ddd MMM d', [Globalization.CultureInfo]::InvariantCulture)
-        if ($e.time) { $when += ' ' + (Format-JkTime $e.time) }
+        $stamp = { param($ev, [string]$Fmt) $s = (Get-JkEventDue $ev).ToString($Fmt, $script:Inv); if ($ev.time) { $s += ' ' + (Format-JkTime $ev.time) }; $s }
+        $title = [string]$e.title
+        $when = & $stamp $e 'ddd MMM d'
         $cd = "in $days days"; if ($days -eq 0) { $cd = 'TODAY' } elseif ($days -eq 1) { $cd = 'tomorrow' }
-        Say (' ' + (Paint "bold bg:#$color ink" ' NEXT EXAM ') + ' ' + (Paint "bold #$color" (Get-JkCourseLabel $e $cmap)) + ' ' + (Paint 'bold white' ([string]$e.title)) + (Paint 'muted' "  $cd $($script:G.dot) $when") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }))
+        # an online window: one callout for the pair ("Mon Oct 26 6:00 am - Tue 11:59 pm")
+        $win = Get-JkEventWindow $e $data
+        if ($win) {
+            $title = $win.Title
+            if ($win.Opens -le $now) { $cd = 'OPEN NOW'; $when = 'closes ' + (& $stamp $win.Close 'ddd MMM d') }
+            else {
+                $closeWhen = & $stamp $win.Close 'ddd'
+                if ($win.Closes.Date -eq $win.Opens.Date) { $closeWhen = Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv) }
+                $when = (& $stamp $win.Open 'ddd MMM d') + " $($script:G.dash) " + $closeWhen
+            }
+        }
+        Say (' ' + (Paint "bold bg:#$color ink" ' NEXT EXAM ') + ' ' + (Paint "bold #$color" (Get-JkCourseLabel $e $cmap)) + ' ' + (Paint 'bold white' $title) + (Paint 'muted' "  $cd $($script:G.dot) $when") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }))
     }
 
     # next class (today or tomorrow), with how many are left today
