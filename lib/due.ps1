@@ -927,6 +927,7 @@ function Invoke-JkDue {
         '^(cal|calendar|html|open)$' { Export-JkDueHtml @rest; return }
         '^(ics|ical|export)$' { Export-JkDueIcs @rest; return }
         '^(import)$' { Import-JkDueHtml @rest; return }
+        '^(sync|pull|feed)$' { Invoke-JkDueSync @rest; return }
         '^(remind|notify|ping)$' { Invoke-JkDueRemind @rest; return }
         '^(courses)$' { Show-JkCourses; return }
         '^(course)$' { Set-JkCourse @rest; return }

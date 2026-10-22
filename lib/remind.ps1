@@ -228,7 +228,13 @@ function Invoke-JkRemind {
         '^(cancel|rm|stop|del)$' { Cancel-JkReminder @rest; return }
         '^(install|enable)$' { $null = Install-JkRemindTask; return }
         '^(uninstall|disable|remove)$' { Uninstall-JkRemindTask; return }
-        '^(tick)$' { Restore-JkReminders; Invoke-JkDueRemind -Quiet; return }
+        '^(tick)$' {
+            Restore-JkReminders
+            # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
+            if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
+            Invoke-JkDueRemind -Quiet
+            return
+        }
         '^(now|due)$' { Invoke-JkDueRemind -Force @rest; return }
         '^(test|demo)$' {
             $mode = Show-JkNotify -Title 'jk notifications work' -Lines @('This is what reminders, focus timers and deadline alerts look like.', 'Hover to keep it open; click x to dismiss.') -Accent $script:JkPalette.green -Seconds 10 -Sound

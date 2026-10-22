@@ -12,7 +12,10 @@ function Invoke-JkConfig {
         foreach ($k in $all.Keys) {
             $isSet = $cfg -and $cfg.PSObject.Properties[$k]
             $st = 'muted'; if ($isSet) { $st = 'white' }
-            Say ('  ' + (Paint 'cyan' (Fit $k 16)) + (Paint $st $all[$k]) + $(if (-not $isSet) { Paint 'gray' '  (default)' } else { '' }))
+            $shown = [string]$all[$k]
+            # feed links carry a private token: show only the start
+            if ($k -like '*url*' -and $shown.Length -gt 36) { $shown = $shown.Substring(0, 36) + $script:G.ell }
+            Say ('  ' + (Paint 'cyan' (Fit $k 16)) + (Paint $st $shown) + $(if (-not $isSet) { Paint 'gray' '  (default)' } else { '' }))
         }
         Say ''
         Say (Paint 'gray' '  jk config set <key> <value>   |   jk config reset <key>   |   jk help config')
@@ -28,7 +31,9 @@ function Invoke-JkConfig {
             if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
             Set-JkConfig $key $val
             Clear-JkBriefCache
-            Say ((Paint 'green' "  $key = $val") + " $($script:G.check)")
+            $echo = $val
+            if ($key -like '*url*' -and $echo.Length -gt 36) { $echo = $echo.Substring(0, 36) + $script:G.ell }
+            Say ((Paint 'green' "  $key = $echo") + " $($script:G.check)")
             if ($key -eq 'remind.time' -and (Get-ScheduledTask -TaskName $script:JkTaskName -ErrorAction SilentlyContinue)) { $null = Install-JkRemindTask }
             return
         }

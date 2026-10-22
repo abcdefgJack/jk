@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -85,6 +85,7 @@ $script:JkParamTargets = @{
     'due ics'      = 'Export-JkDueIcs'
     'due remind'   = 'Invoke-JkDueRemind'
     'due import'   = 'Import-JkDueHtml'
+    'due sync'     = 'Invoke-JkDueSync'
     'due week'     = 'Show-JkDueWeek'
     'due course'   = 'Set-JkCourse'
     'todo add'     = 'Add-JkTodo'
@@ -119,7 +120,7 @@ $script:JkParamTargets = @{
 }
 
 $script:JkActions = @{
-    'due'    = @('add', 'done', 'undone', 'edit', 'rm', 'all', 'past', 'week', 'exams', 'courses', 'course', 'cal', 'ics', 'remind', 'import', 'help')
+    'due'    = @('add', 'done', 'undone', 'edit', 'rm', 'all', 'past', 'week', 'exams', 'courses', 'course', 'cal', 'ics', 'sync', 'remind', 'import', 'help')
     'todo'   = @('add', 'done', 'undo', 'rm', 'clear', 'edit', 'all', 'help')
     'class'  = @('week', 'list', 'next', 'add', 'rm', 'import', 'help')
     'focus'  = @('25', '50', '15', 'status', 'stop', 'log', 'help')
