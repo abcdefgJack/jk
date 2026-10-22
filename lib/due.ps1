@@ -57,6 +57,23 @@ function Get-JkEventDue($e) {
     $d.AddHours(23).AddMinutes(59)
 }
 
+# An exam window stored as "X opens" + "X closes" (online midterms, quizzes). For either half,
+# returns the shared title and both events; $null when $e is not one half of such a pair.
+function Get-JkEventWindow($e, $Data) {
+    $rx = '(?i)^(.*?)\s+(opens?|closes?)$'
+    if ([string]$e.title -notmatch $rx) { return $null }
+    $base = $Matches[1].Trim()
+    $isOpen = $Matches[2] -like 'open*'
+    foreach ($o in @($Data.events)) {
+        if ($o.course -ne $e.course -or [int]$o.id -eq [int]$e.id) { continue }
+        if ([string]$o.title -notmatch $rx -or $Matches[1].Trim() -ne $base -or ($Matches[2] -like 'open*') -eq $isOpen) { continue }
+        $open = $e; $close = $o
+        if (-not $isOpen) { $open = $o; $close = $e }
+        return [pscustomobject]@{ Title = $base; Open = $open; Close = $close; Opens = (Get-JkEventDue $open); Closes = (Get-JkEventDue $close) }
+    }
+    $null
+}
+
 function Get-JkCourseLabel($e, $cmap) {
     $c = $cmap[[string]$e.course]
     if ($c) { return [string]$c.code }
@@ -367,19 +384,46 @@ function Show-JkExams {
     $now = Get-JkNow
     $w = Get-JkWidth
     $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_) -ge $now.Date } | Sort-Object { Get-JkEventDue $_ })
-    Write-JkHeader 'Upcoming exams' "$($evs.Count) left this term"
+    # an online window ("X opens" + "X closes") is one exam: one row
+    $rows = New-Object System.Collections.Generic.List[object]
+    $merged = @{}
     foreach ($e in $evs) {
+        if ($merged.ContainsKey([string]$e.id)) { continue }
+        $win = Get-JkEventWindow $e $data
+        if ($win) { $merged[[string]$win.Open.id] = $true; $merged[[string]$win.Close.id] = $true }
+        $rows.Add([pscustomobject]@{ E = $e; Win = $win })
+    }
+    Write-JkHeader 'Upcoming exams' "$($rows.Count) left this term"
+    foreach ($row in $rows) {
+        $e = $row.E
+        $win = $row.Win
         $due = Get-JkEventDue $e
+        $title = [string]$e.title
+        $when = $due.ToString('ddd MMM d', $script:Inv)
+        if ($e.time) { $when += ' ' + (Format-JkTime $e.time) }
+        $notes = @([string]$e.note)
+        if ($win) {
+            $title = $win.Title
+            $closeTxt = $win.Closes.ToString('ddd MMM d', $script:Inv) + ' ' + (Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv))
+            $notes = @([string]$win.Open.note, [string]$win.Close.note)
+            if ($win.Opens -ge $now) {
+                $due = $win.Opens
+                $when = $due.ToString('ddd MMM d', $script:Inv) + ' ' + (Format-JkTime $due.ToString('HH:mm', $script:Inv))
+                $notes = @("open until $closeTxt") + $notes
+            } else {
+                $due = $win.Closes
+                $when = 'open now'
+                $notes = @("closes $closeTxt") + $notes
+            }
+        }
         $days = [int]($due.Date - $now.Date).TotalDays
         $color = Get-JkCourseColor $e.course $cmap
         $countTxt = "{0,3}d" -f $days
         $style = 'gray'
         if ($days -le 3) { $style = 'bold red' } elseif ($days -le 7) { $style = 'orange' } elseif ($days -le 14) { $style = 'yellow' }
-        $when = $due.ToString('ddd MMM d', $script:Inv)
-        if ($e.time) { $when += ' ' + (Format-JkTime $e.time) }
-        $line = '  ' + (Paint $style $countTxt) + '  ' + (Paint "bold #$color" (Fit (Get-JkCourseLabel $e $cmap) 11)) + (Paint 'bold white' (Fit ([string]$e.title) 22)) + ' ' + (Paint 'muted' (Fit $when 22)) + (Paint 'gray' (Fit ([string]$e.weight) 6 -Right))
+        $line = '  ' + (Paint $style $countTxt) + '  ' + (Paint "bold #$color" (Fit (Get-JkCourseLabel $e $cmap) 11)) + (Paint 'bold white' (Fit $title 22)) + ' ' + (Paint 'muted' (Fit $when 22)) + (Paint 'gray' (Fit ([string]$e.weight) 6 -Right))
         Say $line
-        $note = [string]$e.note
+        $note = @($notes | Where-Object { $_ }) -join " $($script:G.dot) "
         if ($note) { Say ('                     ' + (Paint 'gray' (Fit $note ($w - 22)).TrimEnd())) }
     }
 }
