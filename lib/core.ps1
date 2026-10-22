@@ -65,10 +65,36 @@ function Read-JkJson {
 function Save-JkJson {
     param([string]$Name, $Object)
     $p = Get-JkPath $Name
+    Backup-JkFile $Name
     $json = ConvertTo-Json -InputObject $Object -Depth 12
     $tmp = "$p.tmp"
     [IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding $false))
     Move-Item -LiteralPath $tmp -Destination $p -Force
+}
+
+# Before the first change of the day, the current version of a top-level data file is kept in
+# backups\<yyyy-MM-dd>\ (30 days are kept). `jk backup restore <day>` brings a day back.
+$script:JkBackupFiles = @('deadlines.json', 'classes.json', 'sections.json', 'grades.json', 'todo.json', 'focus.json', 'bookmarks.json', 'config.json')
+
+function Backup-JkFile([string]$Name) {
+    if ($script:JkBackupFiles -notcontains $Name) { return }
+    $src = Get-JkPath $Name
+    if (-not (Test-Path -LiteralPath $src)) { return }
+    $day = (Get-Date).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    $dir = Join-Path (Get-JkHome) "backups\$day"
+    $dst = Join-Path $dir $Name
+    if (Test-Path -LiteralPath $dst) { return }
+    try {
+        if (-not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            # a new day's folder is also the moment to drop folders older than 30 days
+            $cut = (Get-Date).AddDays(-30).ToString('yyyy-MM-dd')
+            Get-ChildItem -LiteralPath (Join-Path (Get-JkHome) 'backups') -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -lt $cut } |
+                ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        Copy-Item -LiteralPath $src -Destination $dst -Force
+    } catch { }
 }
 
 function Write-JkText {
@@ -96,6 +122,7 @@ $script:JkConfigDefaults = [ordered]@{
     'editor'        = 'code'
     'notify'        = 'auto'      # auto | toast | popup | off
     'banner'        = 'on'        # one-line brief when PowerShell starts
+    'theme'         = 'dark'      # dark | light (terminal background)
     'remind.time'   = '08:30'
     'remind.hours'  = '48'
     'cp.root'       = (Join-Path $HOME 'Desktop\cp')
@@ -105,6 +132,9 @@ $script:JkConfigDefaults = [ordered]@{
     'tidy.path'     = ''          # empty = the Downloads folder
     'tidy.minAge'   = '2'
     'focus.minutes' = '25'
+    'plan.hours'    = '3'         # daily study budget for jk plan
+    'plan.examMin'  = '15'        # prep minutes per percent of grade, exams
+    'plan.dueMin'   = '30'        # work minutes per percent of grade, assignments
     'repos.roots'   = (Join-Path $HOME 'Desktop')
 }
 
@@ -165,7 +195,38 @@ function Paint {
     "$pre$Text$script:Esc[0m"
 }
 
+# Light terminal backgrounds (jk config set theme light): text colors flip to dark, course
+# colors are darkened so they stay readable, and "today" markers invert.
+function Convert-JkStyleForLight([string]$Style) {
+    $tokens = @($Style -split '[\s,+]+' | Where-Object { $_ })
+    $invert = ($tokens -contains 'bg:white')
+    $out = foreach ($t in $tokens) {
+        switch -Regex ($t) {
+            '^white$' { '1F2937'; break }
+            '^muted$' { '4B5563'; break }
+            '^gray$' { '6B7280'; break }
+            '^bg:white$' { 'bg:1F2937'; break }
+            '^ink$' { if ($invert) { 'FFFFFF' } else { $t }; break }
+            '^#?[0-9a-fA-F]{6}$' {
+                $h = $t.TrimStart('#')
+                $rgb = @(0, 2, 4 | ForEach-Object { [int]([Convert]::ToInt32($h.Substring($_, 2), 16) * 0.62) })
+                '{0:X2}{1:X2}{2:X2}' -f $rgb[0], $rgb[1], $rgb[2]
+                break
+            }
+            '^(red|orange|amber|yellow|green|lime|teal|cyan|blue|purple|pink)$' {
+                $h = $script:JkPalette[$t]
+                $rgb = @(0, 2, 4 | ForEach-Object { [int]([Convert]::ToInt32($h.Substring($_, 2), 16) * 0.62) })
+                '{0:X2}{1:X2}{2:X2}' -f $rgb[0], $rgb[1], $rgb[2]
+                break
+            }
+            default { $t }
+        }
+    }
+    $out -join ' '
+}
+
 function Get-JkStylePrefix([string]$Style) {
+    if ($script:JkLightTheme) { $Style = Convert-JkStyleForLight $Style }
     $codes = New-Object System.Collections.Generic.List[string]
     foreach ($s in ($Style -split '[\s,+]+')) {
         if (-not $s) { continue }

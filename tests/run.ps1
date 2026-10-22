@@ -242,6 +242,30 @@ Test 'ICS export: valid structure, 75-octet folding, escaping' {
     Assert-Eq (ConvertTo-JkIcsText 'a,b;c\d') 'a\,b\;c\\d'
 }
 
+Test 'jk at: bare hours mean the next such hour, day + time phrases' {
+    $at = { param($words, $now) (Resolve-JkAtTime $words ([datetime]$now)).At.ToString('MM-dd HH:mm') }
+    Assert-Eq (& $at @('5', 'leave') '2026-10-22 14:00') '10-22 17:00' 'afternoon: 5 means 5 pm'
+    Assert-Eq (& $at @('5', 'leave') '2026-10-22 03:00') '10-22 05:00' 'before dawn: 5 means 5 am'
+    Assert-Eq (& $at @('9', 'class') '2026-10-22 22:00') '10-23 09:00' 'late evening: tomorrow 9 am'
+    Assert-Eq (& $at @('3:30pm', 'call') '2026-10-22 14:00') '10-22 15:30'
+    Assert-Eq (& $at @('2pm', 'x') '2026-10-22 14:30') '10-23 14:00' 'explicit pm already past rolls to tomorrow'
+    Assert-Eq (& $at @('tomorrow', '9am', 'submit') '2026-10-22 14:00') '10-23 09:00'
+    Assert-Eq (Resolve-JkAtTime @('tomorrow', '9am', 'submit', 'form') ([datetime]'2026-10-22 14:00')).K 2
+    Assert-Throws { Resolve-JkAtTime @('whenever') ([datetime]'2026-10-22 14:00') }
+}
+Test 'reopen and grade by title text, including finished items' {
+    $d = Get-JkDueData
+    $e = @($d.events | Where-Object { $_.title -eq 'A2A Synchronization' })[0]
+    Set-JkDueDone 'a2a sync'
+    Set-JkDueDone -Undo 'a2a sync'
+    Assert-True (-not @((Get-JkDueData).events | Where-Object { $_.id -eq $e.id })[0].done) 'reopened by text'
+    Set-JkDueDone 'a2a sync'
+    Set-JkGrade 'a2a sync' '9/10'
+    Assert-Eq @((Get-JkGradeData).scores | Where-Object { [string]$_.id -eq [string]$e.id })[0].score 90
+    Set-JkDueDone -Undo $e.id
+    Clear-JkGrade $e.id
+}
+
 Write-Host ''
 Write-Host 'classes' -ForegroundColor Cyan
 Test 'day lists and time ranges' {
@@ -251,6 +275,9 @@ Test 'day lists and time ranges' {
     Assert-Eq ((ConvertTo-JkDays 'MTWThF') -join ' ') 'Mon Tue Wed Thu Fri'
     Assert-Eq ((ConvertTo-JkDays 'mon/wed') -join ' ') 'Mon Wed'
     Assert-Eq ((ConvertTo-JkDays 'weekdays').Count) 5
+    Assert-Eq ((ConvertTo-JkDays 'MoWe') -join ' ') 'Mon Wed'
+    Assert-Eq ((ConvertTo-JkDays 'TuTh') -join ' ') 'Tue Thu'
+    Assert-Eq ((ConvertTo-JkDays 'Monday,Wednesday') -join ' ') 'Mon Wed'
     Assert-Throws { ConvertTo-JkDays 'someday' }
     $r = ConvertTo-JkTimeRange '4pm-5:20pm'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
     $r = ConvertTo-JkTimeRange '4-5:20pm'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
@@ -267,6 +294,12 @@ Test 'Quest list view parsing (continuation rows, tests)' {
     $c = @($p.Classes)[2]
     Assert-Eq $c.Course 'CS 350'; Assert-Eq $c.Kind 'LEC'; Assert-Eq (@($c.Days) -join ' ') 'Fri'; Assert-Eq $c.Room 'DC 1350'; Assert-Eq $c.From '2026-09-08'
     Assert-Eq @($p.Tests)[0].Date '2026-11-09'
+    # newer Quest day codes and outline.uwaterloo.ca rows
+    $p2 = ConvertFrom-JkQuestText "CS 370 - Numerical Computation`n7001`t001`tLEC`tTuTh 1:00PM - 2:20PM`tDC 1351`tProf`t09/08/2026 - 12/08/2026`nSTAT 341 002 [LEC] Monday, Wednesday - 02:30PM - 03:50PM EIT 1015 Some Prof prof@uwaterloo.ca"
+    Assert-Eq @($p2.Classes).Count 2
+    Assert-Eq (@(@($p2.Classes)[0].Days) -join ' ') 'Tue Thu'
+    $o = @($p2.Classes)[1]
+    Assert-Eq "$($o.Course) $($o.Kind) $(@($o.Days) -join ',') $($o.Start)-$($o.End) $($o.Room)" 'STAT 341 LEC Mon,Wed 14:30-15:50 EIT 1015'
 }
 Test 'meetings skip breaks and holidays; next class' {
     Add-JkClass cs350 @('tue', 'thu') '8:30am-9:50am' 'MC 2017'
@@ -279,6 +312,66 @@ Test 'meetings skip breaks and holidays; next class' {
     $n = Get-JkNextClass ([datetime]'2026-10-22T10:00')
     Assert-Eq $n.Start.ToString('MM-dd HH:mm') '10-26 16:00'
     Show-JkClasses; Show-JkTimetable; Show-JkClassList
+}
+
+Test 'section catalog: pick adds meetings, skips duplicates, flags clashes' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'pick-home'
+    try {
+        Import-JkDueHtml $htmlPath
+        $mk = { param($course, $kind, $section, $days, $start, $end, $room) [pscustomobject]@{ course = $course; kind = $kind; section = $section; days = @($days); start = $start; end = $end; room = $room } }
+        Save-JkJson 'sections.json' ([pscustomobject]@{ items = @(
+                    (& $mk 'cs350' 'LEC' '001' @('Tue', 'Thu') '10:00' '11:20' 'MC 4040'),
+                    (& $mk 'cs350' 'LEC' '002' @('Tue', 'Thu') '13:00' '14:20' 'MC 4040'),
+                    (& $mk 'health' 'LEC' '081' @('Tue') '10:30' '11:00' 'online')) })
+        Select-JkSections cs350 1
+        Select-JkSections cs350 001
+        $items = @((Get-JkClassData).items)
+        Assert-Eq $items.Count 1 'second pick of the same section is skipped'
+        Assert-Eq "$($items[0].start)-$($items[0].end) $($items[0].room)" '10:00-11:20 MC 4040'
+        Assert-True (Test-JkClassOverlap $items[0] ([pscustomobject]@{ days = @('Tue'); start = '10:30'; end = '11:00' })) 'overlap detected'
+        Assert-True (-not (Test-JkClassOverlap $items[0] ([pscustomobject]@{ days = @('Wed'); start = '10:30'; end = '11:00' }))) 'different day is no clash'
+        Assert-Throws { Select-JkSections cs350 009 }
+        Assert-Throws { Select-JkSections cs350 }
+        Show-JkSectionCatalog
+    } finally { $env:JK_HOME = $saved }
+}
+
+Write-Host ''
+Write-Host 'study plan' -ForegroundColor Cyan
+Test 'plan items: weights to effort, exam windows once, focus subtracts' {
+    $items = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00'))
+    $mid = @($items | Where-Object { $_.Course -eq 'health' -and $_.Title -eq 'Midterm' })
+    Assert-Eq $mid.Count 1 'opens/closes pair is one item'
+    Assert-Eq $mid[0].Due.ToString('MM-dd HH:mm') '10-26 06:00' 'prepare for the opening'
+    Assert-Eq $mid[0].Effort (30 * 15) 'exam: 30% x 15 min'
+    $a2a = @($items | Where-Object { $_.Title -eq 'A2A Synchronization' })[0]
+    Assert-Eq $a2a.Effort (8 * 30) 'assignment: 8% x 30 min'
+    $fd = Get-JkFocusData
+    $fd.sessions = @($fd.sessions) + [pscustomobject]@{ label = 'cs350 a2a'; start = '2026-10-21T19:00:00'; planned = 60; actual = 60; completed = $true }
+    Save-JkFocusData $fd
+    $items2 = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00'))
+    $cs350 = @($items2 | Where-Object { $_.Course -eq 'cs350' })
+    $doneSum = ($cs350 | Measure-Object -Property Done -Sum).Sum
+    Assert-Eq ([Math]::Round($doneSum)) 60 'logged focus is shared across the course items'
+}
+Test 'plan schedule: nothing after due, soon items get a block, budget respected' {
+    $now = [datetime]'2026-10-22T09:00'
+    $items = @(Get-JkPlanItems -Now $now)
+    $sched = @(Get-JkPlanSchedule -Items $items -Now $now -Days 7 -BudgetMin 180)
+    foreach ($s in $sched) {
+        $sum = 0; foreach ($v in $s.Alloc.Values) { $sum += $v }
+        Assert-True ($sum -le 180 + 25 * $items.Count) "day $($s.Day.ToString('MM-dd')) way over budget: $sum"
+        foreach ($k in $s.Alloc.Keys) {
+            $it = @($items | Where-Object { $_.Key -eq $k })[0]
+            Assert-True ($s.Day -le $it.Due.Date) "$($it.Title) scheduled after its due date"
+            if ($s.Day -eq $it.Due.Date) { Assert-True ($it.Due.Hour -ge 18) "$($it.Title) scheduled on the morning it is due" }
+        }
+    }
+    $mid = @($items | Where-Object { $_.Course -eq 'health' -and $_.Title -eq 'Midterm' })[0]
+    $sunday = @($sched | Where-Object { $_.Day -eq [datetime]'2026-10-25' })[0]
+    Assert-True ($sunday.Alloc[$mid.Key] -ge 25) 'the day before the midterm gets at least one block'
+    Show-JkPlan
 }
 
 Write-Host ''
@@ -451,6 +544,12 @@ Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     Assert-True ($exact -gt $prefix -and $prefix -gt $sub -and $sub -gt $seq -and $seq -gt 0)
     Assert-Eq (Get-JkGoScore 'zzz' (& $c 'cs350') $v) 0
 }
+Test 'light theme darkens text and course colors, inverts the today marker' {
+    Assert-Eq (Convert-JkStyleForLight 'bold white') 'bold 1F2937'
+    Assert-Eq (Convert-JkStyleForLight '#F87171') '9A4646'
+    Assert-Eq (Convert-JkStyleForLight 'bold bg:white ink') 'bold bg:1F2937 FFFFFF'
+    Assert-Eq (Convert-JkStyleForLight 'bold bg:#F2B04A ink') 'bold bg:#F2B04A ink' 'badges keep their fill and dark text'
+}
 Test 'config defaults, set and reset' {
     Assert-Eq (Get-JkConfig 'cp.lang') 'cpp'
     Set-JkConfig 'cp.lang' 'py'
@@ -463,6 +562,38 @@ Test 'corrupt data file is backed up, not fatal' {
     $t = Get-JkTodoData 3>$null
     Assert-Eq @($t.items).Count 0
     Assert-True (@(Get-ChildItem (Get-JkHome) -Filter 'todo.json.corrupt-*').Count -eq 1)
+}
+Test 'daily backup before the first change, restore round-trip' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'backup-home'
+    try {
+        Add-JkTodo first item
+        $day = (Get-Date).ToString('yyyy-MM-dd')
+        Assert-True (-not (Test-Path (Join-Path $env:JK_HOME "backups\$day\todo.json"))) 'nothing to back up before the file existed'
+        Add-JkTodo second item
+        $snap = Join-Path $env:JK_HOME "backups\$day\todo.json"
+        Assert-True (Test-Path $snap) 'snapshot taken before the second save'
+        Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText($snap))).items).Count 1
+        Add-JkTodo third item
+        Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText($snap))).items).Count 1 'one snapshot per day'
+        Invoke-JkBackup restore $day todo
+        Assert-Eq @((Get-JkTodoData).items).Count 1 'restored to the start-of-day state'
+        $aside = @(Get-ChildItem (Join-Path $env:JK_HOME 'backups') -Directory | Where-Object { $_.Name -like '*before-restore*' })
+        Assert-Eq $aside.Count 1
+        Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $aside[0].FullName 'todo.json')))).items).Count 3 'current state set aside'
+        Assert-Throws { Invoke-JkBackup restore 1999-01-01 }
+    } finally { $env:JK_HOME = $saved }
+}
+Test 'every view works on a brand-new, empty data folder' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'empty-home'
+    $script:JkConfigCache = $null
+    try {
+        Show-JkDashboard; Show-JkBrief -Force; Show-JkDue; Show-JkDueAll; Show-JkDueWeek; Show-JkExams
+        Show-JkClasses; Show-JkTimetable; Show-JkReview; Show-JkGradeOverview; Show-JkTodo; Show-JkFocusLog
+        Show-JkReminders; Show-JkGoList
+        Export-JkDueIcs -Out (Join-Path $env:JK_HOME 'e.ics'); Export-JkDueHtml -NoOpen -Out (Join-Path $env:JK_HOME 'e.html')
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
 Test 'help renders for every topic' {
     Show-JkHelp

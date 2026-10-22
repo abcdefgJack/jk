@@ -28,7 +28,11 @@ function ConvertTo-JkDays([string]$Text) {
     $t = $Text.Trim()
     if ($t -match '^(?i)weekdays?$') { return @('Mon', 'Tue', 'Wed', 'Thu', 'Fri') }
     $days = @()
-    if ($t -cmatch '^(Th|Su|Sa|M|T|W|R|F|S|U)+$') {
+    if ($t -cmatch '^(Mo|Tu|We|Th|Fr|Sa|Su)+$') {
+        # newer Quest style: MoWe, TuTh, Fr
+        $map2 = @{ Mo = 'Mon'; Tu = 'Tue'; We = 'Wed'; Th = 'Thu'; Fr = 'Fri'; Sa = 'Sat'; Su = 'Sun' }
+        foreach ($m in [regex]::Matches($t, 'Mo|Tu|We|Th|Fr|Sa|Su')) { $days += $map2[$m.Value] }
+    } elseif ($t -cmatch '^(Th|Su|Sa|M|T|W|R|F|S|U)+$') {
         $map = @{ M = 'Mon'; T = 'Tue'; W = 'Wed'; Th = 'Thu'; R = 'Thu'; F = 'Fri'; S = 'Sat'; Sa = 'Sat'; Su = 'Sun'; U = 'Sun' }
         foreach ($m in [regex]::Matches($t, 'Th|Su|Sa|M|T|W|R|F|S|U')) { $days += $map[$m.Value] }
     } else {
@@ -60,7 +64,7 @@ function ConvertTo-JkTimeRange([string]$Text) {
 }
 
 function Get-JkTermSkipDays {
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $skip = @{}
     $t = Get-JkProp $data 'term'
     if (-not $t) { return $skip }
@@ -74,7 +78,7 @@ function Get-JkTermSkipDays {
 }
 
 function Get-JkClassRange($Class) {
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $t = Get-JkProp $data 'term'
     $from = [string](Get-JkProp $Class 'from')
     $to = [string](Get-JkProp $Class 'to')
@@ -310,12 +314,23 @@ function ConvertFrom-JkQuestText([string]$Text) {
     $course = $null; $component = $null
     foreach ($raw in ($Text -split "`r?`n")) {
         $line = $raw.TrimEnd()
+        # outline.uwaterloo.ca schedule row: STAT 341 002 [LEC] Monday, Wednesday - 02:30PM - 03:50PM EIT 1015 ...
+        $om = [regex]::Match($line, '(?<subj>[A-Z]{2,8})\s+(?<num>\d{3}[A-Z]?)\s+\d{3}\s+\[(?<kind>[A-Z]{3})\]\s+(?<days>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*(?:\s*,\s*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*)*)\s*-\s*(?<s>\d{1,2}:\d{2}\s*(?i:[AP]M))\s*-\s*(?<e>\d{1,2}:\d{2}\s*(?i:[AP]M))\s*(?<room>[A-Z0-9]{2,5}\s+\d{3,4}[A-Z]?)?')
+        if ($om.Success) {
+            $classes += [pscustomobject]@{
+                Course = "$($om.Groups['subj'].Value) $($om.Groups['num'].Value)"; Kind = $om.Groups['kind'].Value
+                Days = @(ConvertTo-JkDays ($om.Groups['days'].Value -replace '\s', ''))
+                Start = ConvertTo-JkTime ($om.Groups['s'].Value -replace '\s', ''); End = ConvertTo-JkTime ($om.Groups['e'].Value -replace '\s', '')
+                Room = $om.Groups['room'].Value; From = ''; To = ''
+            }
+            continue
+        }
         if ($line -match '^\s*([A-Z]{2,8})\s+(\d{3}[A-Z]?)\s+-\s+(.+?)\s*$') { $course = "$($Matches[1]) $($Matches[2])"; continue }
         if (-not $course) { continue }
         $cm = [regex]::Match($line, '\b(LEC|TUT|LAB|SEM|TST|PRJ|DIS|STU|CLN|ORL|RDG|WRK)\b')
         if ($cm.Success) { $component = $cm.Value }
         # day codes are case-sensitive (TTh, MWF); AM/PM is not
-        $tm = [regex]::Match($line, '\b((?:Th|Su|Sa|M|T|W|F|S)+)\s+(\d{1,2}:\d{2}\s*(?i:[AP]M))\s*-\s*(\d{1,2}:\d{2}\s*(?i:[AP]M))')
+        $tm = [regex]::Match($line, '\b((?:Mo|Tu|We|Th|Fr|Sa|Su|M|T|W|F|S)+)\s+(\d{1,2}:\d{2}\s*(?i:[AP]M))\s*-\s*(\d{1,2}:\d{2}\s*(?i:[AP]M))')
         if (-not $tm.Success -or -not $component) { continue }
         $after = $line.Substring($tm.Index + $tm.Length)
         $cells = @($after -split "`t|\s{2,}" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -375,6 +390,80 @@ function Import-JkClasses {
     Save-JkDueData $due
     Save-JkClassData $d
     Say ((Paint 'green' "  imported $($script:G.check)") + "  $added weekly meetings" + $(if ($skipped) { " ($skipped already there)" } else { '' }) + $(if ($tests) { ", $tests test slots merged into deadlines" } else { '' }))
+    # a whole outline table has every section; you are only in one lecture per course
+    $multi = @($d.items | Group-Object { "$($_.course)|$($_.kind)" } | Where-Object { $_.Count -gt 1 -and ($_.Name -like '*|LEC') })
+    $cmap = Get-JkCourseMap (Get-JkDueData)
+    foreach ($g in $multi) {
+        $ids = ($g.Group | ForEach-Object { "#$($_.id)" }) -join ' '
+        $code = Format-JkClassLabel ([pscustomobject]@{ course = $g.Group[0].course; kind = '' }) $cmap
+        Say ('  ' + (Paint 'yellow' "! $($g.Count) lecture sections for $code") + (Paint 'gray' " ($ids) - keep yours: jk class rm <id>  (jk class list shows times and rooms)"))
+    }
+}
+
+# ---------------------------------------------------------------- section catalog
+
+# sections.json lists every section of your courses (from the outlines); `jk class pick`
+# turns the ones you are in into weekly meetings without retyping days, times and rooms.
+function Get-JkSectionCatalog {
+    $d = Read-JkJson 'sections.json' $null
+    if (-not $d -or $null -eq (Get-JkProp $d 'items')) { return @() }
+    @($d.items)
+}
+
+function Test-JkClassOverlap($A, $B) {
+    $shared = @(@($A.days) | Where-Object { @($B.days) -contains $_ })
+    if (-not $shared) { return $false }
+    ([string]$A.start -lt [string]$B.end) -and ([string]$B.start -lt [string]$A.end)
+}
+
+function Show-JkSectionCatalog {
+    $cat = @(Get-JkSectionCatalog)
+    $mine = @((Get-JkClassData).items)
+    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+    Write-JkHeader 'Sections' "$($cat.Count) in the catalog" -Sub 'pick the ones you are enrolled in'
+    if (-not $cat) { Say (Paint 'gray' "  no catalog yet ($(Get-JkPath 'sections.json'))"); return }
+    foreach ($g in ($cat | Group-Object course)) {
+        $code = Format-JkClassLabel ([pscustomobject]@{ course = $g.Name; kind = '' }) $cmap
+        Say (' ' + (Paint "bold #$(Get-JkCourseColor $g.Name $cmap)" $code))
+        foreach ($s in ($g.Group | Sort-Object @{ Expression = { if ($_.kind -eq 'LEC') { 0 } else { 1 } } }, section)) {
+            $picked = @($mine | Where-Object { $_.course -eq $s.course -and $_.kind -eq $s.kind -and $_.start -eq $s.start -and ((@($_.days) -join ',') -eq (@($s.days) -join ',')) }).Count -gt 0
+            $clash = @($mine | Where-Object { $_.course -ne $s.course -and (Test-JkClassOverlap $_ $s) } | ForEach-Object { Format-JkClassLabel $_ $cmap })
+            $state = ''
+            if ($picked) { $state = Paint 'green' "$($script:G.check) yours" }
+            elseif ($clash) { $state = Paint 'orange' "clashes with $($clash -join ', ')" }
+            $time = (Format-JkTime $s.start) + ' ' + $script:G.dash + ' ' + (Format-JkTime $s.end)
+            Say ('   ' + (Paint 'white' (Fit "$($s.kind) $($s.section)" 9)) + (Paint 'muted' (Fit ((@($s.days) -join ' ')) 9)) + (Paint 'white' (Fit $time 22)) + (Paint 'gray' (Fit ([string]$s.room) 10)) + $state)
+        }
+    }
+    Say ''
+    Say (Paint 'gray' "  jk class pick cs341 003 cs350 002 cs370 001   (course and section pairs; labs too: cs341 101)")
+}
+
+function Select-JkSections {
+    $a = @($args | ForEach-Object { [string]$_ })
+    if ($a.Count -eq 0) { Show-JkSectionCatalog; return }
+    if ($a.Count % 2 -ne 0) { throw 'give course and section pairs: jk class pick cs341 003 cs350 002' }
+    $cat = @(Get-JkSectionCatalog)
+    if (-not $cat) { throw "no section catalog ($(Get-JkPath 'sections.json'))" }
+    $due = Get-JkDueData
+    $cmap = Get-JkCourseMap $due
+    $d = Get-JkClassData
+    for ($i = 0; $i -lt $a.Count; $i += 2) {
+        $c = Resolve-JkCourse $due $a[$i]
+        if (-not $c) { throw "unknown course '$($a[$i])'" }
+        $sec = $a[$i + 1].PadLeft(3, '0')
+        $s = @($cat | Where-Object { $_.course -eq $c.key -and [string]$_.section -eq $sec })
+        if (-not $s) { throw "no section $sec of $($c.code) in the catalog (see: jk class pick)" }
+        $s = $s[0]
+        $dup = @($d.items | Where-Object { $_.course -eq $s.course -and $_.kind -eq $s.kind -and $_.start -eq $s.start -and ((@($_.days) -join ',') -eq (@($s.days) -join ',')) })
+        if ($dup) { Say (Paint 'gray' "  already there: $($c.code) $($s.kind) $sec"); continue }
+        $clash = @($d.items | Where-Object { $_.course -ne $s.course -and (Test-JkClassOverlap $_ $s) } | ForEach-Object { Format-JkClassLabel $_ $cmap })
+        $item = [pscustomobject][ordered]@{ id = [int]$d.nextId; course = $s.course; kind = $s.kind; days = @($s.days); start = $s.start; end = $s.end; room = [string]$s.room; from = ''; to = '' }
+        $d.nextId = [int]$d.nextId + 1
+        $d.items = @($d.items) + $item
+        Say ((Paint 'green' "  added $($script:G.check)") + "  #$($item.id) $($c.code) $($s.kind) $sec  $(@($s.days) -join ' ')  $(Format-JkTime $s.start) $($script:G.dash) $(Format-JkTime $s.end)  $($s.room)" + $(if ($clash) { Paint 'orange' "  (clashes with $($clash -join ', '))" } else { '' }))
+    }
+    Save-JkClassData $d
 }
 
 function Invoke-JkClass {
@@ -389,6 +478,7 @@ function Invoke-JkClass {
         '^(add|new|\+)$' { Add-JkClass @rest; return }
         '^(rm|remove|del|delete)$' { Remove-JkClass @rest; return }
         '^(import|quest)$' { Import-JkClasses @rest; return }
+        '^(pick|sections|section)$' { Select-JkSections @rest; return }
         '^(next)$' {
             $n = Get-JkNextClass
             if (-not $n) { Say (Paint 'gray' '  no upcoming classes'); return }

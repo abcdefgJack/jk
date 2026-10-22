@@ -5,7 +5,21 @@ $script:CourseColors = @('F87171', '7C9CF8', '4FD1BE', 'B79BF6', 'F2B04A', 'F472
 
 # ---------------------------------------------------------------- data
 
+# -Cached returns a shared copy that is reused while the file is unchanged (path, mtime and
+# size match). Only read-only callers use it; anything that edits gets a fresh object.
+$script:JkDueCache = $null
+
 function Get-JkDueData {
+    param([switch]$Cached)
+    if ($Cached) {
+        $p = Get-JkPath 'deadlines.json'
+        $stamp = "$p|none"
+        if (Test-Path -LiteralPath $p) { $fi = Get-Item -LiteralPath $p; $stamp = "$p|$($fi.LastWriteTimeUtc.Ticks)|$($fi.Length)" }
+        if ($script:JkDueCache -and $script:JkDueCache.Stamp -eq $stamp) { return $script:JkDueCache.Data }
+        $fresh = Get-JkDueData
+        $script:JkDueCache = @{ Stamp = $stamp; Data = $fresh }
+        return $fresh
+    }
     $d = Read-JkJson 'deadlines.json' $null
     if (-not $d) {
         $d = [pscustomobject]@{ version = 1; term = $null; courses = @(); events = @(); nextId = 1 }
@@ -22,6 +36,7 @@ function Save-JkDueData($Data) {
     $Data.courses = @($Data.courses)
     $Data.events = @($Data.events | Sort-Object date, time, id)
     Save-JkJson 'deadlines.json' $Data
+    $script:JkDueCache = $null
     Clear-JkBriefCache
     # keep an already-generated calendar page current (the reminder popup links to it)
     if (Test-Path -LiteralPath (Get-JkPath 'calendar.html')) { try { Export-JkDueHtml -NoOpen -Quiet } catch { } }
@@ -102,7 +117,7 @@ function New-JkEvent {
 }
 
 function Find-JkEvents {
-    param($Data, [string[]]$Refs)
+    param($Data, [string[]]$Refs, [switch]$DoneOnly, [switch]$Any)
     $out = @()
     foreach ($r in $Refs) {
         if ($r -match '^#?(\d+)$') {
@@ -111,8 +126,9 @@ function Find-JkEvents {
             if (-not $e) { throw "no deadline with id #$id (see 'jk due all')" }
             $out += $e
         } else {
-            $hits = @($Data.events | Where-Object { -not $_.done -and ([string]$_.title).ToLower().Contains($r.ToLower()) })
-            if ($hits.Count -eq 0) { throw "no open deadline matches '$r'" }
+            # text matches look at open items, or at finished ones when reopening
+            $hits = @($Data.events | Where-Object { ($Any -or [bool]$_.done -eq [bool]$DoneOnly) -and ([string]$_.title).ToLower().Contains($r.ToLower()) })
+            if ($hits.Count -eq 0) { throw "no $(if ($DoneOnly) { 'finished' } else { 'open' }) deadline matches '$r'" }
             if ($hits.Count -gt 1) {
                 # prefer the single upcoming match over ones whose time already passed
                 $now = Get-JkNow
@@ -465,6 +481,9 @@ function Add-JkDue {
     Save-JkDueData $data
     $cmap = Get-JkCourseMap $data
     Say ((Paint 'green' "  added $($script:G.check)") + '  ' + (Format-JkDueLine $e $cmap ((Get-JkWidth) - 12) -WithDate).TrimStart())
+    if ((Get-JkEventDue $e) -lt (Get-JkNow)) {
+        Say (Paint 'yellow' "  note: that is in the past ($($parsed.Date.ToString('ddd MMM d yyyy', $script:Inv))) - fix with: jk due edit $($e.id) -Date <date>")
+    }
 }
 
 # Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time.
@@ -487,7 +506,7 @@ function Set-JkDueDone {
     if (-not $Refs) { throw 'usage: jk due done <id|text> [...]' }
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
-    $hits = Find-JkEvents $data $Refs
+    $hits = Find-JkEvents $data $Refs -DoneOnly:$Undo
     foreach ($e in $hits) {
         if ($Undo) { $e.done = $false; Set-JkProp $e 'doneAt' $null }
         else { $e.done = $true; Set-JkProp $e 'doneAt' ((Get-JkNow).ToString('s', $script:Inv)) }
@@ -682,11 +701,14 @@ function Export-JkDueHtml {
     $data = Get-JkDueData
     if (-not $Out) { $Out = Get-JkPath 'calendar.html' }
     $tpl = [IO.File]::ReadAllText((Join-Path (Get-JkRoot) 'templates\calendar.html'))
+    $classes = @()
+    try { $classes = @((Get-JkClassData).items) } catch { }
     $payload = [pscustomobject]@{
         generated = (Get-JkNow).ToString('s', $script:Inv)
         term      = (Get-JkProp $data 'term')
         courses   = @($data.courses)
         events    = @($data.events)
+        classes   = $classes
     }
     $json = (ConvertTo-Json -InputObject $payload -Depth 8 -Compress).Replace('</', '<\/')
     $html = $tpl.Replace('/*JK_DATA*/null', $json)
@@ -860,6 +882,15 @@ function Invoke-JkDueRemind {
         $lines += $txt
     }
     if ($soon.Count -gt 6) { $lines += "+$($soon.Count - 6) more" }
+    # today's study blocks ride along (they never trigger a popup on their own)
+    try {
+        $plan = Get-JkPlanToday
+        if ($plan -and $plan.Today.Alloc.Count) {
+            $byCourse = @{}
+            foreach ($it in $plan.Items) { if ($plan.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $plan.Today.Alloc[$it.Key] } }
+            $lines += 'Study today: ' + (($byCourse.Keys | Sort-Object { $byCourse[$_] } -Descending | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" }) -join ', ')
+        }
+    } catch { }
     if ($soon.Count) {
         $accent = Get-JkCourseColor $soon[0].course $cmap
         $title = "$($soon.Count) deadline$(if ($soon.Count -ne 1) {'s'}) in the next $([int]$Hours)h"

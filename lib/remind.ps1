@@ -20,16 +20,23 @@ function New-JkReminder {
     $d = Get-JkReminderData
     $id = [int](Get-JkProp $d 'nextId' 1)
     $d.nextId = $id + 1
-    $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = 0; spawned = '' }
+    # spawn first, then save once with the pid: the timer needs over a second just to load,
+    # so the record is on disk long before it can fire (no read-modify-write race)
+    $p = Start-JkBackground -Script (Get-JkReminderScript $id $At)
+    $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = $p.Id; spawned = $p.StartTime.ToString('s', $script:Inv) }
     $d.items = @($d.items) + $item
     Save-JkReminderData $d
-    Start-JkReminderProcess $item
     $item
 }
 
+function Get-JkReminderScript([int]$Id, [datetime]$At) {
+    "Wait-JkUntil '$($At.ToString('o', $script:Inv))'; Complete-JkReminder -Id $Id"
+}
+
+# Re-arms an existing reminder (after a restart).
 function Start-JkReminderProcess($Item) {
     $at = [datetime]::Parse([string]$Item.at, $script:Inv)
-    $p = Start-JkBackground -Script "Wait-JkUntil '$($at.ToString('o', $script:Inv))'; Complete-JkReminder -Id $($Item.id)"
+    $p = Start-JkBackground -Script (Get-JkReminderScript ([int]$Item.id) $at)
     $d = Get-JkReminderData
     foreach ($i in @($d.items)) {
         if ([int]$i.id -eq [int]$Item.id) { $i.pid = $p.Id; $i.spawned = $p.StartTime.ToString('s', $script:Inv) }
@@ -92,7 +99,18 @@ function Invoke-JkRemindIn {
 function Invoke-JkRemindAt {
     $a = @($args | ForEach-Object { [string]$_ })
     if ($a.Count -eq 0) { throw 'usage: jk at <time | day time> <message>' }
-    $now = Get-Date
+    $found = Resolve-JkAtTime $a (Get-Date)
+    $text = ''
+    if ($a.Count -gt $found.K) { $text = ($a[$found.K..($a.Count - 1)]) -join ' ' }
+    $item = New-JkReminder -At $found.At -Text $text
+    Write-JkReminderSet $item
+}
+
+# Finds the time at the start of "3:30pm call home" / "tomorrow 9am submit" / "5 leave";
+# returns the moment and how many words it used.
+function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
+    $a = $Words
+    $now = $Now
     $found = $null
     for ($k = [Math]::Min(3, $a.Count); $k -ge 1; $k--) {
         $head = ($a[0..($k - 1)]) -join ' '
@@ -101,6 +119,11 @@ function Invoke-JkRemindAt {
             $t = ConvertTo-JkTime $head
             $p = $t.Split(':')
             $dt = $now.Date.AddHours([int]$p[0]).AddMinutes([int]$p[1])
+            # "jk at 5" without am/pm means the next 5 o'clock: 5 pm if it's already past 5 am
+            if ($head -match '^\s*(\d{1,2})(:\d{2})?\s*$' -and [int]$p[0] -ge 1 -and [int]$p[0] -le 11) {
+                $pm = $dt.AddHours(12)
+                if ($dt -le $now -and $pm -gt $now) { $dt = $pm }
+            }
             if ($dt -le $now) { $dt = $dt.AddDays(1) }
         } catch {
             try {
@@ -112,10 +135,7 @@ function Invoke-JkRemindAt {
     }
     if (-not $found) { throw "can't find a time in '$($a -join ' ')' (try: jk at 3:30pm ..., jk at tomorrow 9am ...)" }
     if ($found.At -le $now) { throw 'that time has already passed' }
-    $text = ''
-    if ($a.Count -gt $found.K) { $text = ($a[$found.K..($a.Count - 1)]) -join ' ' }
-    $item = New-JkReminder -At $found.At -Text $text
-    Write-JkReminderSet $item
+    [pscustomobject]$found
 }
 
 function Show-JkReminders {
@@ -135,9 +155,9 @@ function Show-JkReminders {
         $info = $task | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
         $next = ''
         if ($info -and $info.NextRunTime) { $next = " $($script:G.dot) next run $($info.NextRunTime.ToString('ddd h:mm tt', $script:Inv))" }
-        Say ('  ' + (Paint 'green' "$($script:G.check) daily deadline check installed") + (Paint 'gray' " ($($task.State)$next)"))
+        Say ('  ' + (Paint 'green' "$($script:G.check) morning brief installed") + (Paint 'gray' " ($($task.State)$next)"))
     } else {
-        Say ('  ' + (Paint 'yellow' 'daily deadline check not installed') + (Paint 'gray' ' - run: jk remind install'))
+        Say ('  ' + (Paint 'yellow' 'morning brief not installed') + (Paint 'gray' ' - run: jk remind install'))
     }
 }
 

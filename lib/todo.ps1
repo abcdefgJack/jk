@@ -89,15 +89,15 @@ function Add-JkTodo {
     Say ((Paint 'green' "  added $($script:G.check)") + (Format-JkTodoLine $item ((Get-JkWidth) - 10)))
 }
 
-function Find-JkTodo($Data, [string[]]$Refs) {
+function Find-JkTodo($Data, [string[]]$Refs, [switch]$DoneOnly) {
     foreach ($r in $Refs) {
         if ($r -match '^\d+$') {
             $hit = @($Data.items | Where-Object { [int]$_.id -eq [int]$r })
             if (-not $hit) { throw "no to-do #$r" }
             $hit[0]
         } else {
-            $hit = @($Data.items | Where-Object { -not $_.done -and ([string]$_.text).ToLower().Contains($r.ToLower()) })
-            if ($hit.Count -ne 1) { throw "'$r' matches $($hit.Count) open to-dos; use the number" }
+            $hit = @($Data.items | Where-Object { ([bool]$_.done -eq [bool]$DoneOnly) -and ([string]$_.text).ToLower().Contains($r.ToLower()) })
+            if ($hit.Count -ne 1) { throw "'$r' matches $($hit.Count) $(if ($DoneOnly) { 'finished' } else { 'open' }) to-dos; use the number" }
             $hit[0]
         }
     }
@@ -107,7 +107,7 @@ function Set-JkTodoDone {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Refs, [switch]$Undo)
     if (-not $Refs) { throw 'usage: jk todo done <id> [...]' }
     $d = Get-JkTodoData
-    foreach ($i in @(Find-JkTodo $d $Refs)) {
+    foreach ($i in @(Find-JkTodo $d $Refs -DoneOnly:$Undo)) {
         $i.done = -not $Undo
         Set-JkProp $i 'doneAt' $(if ($Undo) { $null } else { (Get-JkNow).ToString('s', [Globalization.CultureInfo]::InvariantCulture) })
         if ($Undo) { Say ((Paint 'yellow' '  reopened') + "  $($i.id) $($i.text)") }

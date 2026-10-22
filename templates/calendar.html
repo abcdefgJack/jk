@@ -123,6 +123,10 @@
       <ul class="up" id="upcoming"></ul>
       <p class="note">Relative to <span id="todayLabel"></span>. Mark something finished with <code>jk due done &lt;id&gt;</code>, then <code>jk due cal</code> to refresh.</p>
     </div>
+    <div class="panel" id="classesPanel">
+      <h2>Weekly classes</h2>
+      <div class="finals" id="classes"></div>
+    </div>
     <div class="panel" id="finalsPanel">
       <h2>Final exams</h2>
       <div class="finals" id="finals"></div>
@@ -249,6 +253,20 @@ open.slice(0,40).forEach(e=>{
 });
 if (!open.length) up.innerHTML = "<li><div></div><div class='t'>Nothing left. Enjoy it.</div><div></div></li>";
 document.getElementById("todayLabel").textContent = TODAY.toLocaleDateString("en-CA",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+
+// weekly classes, in weekday then time order; today's are bold
+const dayOrder = {Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6,Sun:7};
+const todayDow = DOW[TODAY.getDay()];
+const cls = (D.classes||[]).slice().sort((a,b)=>(dayOrder[a.days[0]]-dayOrder[b.days[0]]) || a.start.localeCompare(b.start));
+const clsBox = document.getElementById("classes");
+for (const c of cls) {
+  const co = COURSES[c.course] || {code:c.course,color:"7E8794"};
+  const div = document.createElement("div"); div.style.setProperty("--c",hex(co.color));
+  const today = (c.days||[]).includes(todayDow);
+  div.innerHTML = `<span>${co.code} ${c.kind||""}</span><span${today?' style="font-weight:600;color:var(--ink)"':''}>${(c.days||[]).join(" ")} ${fmtTime(c.start)}–${fmtTime(c.end)}${c.room?" · "+c.room:""}</span>`;
+  clsBox.appendChild(div);
+}
+if (!cls.length) document.getElementById("classesPanel").classList.add("hidden");
 
 // finals
 const fin=document.getElementById("finals");

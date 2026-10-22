@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -11,6 +11,7 @@ $script:JkCommands = [ordered]@{
     'class'  = @{ Fn = 'Invoke-JkClass'; Aliases = @('classes', 'cls', 'timetable', 'schedule', 'sched'); Desc = 'class schedule: what is on today, the next class, a weekly timetable' }
     'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
     'exams'  = @{ Fn = 'Show-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown (same as jk due exams)' }
+    'plan'   = @{ Fn = 'Invoke-JkPlan'; Aliases = @('study'); Desc = 'split today''s study time across upcoming exams and assignments; jk plan start' }
     'review' = @{ Fn = 'Show-JkReview'; Aliases = @('weekly', 'retro'); Desc = 'last 7 days done and slipped, next 7 days load, where the marks are' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }
     'focus'  = @{ Fn = 'Invoke-JkFocus'; Aliases = @('f', 'pomo', 'pomodoro'); Desc = 'focus timer with a popup when time is up, plus weekly stats' }
@@ -29,6 +30,7 @@ $script:JkCommands = [ordered]@{
     'speed'  = @{ Fn = 'Invoke-JkSpeed'; Aliases = @('startup', 'slow'); Desc = 'why new terminals are slow; jk speed fix makes the conda hook instant' }
     'brief'  = @{ Fn = 'Show-JkBrief'; Aliases = @(); Desc = 'one-line summary (shown when PowerShell starts)' }
     'config' = @{ Fn = 'Invoke-JkConfig'; Aliases = @('cfg', 'settings'); Desc = 'show or change settings' }
+    'backup' = @{ Fn = 'Invoke-JkBackup'; Aliases = @('backups', 'restore'); Desc = 'daily snapshots of your jk data; restore a day' }
     'doctor' = @{ Fn = 'Invoke-JkDoctor'; Aliases = @('check'); Desc = 'check that compilers, reminders and the profile hook are set up' }
     'setup'  = @{ Fn = 'Invoke-JkSetup'; Aliases = @('install'); Desc = 'install/uninstall the profile banner and daily reminder task' }
     'help'   = @{ Fn = 'Show-JkHelp'; Aliases = @('h', '?', '-h', '--help'); Desc = 'help for a command:  jk help due' }
@@ -46,6 +48,8 @@ function Resolve-JkCommand([string]$Name) {
 function jk {
     $script:JkUseColor = Test-JkColor
     $script:JkConfigCache = $null
+    $light = (Get-JkConfig 'theme') -eq 'light'
+    if ($light -ne [bool]$script:JkLightTheme) { $script:JkLightTheme = $light; $script:PaintCache = @{} }
     $a = @($args)
     if ($a.Count -eq 0) {
         try { Show-JkDashboard } catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
@@ -125,6 +129,8 @@ $script:JkActions = @{
     'config' = @('set', 'reset', 'edit', 'path')
     'setup'  = @('install', 'uninstall', 'status')
     'speed'  = @('fix', 'undo')
+    'backup' = @('list', 'restore')
+    'plan'   = @('start')
     'space'  = @('clean')
     'port'   = @()
     'go'     = @()

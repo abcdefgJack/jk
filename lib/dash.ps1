@@ -35,7 +35,7 @@ function Show-JkDashboard {
     $now = Get-JkNow
     $w = Get-JkWidth
     $name = Get-JkConfig 'name'
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $cmap = Get-JkCourseMap $data
     $info = Get-JkTermInfo $data $now
 
@@ -96,6 +96,15 @@ function Show-JkDashboard {
         $shown++
     }
     if ($soon.Count -gt $shown) { Say (Paint 'gray' "  +$($soon.Count - $shown) more $($script:G.arrow) jk due") }
+
+    # today's study blocks from jk plan
+    try {
+        $planLine = Get-JkPlanLine
+        if ($planLine) {
+            Say ''
+            Say (' ' + (Paint 'bold white' 'STUDY TODAY') + '  ' + $planLine + (Paint 'gray' "   $($script:G.arrow) jk plan start"))
+        }
+    } catch { }
 
     # to-dos
     $td = Get-JkTodoData
@@ -192,7 +201,7 @@ function Clear-JkBriefCache { Remove-Item -LiteralPath (Get-JkPath 'brief.cache'
 
 function Get-JkBriefLine {
     $now = Get-JkNow
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $cmap = Get-JkCourseMap $data
     $soon = @($data.events | Where-Object { -not $_.done } | Where-Object { $d = Get-JkEventDue $_; $d -ge $now -and $d -lt $now.Date.AddDays(8) } | Sort-Object { Get-JkEventDue $_ })
     $parts = @()

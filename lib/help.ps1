@@ -22,11 +22,15 @@ Tab completion knows ids, so `jk due done <Tab>` cycles through upcoming items.
     'class'  = @'
 jk class                       today's classes (now / in 25m / done) and the next one
 jk class week                  Mon-Fri timetable for this week (reading week and holidays left out)
-jk class week -Date nov 2     another week
+jk class week -Date nov 2      another week
 jk class add cs350 tue,thu 4pm-5:20pm "MC 1056"        add a weekly meeting (days: tue,thu  TTh  MWF  weekdays)
 jk class add cs341 fri 2:30-3:20pm "MC 4060" -Kind TUT    tutorial / lab: -Kind TUT|LAB
+jk class pick                  every section of your courses (from the outlines); mark yours:
+jk class pick cs341 003 cs350 002 cs370 001     adds them with days, times and rooms; warns on clashes
 jk class import                Quest > Class Schedule > List View: select all, copy, run this
 jk class import page.txt       ... or from a saved copy. Midterm (TST) slots fill in deadline times.
+                               Also reads TTh / MoWe day codes and outline.uwaterloo.ca rows like
+                               CS 350 001 [LEC] Monday, Wednesday - 04:00PM - 05:20PM MC 1056
 jk class list | jk class rm 3 | jk class next
 Classes run from the term start to the last day of classes unless -From / -To say otherwise.
 '@
@@ -113,6 +117,7 @@ jk config set editor cursor    editor used by jk cp / j -c  (code, cursor, notep
 jk config set name Jack        name on the dashboard
 jk config set notify popup     auto | popup | toast | off
 jk config set banner off       hide the one-line summary when PowerShell starts
+jk config set theme light      for terminals with a light background (default: dark)
 jk config set cp.root D:\cp    where jk cp new puts problems;  cp.lang cpp|py|java;  cp.std c++17
 jk config set tidy.minAge 7    keep files newer than 7 days in place
 jk config reset <key> | jk config edit | jk config path
@@ -147,6 +152,8 @@ $script:JkHelpTopics['at'] = $script:JkHelpTopics['remind']
 $script:JkHelpTopics['port'] = $script:JkHelpTopics['sys']
 $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
 $script:JkHelpTopics['doctor'] = $script:JkHelpTopics['setup']
+$script:JkHelpTopics['plan'] = "jk plan                        today's study blocks per course, and the next 7 days if you follow the plan`njk plan start                  start a 25-minute focus block on the most urgent item`n                               Work per item = weight x 15 min (exams) or x 30 min (assignments), minus focus`n                               already logged on that course, spread over the days left.`njk config set plan.hours 4     daily budget (default 3)   plan.examMin / plan.dueMin tune the estimates"
+$script:JkHelpTopics['backup'] = "jk backup                      days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file"
 
 function Write-JkHelpBlock([string]$Text) {
     foreach ($l in ($Text -split "`r?`n")) {
@@ -175,11 +182,11 @@ function Show-JkHelp {
     }
     Write-JkHeader 'jk' "v$((Get-Module jk).Version) $($script:G.dot) your command-line sidekick"
     $groups = [ordered]@{
-        'School'   = @('class', 'due', 'week', 'exams', 'grade', 'todo', 'review')
+        'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
         'Machine'  = @('tidy', 'space', 'sys', 'go', 'mark', 'speed')
-        'jk'       = @('brief', 'config', 'doctor', 'setup', 'help')
+        'jk'       = @('brief', 'config', 'backup', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {
         Say (' ' + (Paint 'bold white' $g))

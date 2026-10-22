@@ -72,11 +72,21 @@ function Format-JkMinutes([double]$Minutes) {
 
 function Get-JkLabelColor([string]$Label) {
     if (-not $Label) { return $script:JkPalette.blue }
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $first = ($Label -split '\s+')[0]
     $c = Resolve-JkCourse $data $first
     if ($c -and $c.color) { return ([string]$c.color).TrimStart('#') }
     $script:JkPalette.blue
+}
+
+# "health midterm 1" -> "HEALTH 105 midterm 1" for display (the stored label keeps the key,
+# which is what attributes the time to the course)
+function Format-JkFocusLabel([string]$Label) {
+    if (-not $Label) { return $Label }
+    $words = @($Label -split '\s+')
+    $c = Resolve-JkCourse (Get-JkDueData -Cached) $words[0]
+    if (-not $c) { return $Label }
+    (@([string]$c.code) + @($words | Select-Object -Skip 1)) -join ' '
 }
 
 function Start-JkFocus {
@@ -108,7 +118,7 @@ function Start-JkFocus {
     Save-JkFocusData $d
     $end = $now.AddSeconds($secs)
     $what = ''
-    if ($lbl) { $what = " on " + (Paint "bold #$(Get-JkLabelColor $lbl)" $lbl) }
+    if ($lbl) { $what = " on " + (Paint "bold #$(Get-JkLabelColor $lbl)" (Format-JkFocusLabel $lbl)) }
     Say ''
     Say ('  ' + (Paint 'bold green' "$($script:G.circle) Focus") + " for $(Format-JkMinutes ($secs / 60))$what" + (Paint 'gray' "  $($script:G.dot) ends $(Format-JkTime $end.ToString('HH:mm'))"))
     Say (Paint 'gray' "    A popup will tell you when time is up.  jk focus  (status)  $($script:G.dot)  jk focus stop")
@@ -127,7 +137,7 @@ function Complete-JkFocusSession {
     $today = Get-JkFocusMinutes ((Get-Date).Date) $d
     $title = 'Focus session complete'
     $lines = @()
-    if ($a.label) { $lines += "$($a.label) $($script:G.dot) $(Format-JkMinutes $mins)" } else { $lines += "$(Format-JkMinutes $mins) of focused work" }
+    if ($a.label) { $lines += "$(Format-JkFocusLabel ([string]$a.label)) $($script:G.dot) $(Format-JkMinutes $mins)" } else { $lines += "$(Format-JkMinutes $mins) of focused work" }
     $lines += "Take a 5-minute break. Focused today: $(Format-JkMinutes $today)."
     $null = Show-JkNotify -Title $title -Lines $lines -Accent (Get-JkLabelColor ([string]$a.label)) -Seconds 30 -Sound -Wait
 }
@@ -166,7 +176,7 @@ function Show-JkFocusStatus {
     $elapsed = ((Get-Date) - $start).TotalSeconds
     $left = [TimeSpan]::FromSeconds([Math]::Max(0, $total - $elapsed))
     $color = Get-JkLabelColor ([string]$a.label)
-    $lbl = [string]$a.label
+    $lbl = Format-JkFocusLabel ([string]$a.label)
     if (-not $lbl) { $lbl = 'focus' }
     Say ''
     Say ('  ' + (Paint "bold #$color" "$($script:G.circle) $lbl") + '  ' + (Get-JkBar ($elapsed / $total) 28 "#$color") + '  ' + (Paint 'bold white' ('{0}:{1:00}' -f [int][Math]::Floor($left.TotalMinutes), $left.Seconds)) + (Paint 'gray' ' left'))
