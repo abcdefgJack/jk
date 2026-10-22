@@ -115,6 +115,7 @@ jk config set editor cursor    editor used by jk cp / j -c  (code, cursor, notep
 jk config set name Jack        name on the dashboard
 jk config set notify popup     auto | popup | toast | off
 jk config set banner off       hide the one-line summary when PowerShell starts
+jk config set theme light      for terminals with a light background (default: dark)
 jk config set cp.root D:\cp    where jk cp new puts problems;  cp.lang cpp|py|java;  cp.std c++17
 jk config set tidy.minAge 7    keep files newer than 7 days in place
 jk config reset <key> | jk config edit | jk config path

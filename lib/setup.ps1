@@ -25,6 +25,7 @@ function Invoke-JkConfig {
             if (-not $script:JkConfigDefaults.Contains($key)) { Say (Paint 'yellow' "  note: '$key' is not a known setting (known: $($script:JkConfigDefaults.Keys -join ', '))") }
             if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
             if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
+            if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
             Set-JkConfig $key $val
             Clear-JkBriefCache
             Say ((Paint 'green' "  $key = $val") + " $($script:G.check)")

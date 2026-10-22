@@ -521,6 +521,12 @@ Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     Assert-True ($exact -gt $prefix -and $prefix -gt $sub -and $sub -gt $seq -and $seq -gt 0)
     Assert-Eq (Get-JkGoScore 'zzz' (& $c 'cs350') $v) 0
 }
+Test 'light theme darkens text and course colors, inverts the today marker' {
+    Assert-Eq (Convert-JkStyleForLight 'bold white') 'bold 1F2937'
+    Assert-Eq (Convert-JkStyleForLight '#F87171') '9A4646'
+    Assert-Eq (Convert-JkStyleForLight 'bold bg:white ink') 'bold bg:1F2937 FFFFFF'
+    Assert-Eq (Convert-JkStyleForLight 'bold bg:#F2B04A ink') 'bold bg:#F2B04A ink' 'badges keep their fill and dark text'
+}
 Test 'config defaults, set and reset' {
     Assert-Eq (Get-JkConfig 'cp.lang') 'cpp'
     Set-JkConfig 'cp.lang' 'py'

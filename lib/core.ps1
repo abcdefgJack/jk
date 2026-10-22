@@ -122,6 +122,7 @@ $script:JkConfigDefaults = [ordered]@{
     'editor'        = 'code'
     'notify'        = 'auto'      # auto | toast | popup | off
     'banner'        = 'on'        # one-line brief when PowerShell starts
+    'theme'         = 'dark'      # dark | light (terminal background)
     'remind.time'   = '08:30'
     'remind.hours'  = '48'
     'cp.root'       = (Join-Path $HOME 'Desktop\cp')
@@ -194,7 +195,38 @@ function Paint {
     "$pre$Text$script:Esc[0m"
 }
 
+# Light terminal backgrounds (jk config set theme light): text colors flip to dark, course
+# colors are darkened so they stay readable, and "today" markers invert.
+function Convert-JkStyleForLight([string]$Style) {
+    $tokens = @($Style -split '[\s,+]+' | Where-Object { $_ })
+    $invert = ($tokens -contains 'bg:white')
+    $out = foreach ($t in $tokens) {
+        switch -Regex ($t) {
+            '^white$' { '1F2937'; break }
+            '^muted$' { '4B5563'; break }
+            '^gray$' { '6B7280'; break }
+            '^bg:white$' { 'bg:1F2937'; break }
+            '^ink$' { if ($invert) { 'FFFFFF' } else { $t }; break }
+            '^#?[0-9a-fA-F]{6}$' {
+                $h = $t.TrimStart('#')
+                $rgb = @(0, 2, 4 | ForEach-Object { [int]([Convert]::ToInt32($h.Substring($_, 2), 16) * 0.62) })
+                '{0:X2}{1:X2}{2:X2}' -f $rgb[0], $rgb[1], $rgb[2]
+                break
+            }
+            '^(red|orange|amber|yellow|green|lime|teal|cyan|blue|purple|pink)$' {
+                $h = $script:JkPalette[$t]
+                $rgb = @(0, 2, 4 | ForEach-Object { [int]([Convert]::ToInt32($h.Substring($_, 2), 16) * 0.62) })
+                '{0:X2}{1:X2}{2:X2}' -f $rgb[0], $rgb[1], $rgb[2]
+                break
+            }
+            default { $t }
+        }
+    }
+    $out -join ' '
+}
+
 function Get-JkStylePrefix([string]$Style) {
+    if ($script:JkLightTheme) { $Style = Convert-JkStyleForLight $Style }
     $codes = New-Object System.Collections.Generic.List[string]
     foreach ($s in ($Style -split '[\s,+]+')) {
         if (-not $s) { continue }

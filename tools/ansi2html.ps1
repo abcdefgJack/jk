@@ -1,7 +1,7 @@
 # ansi2html.ps1 - render jk's colored terminal output as an HTML page (for reviewing the look
 # without a screenshot). Usage:
 #   powershell -NoProfile -File tools\ansi2html.ps1 -Out preview.html -Commands 'jk|jk due|jk sys'
-param([string]$Out = 'preview.html', [string]$Commands = 'jk', [int]$Width = 110, [string]$Background = '#0C0C0C')
+param([string]$Out = 'preview.html', [string]$Commands = 'jk', [int]$Width = 110, [string]$Background = '#0C0C0C', [string]$Foreground = '#CCCCCC')
 
 $root = Split-Path -Parent $PSScriptRoot
 $esc = [char]27
@@ -40,7 +40,7 @@ $blocks = foreach ($cmd in ($Commands -split '\|' | ForEach-Object { $_.Trim() }
 }
 $page = @"
 <!doctype html><html><head><meta charset="utf-8"><title>jk preview</title>
-<style>body{margin:0;padding:20px;background:$Background;color:#CCCCCC;font:14px/1.35 'Cascadia Mono','Cascadia Code',Consolas,monospace}
+<style>body{margin:0;padding:20px;background:$Background;color:$Foreground;font:14px/1.35 'Cascadia Mono','Cascadia Code',Consolas,monospace}
 pre{margin:0 0 26px;white-space:pre;font:inherit}.cmd{color:#6A9955;margin:6px 0}</style></head><body>
 $($blocks -join "`n")
 </body></html>
