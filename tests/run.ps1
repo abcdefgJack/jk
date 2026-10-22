@@ -389,11 +389,18 @@ $feedText = @(
     'BEGIN:VEVENT', 'UID:d2l-1005', 'SUMMARY:CO 367 LEC', 'DTSTART:20261027T083000', 'DTEND:20261027T095000', 'RRULE:FREQ=WEEKLY;BYDAY=TU,TH', 'END:VEVENT',
     'BEGIN:VEVENT', 'UID:d2l-1006', 'SUMMARY:Old thing - Due', 'DTSTART:20250101T120000Z', 'END:VEVENT',
     'END:VCALENDAR') -join "`r`n"
+# Expected local time for a Toronto wall-clock time, whatever zone the test machine is in.
+function global:Get-TorontoAsLocal([string]$When) {
+    $t = [datetime]::ParseExact($When, 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+    [TimeZoneInfo]::ConvertTime($t, [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time'), [TimeZoneInfo]::Local)
+}
 Test 'ics parsing: folding, alarms, time zones, all-day, recurrence' {
     $evs = @(ConvertFrom-JkIcs $feedText)
     Assert-Eq $evs.Count 6
     Assert-Eq $evs[0].Description 'CS 350 - Operating Systems (Fall 2026), see LEARN' 'alarm text kept out, \, unescaped'
-    Assert-Eq ($evs[1].Start.When.ToString('yyyy-MM-dd HH:mm')) '2026-11-30 19:00' 'TZID America/Toronto is local here'
+    Assert-Eq ($evs[1].Start.When.ToString('yyyy-MM-dd HH:mm')) ((Get-TorontoAsLocal '2026-11-30 19:00').ToString('yyyy-MM-dd HH:mm')) 'TZID America/Toronto converted to local'
+    $z = [datetime]::SpecifyKind([datetime]'2026-12-02 01:00', 'Utc').ToLocalTime()
+    Assert-Eq ($evs[0].Start.When.ToString('yyyy-MM-dd HH:mm')) ($z.ToString('yyyy-MM-dd HH:mm')) 'UTC converted to local'
     Assert-True $evs[2].Start.AllDay
     Assert-True $evs[2].Summary.EndsWith('folds onto a second line') 'folded line joined'
     Assert-True $evs[4].Recurring
@@ -413,7 +420,8 @@ Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dat
         Assert-Eq $a4.course 'cs350' 'course found in the description'
         Assert-Eq $a4.title 'Assignment 4'
         $m3 = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0]
-        Assert-Eq "$($m3.course) $($m3.title) $($m3.kind) $($m3.date) $($m3.time)" 'cs341 Midterm 3 exam 2026-11-30 19:00'
+        $m3when = Get-TorontoAsLocal '2026-11-30 19:00'
+        Assert-Eq "$($m3.course) $($m3.title) $($m3.kind) $($m3.date) $($m3.time)" "cs341 Midterm 3 exam $($m3when.ToString('yyyy-MM-dd')) $($m3when.ToString('HH:mm'))"
         $p = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
         Assert-Eq "$($p.course) $($p.time)" 'stat231 ' 'new course created; all-day has no time'
         Set-JkDueDone $a4.id
@@ -422,7 +430,7 @@ Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dat
         [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000'))
         Invoke-JkDueSync $f
         $d2 = Get-JkDueData
-        Assert-Eq @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0].date '2026-12-01' 'moved date updated in place'
+        Assert-Eq @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0].date ((Get-TorontoAsLocal '2026-12-01 19:00').ToString('yyyy-MM-dd')) 'moved date updated in place'
         Assert-True @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1001' })[0].done 'done mark survives a sync'
         Assert-Throws { Invoke-JkDueSync (Join-Path $saved 'nope.ics') }
     } finally { $env:JK_HOME = $saved }
