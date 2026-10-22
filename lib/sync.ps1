@@ -146,13 +146,24 @@ function Invoke-JkDueSync {
             $norm = ($title -replace '[^\p{L}\p{Nd}]', '').ToLower()
             $hit = @($data.events | Where-Object { $_.course -eq $courseKey -and $_.date -eq $date -and (([string]$_.title -replace '[^\p{L}\p{Nd}]', '').ToLower()) -eq $norm })[0]
         }
+        # what the feed said, kept on the item: your own edits stay put until the feed itself changes
+        $src = "$date|$time|$title"
         if ($hit) {
-            $changed = ($hit.date -ne $date) -or ([string]$hit.time -ne $time) -or ([string]$hit.title -ne $title)
-            if ($changed) { $hit.date = $date; $hit.time = $time; $hit.title = $title; $updated++ } else { $same++ }
+            if ([string](Get-JkProp $hit 'src') -eq $src) { $same++ }
+            else {
+                $newTime = $time
+                # an all-day feed entry should not wipe a time you added for the same day
+                if (-not $newTime -and $hit.time -and $hit.date -eq $date) { $newTime = [string]$hit.time }
+                $changed = ($hit.date -ne $date) -or ([string]$hit.time -ne $newTime) -or ([string]$hit.title -ne $title)
+                $hit.date = $date; $hit.time = $newTime; $hit.title = $title
+                if ($changed) { $updated++ } else { $same++ }
+                Set-JkProp $hit 'src' $src
+            }
             if ($uid) { Set-JkProp $hit 'uid' $uid }
             continue
         }
         $e = New-JkEvent -Data $data -Course $courseKey -Date $when.Date -Time $time -Title $title -Kind $kind -Note ([string]$ev.Location) -Weight $parsed.Weight
+        Set-JkProp $e 'src' $src
         if ($uid) { Set-JkProp $e 'uid' $uid }
         $added += $e
     }

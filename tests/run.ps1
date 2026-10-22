@@ -432,6 +432,17 @@ Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dat
         $d2 = Get-JkDueData
         Assert-Eq @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0].date ((Get-TorontoAsLocal '2026-12-01 19:00').ToString('yyyy-MM-dd')) 'moved date updated in place'
         Assert-True @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1001' })[0].done 'done mark survives a sync'
+        # your own edits survive re-syncs until the feed changes that item
+        $proj = @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Edit-JkDue $proj.id -Time 5pm -Title 'Proposal (renamed by me)'
+        [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000'))
+        Invoke-JkDueSync $f
+        $p2 = @((Get-JkDueData).events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Assert-Eq "$($p2.title) $($p2.time)" 'Proposal (renamed by me) 17:00' 'unchanged feed keeps your edits'
+        [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000').Replace('DTSTART;VALUE=DATE:20261204', 'DTSTART;VALUE=DATE:20261206'))
+        Invoke-JkDueSync $f
+        $p3 = @((Get-JkDueData).events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Assert-Eq $p3.date '2026-12-06' 'a moved date in the feed still wins'
         Assert-Throws { Invoke-JkDueSync (Join-Path $saved 'nope.ics') }
     } finally { $env:JK_HOME = $saved }
 }
