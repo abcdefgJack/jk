@@ -106,7 +106,7 @@ function Start-JkFocus {
     $now = Get-Date
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $endIso = $now.AddSeconds($secs).ToString('o', $script:Inv)
-    $proc = Start-JkBackground -Script "Wait-JkUntil '$endIso'; Complete-JkFocusSession -Id '$id'"
+    $proc = Start-JkBackground -Script "Complete-JkFocusSession -Id '$id'" -WaitUntil $endIso
     $d.active = [pscustomobject]@{
         id      = $id
         label   = $lbl
