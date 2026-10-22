@@ -1,11 +1,16 @@
 # jk
 
-A personal command-line toolkit for Windows PowerShell 5.1: deadlines, grades, reminders,
-a focus timer, a Downloads cleaner, a competitive-programming runner, fuzzy folder
-jumping, and machine/port/repo status. No dependencies beyond what ships with Windows.
+A personal command-line toolkit for Windows PowerShell 5.1. It covers:
+- **School:** classes and timetable, deadlines, grades, a weekly review.
+- **Time:** reminders and a focus timer.
+- **Code:** a competitive-programming runner.
+- **Machine:** Downloads and disk cleanup reports, fuzzy folder jumping, machine/port/repo status, and a
+  shell-startup fixer.
+
+It needs nothing beyond what ships with Windows.
 
 ```powershell
-jk            # dashboard: next exam, this week's deadlines, to-dos, focus time, machine health
+jk            # dashboard: next class, next exam, this week's deadlines, to-dos, focus time, machine health
 jk help       # every command;  jk help <command> for examples
 ```
 
@@ -16,9 +21,11 @@ powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\jk\install.ps1"
 ```
 
 This links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` autoloads in
-every new shell. It also adds a one-line summary to your profile and registers a daily
-morning brief popup (8:30 am and at sign-in): today's remaining classes plus anything due within 48 hours. To undo the profile line, task and link, run
-`jk setup uninstall`; your data stays in `~\.jk`.
+every new shell. It also adds a one-line summary to your profile and registers a morning
+brief popup: today's remaining classes plus anything due within 48 hours. It runs at 7:45 am
+(`jk config set remind.time 8am` changes that), or as soon as the PC wakes if it was asleep,
+and again at sign-in. To undo the profile line, task and link, run `jk setup uninstall`; your
+data stays in `~\.jk`.
 
 ## Commands
 
@@ -64,7 +71,7 @@ morning brief popup (8:30 am and at sign-in): today's remaining classes plus any
   `conda.exe` on every launch, with the same activation applied directly: the same PATH entries
   and `CONDA_*` variables. Conda's module then loads the first time you type `conda`. The fix is
   dry-run in throwaway shells first and rolled back if `python`, the env or PATH would change.
-- **Data** is plain JSON in `~\.jk`: `deadlines.json`, `grades.json`, `todo.json`,
+- **Data** is plain JSON in `~\.jk`: `deadlines.json`, `classes.json`, `grades.json`, `todo.json`,
   `focus.json`, `reminders.json`, `bookmarks.json`, `config.json`. Errors from background
   timers go to `~\.jk\background.log`.
 
@@ -76,4 +83,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
 
 The tests use a throwaway data folder and a pinned clock. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build
-non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`).
+non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`). The suite also lints for
+two PowerShell traps: `'a', 'b' + $c` (comma binds tighter than `+`) and helper calls that get
+stray arguments.
+
+`tools\ansi2html.ps1 -Commands 'jk|jk due' -Out preview.html` renders real colored output as
+a web page, which is handy for reviewing the look without a terminal.
