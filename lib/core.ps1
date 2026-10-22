@@ -472,16 +472,32 @@ function Get-JkPowerShellExe { Join-Path $PSHOME 'powershell.exe' }
 
 # Runs a script block in a detached, windowless PowerShell that has jk loaded.
 # Returns the process so callers can record its PID.
-function Start-JkBackground {
-    param([string]$Script, [hashtable]$Env = @{})
+# The command line a background process runs. With -WaitUntil it sleeps first and only then
+# loads the module: a waiting timer holds about 60 MB instead of 95, and when it fires it runs
+# the current code even if jk was updated in the meantime.
+function Get-JkBackgroundCommand {
+    param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil)
     $psd1 = Join-Path (Get-JkRoot) 'jk.psd1'
-    $prelude = "`$env:JK_HOME = '" + (Get-JkHome).Replace("'", "''") + "'; "
+    $prelude = ''
+    if ($WaitUntil) {
+        # polls instead of one long sleep so a laptop that suspends mid-wait still fires
+        # promptly after it wakes up
+        $prelude += "`$at = [datetime]::Parse('" + $WaitUntil.Replace("'", "''") + "', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind); "
+        $prelude += "if (`$at.Kind -eq 'Utc') { `$at = `$at.ToLocalTime() }; "
+        $prelude += "while (`$true) { `$left = (`$at - (Get-Date)).TotalSeconds; if (`$left -le 0) { break }; Start-Sleep -Milliseconds ([int]([Math]::Min(`$left, 15) * 1000)) }; "
+    }
+    $prelude += "`$env:JK_HOME = '" + (Get-JkHome).Replace("'", "''") + "'; "
     foreach ($k in $Env.Keys) { $prelude += "`$env:$k = '" + ([string]$Env[$k]).Replace("'", "''") + "'; " }
     $prelude += "`$jkm = Import-Module '" + $psd1.Replace("'", "''") + "' -Force -PassThru; "
     # run inside the module's scope (the helpers are private); failures in a windowless
     # process are invisible, so they go to background.log
     $log = (Join-Path (Get-JkHome) 'background.log').Replace("'", "''")
-    $full = $prelude + "& `$jkm { try { $Script } catch { Add-Content -LiteralPath '$log' -Value ((Get-Date -Format s) + ' ' + `$_.Exception.Message + ' @ ' + `$_.ScriptStackTrace) } }"
+    $prelude + "& `$jkm { try { $Script } catch { Add-Content -LiteralPath '$log' -Value ((Get-Date -Format s) + ' ' + `$_.Exception.Message + ' @ ' + `$_.ScriptStackTrace) } }"
+}
+
+function Start-JkBackground {
+    param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil)
+    $full = Get-JkBackgroundCommand -Script $Script -Env $Env -WaitUntil $WaitUntil
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($full))
     $ps = Get-JkPowerShellExe
     $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
@@ -490,18 +506,6 @@ function Start-JkBackground {
         Start-Process -FilePath $conhost -ArgumentList (@('--headless', $ps) + $argsList) -WindowStyle Hidden -PassThru
     } else {
         Start-Process -FilePath $ps -ArgumentList $argsList -WindowStyle Hidden -PassThru
-    }
-}
-
-# Sleeps until a wall-clock time. Polls instead of one long sleep so a laptop that
-# suspends mid-wait still fires promptly after it wakes up.
-function Wait-JkUntil([string]$Iso) {
-    $at = [datetime]::Parse($Iso, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
-    if ($at.Kind -eq 'Utc') { $at = $at.ToLocalTime() }
-    while ($true) {
-        $left = ($at - (Get-Date)).TotalSeconds
-        if ($left -le 0) { break }
-        Start-Sleep -Milliseconds ([int]([Math]::Min($left, 15) * 1000))
     }
 }
 

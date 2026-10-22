@@ -273,7 +273,7 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
     $orig = ${function:Start-JkBackground}
     try {
         # no real timers in tests
-        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) $script:LastJob = "$Script @ $WaitUntil"; [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
         Import-JkDueHtml $htmlPath | Out-Null
         $d = Get-JkDueData
         $iv = Resolve-JkCourse $d 'intv' -Create
@@ -288,6 +288,7 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
         $r = $items[1]
         Assert-Eq $r.at '2026-10-28T18:00:00' '2 hours before 8 pm'
         Assert-True ($r.text -like 'CS 350 A2A Synchronization at 8:00 pm*')
+        Assert-True ($script:LastJob -like "Complete-JkReminder -Id $($r.id) @ 2026-10-28T18:00:00*") "timer: $($script:LastJob)"
         # only the A2A alert from here on
         $rd = Get-JkReminderData; $rd.items = @($r); Save-JkReminderData $rd
         Assert-Eq (Register-JkTodayAlerts -Now $now) 0 'a second morning run adds nothing'
@@ -326,6 +327,34 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
         $env:JK_HOME = $saved
         $script:JkConfigCache = $null
     }
+}
+Test 'morning brief: once per 3 hours, and a future stamp never silences it' {
+    $orig = ${function:Show-JkNotify}
+    $script:BriefCalls = 0
+    function script:Show-JkNotify { $script:BriefCalls++; 'stub' }
+    try {
+        Save-JkJson 'state.json' ([pscustomobject]@{ lastRemind = '2026-10-22T12:30:00' })
+        Invoke-JkDueRemind -Quiet -Hours 200
+        Assert-Eq $script:BriefCalls 0 'reminded 90 minutes ago'
+        Save-JkJson 'state.json' ([pscustomobject]@{ lastRemind = '2026-10-28T07:45:00' })
+        Invoke-JkDueRemind -Quiet -Hours 200
+        Assert-Eq $script:BriefCalls 1 'a stamp from the future is ignored'
+        Assert-Eq (Read-JkJson 'state.json' $null).lastRemind '2026-10-22T14:00:00' 'and replaced with now'
+    } finally { Set-Item function:script:Show-JkNotify $orig }
+}
+Test 'background timers sleep before loading the module, then run in its scope' {
+    $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
+    Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
+    Assert-True ((Get-JkBackgroundCommand -Script 'x') -notmatch 'while') 'no wait without -WaitUntil'
+    # a real process: due in 2 seconds, then calls a private helper from inside the module
+    $flag = Join-Path $env:JK_HOME 'fired.txt'
+    $at = (Get-Date).AddSeconds(2).ToString('o', $script:Inv)
+    $cmd = Get-JkBackgroundCommand -Script "Set-Content -LiteralPath '$flag' -Value (Get-JkHome)" -WaitUntil $at
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+    $t = [Diagnostics.Stopwatch]::StartNew()
+    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $enc
+    Assert-True ($t.Elapsed.TotalSeconds -ge 1.5) "returned after $($t.Elapsed.TotalSeconds)s"
+    Assert-Eq (Get-Content -LiteralPath $flag) $env:JK_HOME 'ran in the module scope with JK_HOME passed through'
 }
 Test 'reopen and grade by title text, including finished items' {
     $d = Get-JkDueData

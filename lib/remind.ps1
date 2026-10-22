@@ -22,21 +22,24 @@ function New-JkReminder {
     $d.nextId = $id + 1
     # spawn first, then save once with the pid: the timer needs over a second just to load,
     # so the record is on disk long before it can fire (no read-modify-write race)
-    $p = Start-JkBackground -Script (Get-JkReminderScript $id $At)
+    $job = Get-JkReminderJob $id $At
+    $p = Start-JkBackground @job
     $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = $p.Id; spawned = $p.StartTime.ToString('s', $script:Inv); key = $Key; dueId = $DueId }
     $d.items = @($d.items) + $item
     Save-JkReminderData $d
     $item
 }
 
-function Get-JkReminderScript([int]$Id, [datetime]$At) {
-    "Wait-JkUntil '$($At.ToString('o', $script:Inv))'; Complete-JkReminder -Id $Id"
+# Splat for Start-JkBackground: sleep until $At, then fire reminder $Id.
+function Get-JkReminderJob([int]$Id, [datetime]$At) {
+    @{ Script = "Complete-JkReminder -Id $Id"; WaitUntil = $At.ToString('o', $script:Inv) }
 }
 
 # Re-arms an existing reminder (after a restart).
 function Start-JkReminderProcess($Item) {
     $at = [datetime]::Parse([string]$Item.at, $script:Inv)
-    $p = Start-JkBackground -Script (Get-JkReminderScript ([int]$Item.id) $at)
+    $job = Get-JkReminderJob ([int]$Item.id) $at
+    $p = Start-JkBackground @job
     $d = Get-JkReminderData
     foreach ($i in @($d.items)) {
         if ([int]$i.id -eq [int]$Item.id) { $i.pid = $p.Id; $i.spawned = $p.StartTime.ToString('s', $script:Inv) }
