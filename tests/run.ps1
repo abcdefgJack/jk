@@ -488,6 +488,17 @@ Test 'corrupt data file is backed up, not fatal' {
     Assert-Eq @($t.items).Count 0
     Assert-True (@(Get-ChildItem (Get-JkHome) -Filter 'todo.json.corrupt-*').Count -eq 1)
 }
+Test 'every view works on a brand-new, empty data folder' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'empty-home'
+    $script:JkConfigCache = $null
+    try {
+        Show-JkDashboard; Show-JkBrief -Force; Show-JkDue; Show-JkDueAll; Show-JkDueWeek; Show-JkExams
+        Show-JkClasses; Show-JkTimetable; Show-JkReview; Show-JkGradeOverview; Show-JkTodo; Show-JkFocusLog
+        Show-JkReminders; Show-JkGoList
+        Export-JkDueIcs -Out (Join-Path $env:JK_HOME 'e.ics'); Export-JkDueHtml -NoOpen -Out (Join-Path $env:JK_HOME 'e.html')
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'help renders for every topic' {
     Show-JkHelp
     foreach ($k in $script:JkHelpTopics.Keys) { Show-JkHelp $k }
