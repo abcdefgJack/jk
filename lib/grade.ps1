@@ -65,7 +65,7 @@ function Get-JkGradeItems {
         if ($null -ne $x.score -and "$($x.score)" -ne '') { $sc = [double]$x.score }
         $items += [pscustomobject]@{ Key = [string]$x.id; Title = [string]$x.title; Weight = [double]$x.weight; Score = $sc; Date = ''; Extra = $true }
     }
-    @($items | Sort-Object Date, Key)
+    @($items | Sort-Object Extra, Date, Key)
 }
 
 # "best 6 of 8" written in any note for the course becomes a drop-lowest rule for
@@ -184,7 +184,8 @@ function Show-JkGrade {
     foreach ($r in $rules) { Say (Paint 'gray' "  (best $($r.Keep) of $($r.Of) '$($r.Prefix)' items count)") }
     Say ''
     $sumNote = ''
-    if ([Math]::Abs($m.Total - 100) -gt 0.5) { $sumNote = Paint 'yellow' "  (weights add up to $(Format-JkPct $m.Total 1) - add missing parts with: jk grade add $($c.key) `"Participation`" -Weight 5)" }
+    if ($m.Total -lt 99.5) { $sumNote = Paint 'yellow' "  (weights add up to $(Format-JkPct $m.Total 1) - add missing parts: jk grade add $($c.key) `"Participation`" -Weight 5)" }
+    elseif ($m.Total -gt 100.5) { $sumNote = Paint 'yellow' "  (weights add up to $(Format-JkPct $m.Total 1) - is something counted twice? jk due edit <id> -Weight 0, or jk grade clear x<n>)" }
     Say ('  graded ' + (Paint 'white' (Format-JkPct $m.Graded 1)) + ' of the course  ' + $script:G.dot + '  average ' + (Paint "bold #$color" (Format-JkPct $m.Average)) + '  ' + $script:G.dot + '  banked ' + (Paint 'white' ('{0:N2}' -f $m.Banked)) + ' / ' + ('{0:N1}' -f $m.Graded) + $sumNote)
     if ($m.Remaining -gt 0) {
         Say ''
