@@ -54,6 +54,8 @@ data stays in `~\.jk`.
 
 ## Notable details
 
+- **Colors** assume a dark terminal, which is the default in Windows Terminal and VS Code. Run
+  `jk config set theme light` for light backgrounds, and `NO_COLOR=1` or `JK_COLOR=never` for plain text.
 - **Notifications.** If Windows notifications are off, `jk` draws its own popup: a WPF card in
   the bottom-right that never steals focus and pauses while hovered. Set it with
   `jk config set notify auto|popup|toast|off`.
