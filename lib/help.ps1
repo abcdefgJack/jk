@@ -121,6 +121,8 @@ jk doctor                      check compilers, module path, notifications, task
 '@
 }
 $script:JkHelpTopics['in'] = $script:JkHelpTopics['remind']
+$script:JkHelpTopics['week'] = $script:JkHelpTopics['due']
+$script:JkHelpTopics['exams'] = $script:JkHelpTopics['due']
 $script:JkHelpTopics['at'] = $script:JkHelpTopics['remind']
 $script:JkHelpTopics['port'] = $script:JkHelpTopics['sys']
 $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
@@ -153,7 +155,7 @@ function Show-JkHelp {
     }
     Write-JkHeader 'jk' "v$((Get-Module jk).Version) $($script:G.dot) your command-line sidekick"
     $groups = [ordered]@{
-        'School'   = @('due', 'grade', 'todo')
+        'School'   = @('due', 'week', 'exams', 'grade', 'todo')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
         'Machine'  = @('tidy', 'sys', 'go', 'mark', 'speed')

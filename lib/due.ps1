@@ -54,8 +54,9 @@ function Get-JkCourseColor($key, $cmap) {
     $script:JkPalette.muted
 }
 
-# Normalizes "CS 350", "cs350", "CS350" -> "cs350" for matching.
-function Get-JkNormKey([string]$s) { ($s -replace '[^A-Za-z0-9]', '').ToLower() }
+# Normalizes "CS 350", "cs350", "CS350" -> "cs350" for matching. Letters of any script
+# survive, so folders such as a Chinese-named one stay addressable.
+function Get-JkNormKey([string]$s) { ($s -replace '[^\p{L}\p{Nd}]', '').ToLower() }
 
 function Resolve-JkCourse {
     param($Data, [string]$Name, [switch]$Create)

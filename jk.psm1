@@ -8,6 +8,8 @@ foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp'
 # name -> handler, aliases, one-line description (drives dispatch, `jk help` and tab completion)
 $script:JkCommands = [ordered]@{
     'due'    = @{ Fn = 'Invoke-JkDue'; Aliases = @('d', 'deadlines'); Desc = 'course deadlines: upcoming, add, done, week grid, calendar, .ics, reminders' }
+    'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
+    'exams'  = @{ Fn = 'Show-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown (same as jk due exams)' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }
     'focus'  = @{ Fn = 'Invoke-JkFocus'; Aliases = @('f', 'pomo', 'pomodoro'); Desc = 'focus timer with a popup when time is up, plus weekly stats' }
     'in'     = @{ Fn = 'Invoke-JkRemindIn'; Aliases = @(); Desc = 'remind me in a while:  jk in 20m "take laundry out"' }
@@ -97,6 +99,7 @@ $script:JkParamTargets = @{
     'tidy undo'    = 'Undo-JkTidy'
     'port'         = 'Invoke-JkPort'
     'focus'        = 'Start-JkFocus'
+    'week'         = 'Show-JkDueWeek'
     'grade'        = 'Show-JkGrade'
     'grade set'    = 'Set-JkGrade'
     'repos'        = 'Invoke-JkRepos'
