@@ -108,9 +108,13 @@ $script:JkConfigDefaults = [ordered]@{
     'repos.roots'   = (Join-Path $HOME 'Desktop')
 }
 
+# Config is read once per `jk` call (the dispatcher clears the cache); Set-JkConfig refreshes it.
+$script:JkConfigCache = $null
+
 function Get-JkConfig {
     param([string]$Key)
-    $cfg = Read-JkJson 'config.json' $null
+    if ($null -eq $script:JkConfigCache) { $script:JkConfigCache = @{ Data = (Read-JkJson 'config.json' $null) } }
+    $cfg = $script:JkConfigCache.Data
     if ($Key) {
         $v = Get-JkProp $cfg $Key $null
         if ($null -ne $v -and "$v" -ne '') { return "$v" }
@@ -129,6 +133,7 @@ function Set-JkConfig {
     if (-not $cfg) { $cfg = [pscustomobject]@{} }
     Set-JkProp $cfg $Key $Value
     Save-JkJson 'config.json' $cfg
+    $script:JkConfigCache = $null
 }
 
 # ---------------------------------------------------------------- color & layout
@@ -148,9 +153,18 @@ function ConvertTo-JkRgb([string]$Hex) {
 
 # Paint 'bold red' 'text' -> ANSI-styled text (plain when color is off).
 # Styles: bold dim italic under strike inverse, palette names, #RRGGBB, bg:<name|#hex>.
+$script:PaintCache = @{}
+
 function Paint {
     param([string]$Style, [string]$Text)
     if (-not $script:JkUseColor -or -not $Style) { return $Text }
+    $pre = $script:PaintCache[$Style]
+    if ($null -eq $pre) { $pre = Get-JkStylePrefix $Style; $script:PaintCache[$Style] = $pre }
+    if (-not $pre) { return $Text }
+    "$pre$Text$script:Esc[0m"
+}
+
+function Get-JkStylePrefix([string]$Style) {
     $codes = New-Object System.Collections.Generic.List[string]
     foreach ($s in ($Style -split '[\s,+]+')) {
         if (-not $s) { continue }
@@ -171,8 +185,27 @@ function Paint {
             }
         }
     }
-    if ($codes.Count -eq 0) { return $Text }
-    "$script:Esc[" + ($codes -join ';') + "m$Text$script:Esc[0m"
+    if ($codes.Count -eq 0) { return '' }
+    "$script:Esc[" + ($codes -join ';') + 'm'
+}
+
+# ---------------------------------------------------------------- machine facts (fast, no CIM)
+
+function Get-JkMemory {
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    $ci = New-Object Microsoft.VisualBasic.Devices.ComputerInfo
+    [pscustomobject]@{ Total = [double]$ci.TotalPhysicalMemory; Free = [double]$ci.AvailablePhysicalMemory }
+}
+
+# Milliseconds since boot from the 32-bit tick counter (exact up to 49 days, enough for "restart?" hints).
+function Get-JkUptime { [TimeSpan]::FromMilliseconds([double]([int64][Environment]::TickCount -band [int64]4294967295)) }
+
+function Get-JkBattery {
+    Add-Type -AssemblyName System.Windows.Forms
+    $ps = [System.Windows.Forms.SystemInformation]::PowerStatus
+    $flags = [int]$ps.BatteryChargeStatus
+    if ($flags -band 128 -or $flags -eq 255) { return $null }   # NoSystemBattery / Unknown
+    [pscustomobject]@{ Percent = [int][Math]::Round($ps.BatteryLifePercent * 100); Plugged = ([string]$ps.PowerLineStatus -eq 'Online') }
 }
 
 function Get-JkVisibleLength([string]$Text) { ($Text -replace "$([char]27)\[[0-9;]*m", '').Length }
@@ -213,8 +246,8 @@ function Get-JkBar {
 }
 
 function Format-JkSize([double]$Bytes) {
-    if ($Bytes -ge 1GB) { return ('{0:N1} GB' -f ($Bytes / 1GB)) }
-    if ($Bytes -ge 1MB) { return ('{0:N1} MB' -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1000MB) { return ('{0:N1} GB' -f ($Bytes / 1GB)) }
+    if ($Bytes -ge 1000KB) { return ('{0:N1} MB' -f ($Bytes / 1MB)) }
     if ($Bytes -ge 1KB) { return ('{0:N0} KB' -f ($Bytes / 1KB)) }
     '{0:N0} B' -f $Bytes
 }

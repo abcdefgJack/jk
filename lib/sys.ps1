@@ -1,20 +1,21 @@
 # sys.ps1 - machine status (jk sys) and port inspection (jk port).
 
 function Get-JkSysSnapshot {
-    $os = Get-CimInstance Win32_OperatingSystem
-    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-    $load = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-    $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
-    $disks = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')
+    $cpus = @(Get-CimInstance Win32_Processor)
+    $mem = Get-JkMemory
+    $caption = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).ProductName
+    $build = [Environment]::OSVersion.Version.Build
+    # Windows 11 still reports "Windows 10" in ProductName; the build number tells them apart
+    if ($caption -and $build -ge 22000) { $caption = $caption -replace 'Windows 10', 'Windows 11' }
     [pscustomobject]@{
-        Os        = $os
-        Cpu       = $cpu
-        Load      = $load
-        TotalMem  = [double]$os.TotalVisibleMemorySize * 1KB
-        FreeMem   = [double]$os.FreePhysicalMemory * 1KB
-        Uptime    = (Get-Date) - $os.LastBootUpTime
-        Battery   = $bat
-        Disks     = $disks
+        Caption  = $caption
+        Cpu      = $cpus[0]
+        Load     = ($cpus | Measure-Object -Property LoadPercentage -Average).Average
+        TotalMem = $mem.Total
+        FreeMem  = $mem.Free
+        Uptime   = Get-JkUptime
+        Battery  = Get-JkBattery
+        Disks    = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady })
     }
 }
 
@@ -31,7 +32,7 @@ function Invoke-JkSys {
     $s = Get-JkSysSnapshot
     $w = Get-JkWidth
     $up = Format-JkDuration $s.Uptime
-    Write-JkHeader 'System' "$($env:COMPUTERNAME) $($script:G.dot) up $up" -Sub ($s.Os.Caption -replace 'Microsoft ', '')
+    Write-JkHeader 'System' "$($env:COMPUTERNAME) $($script:G.dot) up $up" -Sub ($s.Caption -replace 'Microsoft ', '')
     $barW = [Math]::Max(16, [Math]::Min(36, $w - 48))
     $loadStyle = 'green'; if ($s.Load -ge 85) { $loadStyle = 'red' } elseif ($s.Load -ge 60) { $loadStyle = 'orange' }
     Say ('  ' + (Paint 'bold white' (Fit 'CPU' 9)) + (Get-JkBar ($s.Load / 100) $barW $loadStyle) + '  ' + (Paint 'white' ("{0,3}%" -f [int]$s.Load)) + (Paint 'gray' "  $($s.Cpu.Name.Trim() -replace '\s+', ' ')"))
@@ -40,14 +41,14 @@ function Invoke-JkSys {
     $memStyle = 'green'; if ($memFrac -ge 0.9) { $memStyle = 'red' } elseif ($memFrac -ge 0.75) { $memStyle = 'orange' }
     Say ('  ' + (Paint 'bold white' (Fit 'Memory' 9)) + (Get-JkBar $memFrac $barW $memStyle) + '  ' + (Paint 'white' ("{0,3}%" -f [int]($memFrac * 100))) + (Paint 'gray' "  $(Format-JkSize $used) of $(Format-JkSize $s.TotalMem)"))
     foreach ($d in $s.Disks) {
-        if (-not $d.Size) { continue }
-        $frac = 1 - ($d.FreeSpace / $d.Size)
+        if (-not $d.TotalSize) { continue }
+        $frac = 1 - ($d.AvailableFreeSpace / $d.TotalSize)
         $st = 'blue'; if ($frac -ge 0.95) { $st = 'red' } elseif ($frac -ge 0.85) { $st = 'orange' }
-        Say ('  ' + (Paint 'bold white' (Fit "Disk $($d.DeviceID)" 9)) + (Get-JkBar $frac $barW $st) + '  ' + (Paint 'white' ("{0,3}%" -f [int]($frac * 100))) + (Paint 'gray' "  $(Format-JkSize $d.FreeSpace) free of $(Format-JkSize $d.Size)"))
+        Say ('  ' + (Paint 'bold white' (Fit "Disk $($d.Name.TrimEnd('\'))" 9)) + (Get-JkBar $frac $barW $st) + '  ' + (Paint 'white' ("{0,3}%" -f [int]($frac * 100))) + (Paint 'gray' "  $(Format-JkSize $d.AvailableFreeSpace) free of $(Format-JkSize $d.TotalSize)"))
     }
     if ($s.Battery) {
-        $pct = [int]$s.Battery.EstimatedChargeRemaining
-        $plugged = @(2, 6, 7, 8, 9) -contains [int]$s.Battery.BatteryStatus
+        $pct = $s.Battery.Percent
+        $plugged = $s.Battery.Plugged
         $st = 'green'; if ($pct -le 15) { $st = 'red' } elseif ($pct -le 35) { $st = 'orange' }
         $state = 'on battery'; if ($plugged) { $state = 'plugged in' }
         Say ('  ' + (Paint 'bold white' (Fit 'Battery' 9)) + (Get-JkBar ($pct / 100) $barW $st) + '  ' + (Paint 'white' ("{0,3}%" -f $pct)) + (Paint 'gray' "  $state"))

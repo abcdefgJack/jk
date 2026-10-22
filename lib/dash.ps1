@@ -113,25 +113,24 @@ function Show-JkDashboard {
     Say ''
     $sysBits = @()
     try {
-        $c = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
-        $free = $c.FreeSpace / $c.Size
+        $c = New-Object IO.DriveInfo ($env:SystemDrive)
+        $free = $c.AvailableFreeSpace / $c.TotalSize
         $st = 'muted'; if ($free -lt 0.1) { $st = 'red' } elseif ($free -lt 0.2) { $st = 'orange' }
-        $sysBits += Paint $st "C: $(Format-JkSize $c.FreeSpace) free"
+        $sysBits += Paint $st "$($env:SystemDrive) $(Format-JkSize $c.AvailableFreeSpace) free"
     } catch { }
     try {
-        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
-        $memUsed = 1 - ($os.FreePhysicalMemory / $os.TotalVisibleMemorySize)
+        $mem = Get-JkMemory
+        $memUsed = 1 - ($mem.Free / $mem.Total)
         $st = 'muted'; if ($memUsed -gt 0.9) { $st = 'red' } elseif ($memUsed -gt 0.8) { $st = 'orange' }
         $sysBits += Paint $st ("RAM {0:N0}%" -f ($memUsed * 100))
-        $upDays = ((Get-Date) - $os.LastBootUpTime).TotalDays
+        $upDays = (Get-JkUptime).TotalDays
         if ($upDays -ge 7) { $sysBits += Paint 'yellow' "up $([int]$upDays)d (restart?)" }
     } catch { }
     try {
-        $bat = Get-CimInstance Win32_Battery -ErrorAction Stop | Select-Object -First 1
+        $bat = Get-JkBattery
         if ($bat) {
-            $pct = [int]$bat.EstimatedChargeRemaining
-            $st = 'muted'; if ($pct -le 20) { $st = 'red' }
-            $sysBits += Paint $st "battery $pct%"
+            $st = 'muted'; if ($bat.Percent -le 20 -and -not $bat.Plugged) { $st = 'red' }
+            $sysBits += Paint $st "battery $($bat.Percent)%"
         }
     } catch { }
     try {

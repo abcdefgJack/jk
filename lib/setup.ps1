@@ -34,6 +34,7 @@ function Invoke-JkConfig {
         '^(reset|unset)$' {
             $cfg = Read-JkJson 'config.json' $null
             if ($cfg -and $cfg.PSObject.Properties[$a[1]]) { $cfg.PSObject.Properties.Remove($a[1]); Save-JkJson 'config.json' $cfg }
+            $script:JkConfigCache = $null
             Say (Paint 'green' "  $($a[1]) reset to default ($(Get-JkConfig $a[1]))")
             return
         }

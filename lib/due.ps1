@@ -23,6 +23,8 @@ function Save-JkDueData($Data) {
     $Data.events = @($Data.events | Sort-Object date, time, id)
     Save-JkJson 'deadlines.json' $Data
     Clear-JkBriefCache
+    # keep an already-generated calendar page current (the reminder popup links to it)
+    if (Test-Path -LiteralPath (Get-JkPath 'calendar.html')) { try { Export-JkDueHtml -NoOpen -Quiet } catch { } }
 }
 
 function Get-JkCourseMap($Data) {
@@ -666,7 +668,7 @@ function Import-JkDueHtml {
 # ---------------------------------------------------------------- HTML calendar & ICS
 
 function Export-JkDueHtml {
-    param([string]$Out, [switch]$NoOpen)
+    param([string]$Out, [switch]$NoOpen, [switch]$Quiet)
     $data = Get-JkDueData
     if (-not $Out) { $Out = Get-JkPath 'calendar.html' }
     $tpl = [IO.File]::ReadAllText((Join-Path (Get-JkRoot) 'templates\calendar.html'))
@@ -679,7 +681,7 @@ function Export-JkDueHtml {
     $json = (ConvertTo-Json -InputObject $payload -Depth 8 -Compress).Replace('</', '<\/')
     $html = $tpl.Replace('/*JK_DATA*/null', $json)
     Write-JkText $Out $html
-    Say ((Paint 'green' "  calendar written $($script:G.check)") + "  $Out")
+    if (-not $Quiet) { Say ((Paint 'green' "  calendar written $($script:G.check)") + "  $Out") }
     if (-not $NoOpen) { Start-Process $Out }
 }
 

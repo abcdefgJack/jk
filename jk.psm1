@@ -40,6 +40,7 @@ function Resolve-JkCommand([string]$Name) {
 
 function jk {
     $script:JkUseColor = Test-JkColor
+    $script:JkConfigCache = $null
     $a = @($args)
     if ($a.Count -eq 0) {
         try { Show-JkDashboard } catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
