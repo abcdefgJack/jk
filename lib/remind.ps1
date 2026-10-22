@@ -75,7 +75,7 @@ function Complete-JkReminder {
     $null = Show-JkNotify -Title ([string]$item.text) -Lines $lines -Accent $accent -Seconds 0 -Sound -Wait
 }
 
-# Same-day alerts: for each graded item due later today, a reminder alert.before ahead of it
+# Same-day alerts: for each item due later today, a reminder alert.before ahead of it
 # (default 2h). Run by the morning task and again at sign-in; today's keys are remembered in
 # reminders.json, so an alert is set once even if it was cancelled or has already fired.
 function Register-JkTodayAlerts {
@@ -93,7 +93,10 @@ function Register-JkTodayAlerts {
     $n = 0
     foreach ($e in @($data.events)) {
         if ($e.done -or -not $e.time) { continue }
-        if ((Get-JkWeightValue $e.weight) -le 0 -and $e.kind -ne 'exam') { continue }
+        # anything timed (interviews and OAs carry no weight), except work marked 0% and the
+        # opening of a quiz window
+        if ($e.weight -and (Get-JkWeightValue $e.weight) -le 0) { continue }
+        if ([string]$e.title -match '(?i)\s+opens?$') { continue }
         $due = Get-JkEventDue $e
         if ($due.Date -ne $Now.Date -or $due -le $Now) { continue }
         $at = $due.AddSeconds(-$secs)

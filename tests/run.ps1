@@ -253,7 +253,7 @@ Test 'jk at: bare hours mean the next such hour, day + time phrases' {
     Assert-Eq (Resolve-JkAtTime @('tomorrow', '9am', 'submit', 'form') ([datetime]'2026-10-22 14:00')).K 2
     Assert-Throws { Resolve-JkAtTime @('whenever') ([datetime]'2026-10-22 14:00') }
 }
-Test 'same-day alerts: once per item, graded items only, 2h ahead, can be turned off' {
+Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can be turned off' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'alerts-home'
     $orig = ${function:Start-JkBackground}
@@ -261,11 +261,21 @@ Test 'same-day alerts: once per item, graded items only, 2h ahead, can be turned
         # no real timers in tests
         function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
         Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        $iv = Resolve-JkCourse $d 'intv' -Create
+        $null = New-JkEvent $d -Course $iv.key -Date ([datetime]'2026-10-28') -Time '15:30' -Title 'Interview' -Kind 'appt'
+        $null = New-JkEvent $d -Course 'cs350' -Date ([datetime]'2026-10-28') -Time '17:00' -Title 'Practice set' -Weight '0%'
+        $null = New-JkEvent $d -Course 'health' -Date ([datetime]'2026-10-28') -Time '16:00' -Title 'Quiz 3 opens' -Weight '5%'
+        Save-JkDueData $d
         $now = [datetime]'2026-10-28T09:00'
-        Assert-Eq (Register-JkTodayAlerts -Now $now) 1 'A2A (8 pm) is the only graded item due later that day'
-        $r = @((Get-JkReminderData).items)[0]
+        Assert-Eq (Register-JkTodayAlerts -Now $now) 2 'A2A (8 pm) and the interview (no weight); not the 0% set or the quiz opening'
+        $items = @((Get-JkReminderData).items | Sort-Object at)
+        Assert-True ($items[0].text -like '* Interview at 3:30 pm') "interview: $($items[0].text)"
+        $r = $items[1]
         Assert-Eq $r.at '2026-10-28T18:00:00' '2 hours before 8 pm'
         Assert-True ($r.text -like 'CS 350 A2A Synchronization at 8:00 pm*')
+        # only the A2A alert from here on
+        $rd = Get-JkReminderData; $rd.items = @($r); Save-JkReminderData $rd
         Assert-Eq (Register-JkTodayAlerts -Now $now) 0 'a second morning run adds nothing'
         Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-28T19:00')) 0 'too late to warn 2 hours ahead'
         $script:PopupCalls = 0
