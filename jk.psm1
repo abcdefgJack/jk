@@ -29,6 +29,7 @@ $script:JkCommands = [ordered]@{
     'speed'  = @{ Fn = 'Invoke-JkSpeed'; Aliases = @('startup', 'slow'); Desc = 'why new terminals are slow; jk speed fix makes the conda hook instant' }
     'brief'  = @{ Fn = 'Show-JkBrief'; Aliases = @(); Desc = 'one-line summary (shown when PowerShell starts)' }
     'config' = @{ Fn = 'Invoke-JkConfig'; Aliases = @('cfg', 'settings'); Desc = 'show or change settings' }
+    'backup' = @{ Fn = 'Invoke-JkBackup'; Aliases = @('backups', 'restore'); Desc = 'daily snapshots of your jk data; restore a day' }
     'doctor' = @{ Fn = 'Invoke-JkDoctor'; Aliases = @('check'); Desc = 'check that compilers, reminders and the profile hook are set up' }
     'setup'  = @{ Fn = 'Invoke-JkSetup'; Aliases = @('install'); Desc = 'install/uninstall the profile banner and daily reminder task' }
     'help'   = @{ Fn = 'Show-JkHelp'; Aliases = @('h', '?', '-h', '--help'); Desc = 'help for a command:  jk help due' }
@@ -125,6 +126,7 @@ $script:JkActions = @{
     'config' = @('set', 'reset', 'edit', 'path')
     'setup'  = @('install', 'uninstall', 'status')
     'speed'  = @('fix', 'undo')
+    'backup' = @('list', 'restore')
     'space'  = @('clean')
     'port'   = @()
     'go'     = @()

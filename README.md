@@ -73,7 +73,7 @@ data stays in `~\.jk`.
   dry-run in throwaway shells first and rolled back if `python`, the env or PATH would change.
 - **Data** is plain JSON in `~\.jk`: `deadlines.json`, `classes.json`, `grades.json`, `todo.json`,
   `focus.json`, `reminders.json`, `bookmarks.json`, `config.json`. Errors from background
-  timers go to `~\.jk\background.log`.
+  timers go to `~\.jk\background.log`. Before the first change each day, the previous version of every data file is copied to `~\.jk\backups\<date>\`; 30 days are kept, and `jk backup restore <date>` brings a day back.
 
 ## Development
 

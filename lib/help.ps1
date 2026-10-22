@@ -149,6 +149,7 @@ $script:JkHelpTopics['at'] = $script:JkHelpTopics['remind']
 $script:JkHelpTopics['port'] = $script:JkHelpTopics['sys']
 $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
 $script:JkHelpTopics['doctor'] = $script:JkHelpTopics['setup']
+$script:JkHelpTopics['backup'] = "jk backup                      days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file"
 
 function Write-JkHelpBlock([string]$Text) {
     foreach ($l in ($Text -split "`r?`n")) {
@@ -181,7 +182,7 @@ function Show-JkHelp {
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
         'Machine'  = @('tidy', 'space', 'sys', 'go', 'mark', 'speed')
-        'jk'       = @('brief', 'config', 'doctor', 'setup', 'help')
+        'jk'       = @('brief', 'config', 'backup', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {
         Say (' ' + (Paint 'bold white' $g))

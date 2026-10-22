@@ -497,6 +497,27 @@ Test 'corrupt data file is backed up, not fatal' {
     Assert-Eq @($t.items).Count 0
     Assert-True (@(Get-ChildItem (Get-JkHome) -Filter 'todo.json.corrupt-*').Count -eq 1)
 }
+Test 'daily backup before the first change, restore round-trip' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'backup-home'
+    try {
+        Add-JkTodo first item
+        $day = (Get-Date).ToString('yyyy-MM-dd')
+        Assert-True (-not (Test-Path (Join-Path $env:JK_HOME "backups\$day\todo.json"))) 'nothing to back up before the file existed'
+        Add-JkTodo second item
+        $snap = Join-Path $env:JK_HOME "backups\$day\todo.json"
+        Assert-True (Test-Path $snap) 'snapshot taken before the second save'
+        Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText($snap))).items).Count 1
+        Add-JkTodo third item
+        Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText($snap))).items).Count 1 'one snapshot per day'
+        Invoke-JkBackup restore $day todo
+        Assert-Eq @((Get-JkTodoData).items).Count 1 'restored to the start-of-day state'
+        $aside = @(Get-ChildItem (Join-Path $env:JK_HOME 'backups') -Directory | Where-Object { $_.Name -like '*before-restore*' })
+        Assert-Eq $aside.Count 1
+        Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $aside[0].FullName 'todo.json')))).items).Count 3 'current state set aside'
+        Assert-Throws { Invoke-JkBackup restore 1999-01-01 }
+    } finally { $env:JK_HOME = $saved }
+}
 Test 'every view works on a brand-new, empty data folder' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'empty-home'

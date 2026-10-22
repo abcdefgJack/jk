@@ -46,6 +46,46 @@ function Invoke-JkConfig {
     Say (Get-JkConfig $a[0])
 }
 
+# jk backup                 list the daily snapshots
+# jk backup restore <day>   put that day's files back (current ones are set aside first)
+function Invoke-JkBackup {
+    $a = @($args | ForEach-Object { [string]$_ })
+    $root = Join-Path (Get-JkHome) 'backups'
+    $days = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' } | Sort-Object Name -Descending)
+    if ($a.Count -eq 0 -or $a[0] -match '^(list|ls)$') {
+        Write-JkHeader 'Backups' "$($days.Count) day$(if ($days.Count -ne 1) {'s'}) kept (30 max)" -Sub $root
+        if (-not $days) { Say (Paint 'gray' '  none yet - a snapshot is taken before the first change of each day') }
+        foreach ($d in $days) {
+            $files = @(Get-ChildItem -LiteralPath $d.FullName -File | Where-Object { $_.Name -like '*.json' } | ForEach-Object { $_.BaseName })
+            Say ('  ' + (Paint 'white' (Fit $d.Name 12)) + (Paint 'muted' ($files -join ', ')))
+        }
+        if ($days) { Say ''; Say (Paint 'gray' "  jk backup restore $($days[0].Name)   (or one file: jk backup restore $($days[0].Name) deadlines)") }
+        return
+    }
+    if ($a[0] -notmatch '^(restore|undo)$') { throw 'usage: jk backup  |  jk backup restore <yyyy-mm-dd> [deadlines|grades|todo|classes|...]' }
+    if ($a.Count -lt 2) { throw 'which day? see: jk backup' }
+    $dir = Join-Path $root $a[1]
+    if (-not (Test-Path -LiteralPath $dir)) { throw "no backup for '$($a[1])' (see: jk backup)" }
+    $pick = @(Get-ChildItem -LiteralPath $dir -File -Filter '*.json')
+    if ($a.Count -ge 3) {
+        $want = $a[2].ToLower() -replace '\.json$', ''
+        $pick = @($pick | Where-Object { $_.BaseName -eq $want })
+        if (-not $pick) { throw "that day has no $want.json" }
+    }
+    $stamp = (Get-Date).ToString('HHmmss')
+    $aside = Join-Path $root ((Get-Date).ToString('yyyy-MM-dd') + "-before-restore-$stamp")
+    New-Item -ItemType Directory -Path $aside -Force | Out-Null
+    foreach ($f in $pick) {
+        $cur = Get-JkPath $f.Name
+        if (Test-Path -LiteralPath $cur) { Copy-Item -LiteralPath $cur -Destination (Join-Path $aside $f.Name) -Force }
+        Copy-Item -LiteralPath $f.FullName -Destination $cur -Force
+        Say ((Paint 'green' "  restored $($script:G.check)") + "  $($f.Name) from $($a[1])")
+    }
+    Clear-JkBriefCache
+    $script:JkConfigCache = $null
+    Say (Paint 'gray' "  the files you had before are in $aside")
+}
+
 function Get-JkModuleLink { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules\jk' }
 
 # The hook prints the cached one-line brief without loading the module (new shells stay

@@ -65,10 +65,36 @@ function Read-JkJson {
 function Save-JkJson {
     param([string]$Name, $Object)
     $p = Get-JkPath $Name
+    Backup-JkFile $Name
     $json = ConvertTo-Json -InputObject $Object -Depth 12
     $tmp = "$p.tmp"
     [IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding $false))
     Move-Item -LiteralPath $tmp -Destination $p -Force
+}
+
+# Before the first change of the day, the current version of a top-level data file is kept in
+# backups\<yyyy-MM-dd>\ (30 days are kept). `jk backup restore <day>` brings a day back.
+$script:JkBackupFiles = @('deadlines.json', 'classes.json', 'grades.json', 'todo.json', 'focus.json', 'bookmarks.json', 'config.json')
+
+function Backup-JkFile([string]$Name) {
+    if ($script:JkBackupFiles -notcontains $Name) { return }
+    $src = Get-JkPath $Name
+    if (-not (Test-Path -LiteralPath $src)) { return }
+    $day = (Get-Date).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    $dir = Join-Path (Get-JkHome) "backups\$day"
+    $dst = Join-Path $dir $Name
+    if (Test-Path -LiteralPath $dst) { return }
+    try {
+        if (-not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            # a new day's folder is also the moment to drop folders older than 30 days
+            $cut = (Get-Date).AddDays(-30).ToString('yyyy-MM-dd')
+            Get-ChildItem -LiteralPath (Join-Path (Get-JkHome) 'backups') -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -lt $cut } |
+                ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        Copy-Item -LiteralPath $src -Destination $dst -Force
+    } catch { }
 }
 
 function Write-JkText {
