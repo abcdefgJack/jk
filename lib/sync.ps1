@@ -107,8 +107,8 @@ function Invoke-JkDueSync {
         $url = $Source -replace '^(?i)webcal://', 'https://'
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
-        $text = [string]$resp.Content
-        if ($resp.Content -is [byte[]]) { $text = [Text.Encoding]::UTF8.GetString($resp.Content) }
+        # decode the raw bytes as UTF-8 (calendar feeds are UTF-8; PS 5.1 may guess ISO-8859-1)
+        $text = [Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
     } else {
         if (-not (Test-Path -LiteralPath $Source)) { throw "no such file: $Source" }
         $text = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Source).ProviderPath)
