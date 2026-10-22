@@ -242,6 +242,30 @@ Test 'ICS export: valid structure, 75-octet folding, escaping' {
     Assert-Eq (ConvertTo-JkIcsText 'a,b;c\d') 'a\,b\;c\\d'
 }
 
+Test 'jk at: bare hours mean the next such hour, day + time phrases' {
+    $at = { param($words, $now) (Resolve-JkAtTime $words ([datetime]$now)).At.ToString('MM-dd HH:mm') }
+    Assert-Eq (& $at @('5', 'leave') '2026-10-22 14:00') '10-22 17:00' 'afternoon: 5 means 5 pm'
+    Assert-Eq (& $at @('5', 'leave') '2026-10-22 03:00') '10-22 05:00' 'before dawn: 5 means 5 am'
+    Assert-Eq (& $at @('9', 'class') '2026-10-22 22:00') '10-23 09:00' 'late evening: tomorrow 9 am'
+    Assert-Eq (& $at @('3:30pm', 'call') '2026-10-22 14:00') '10-22 15:30'
+    Assert-Eq (& $at @('2pm', 'x') '2026-10-22 14:30') '10-23 14:00' 'explicit pm already past rolls to tomorrow'
+    Assert-Eq (& $at @('tomorrow', '9am', 'submit') '2026-10-22 14:00') '10-23 09:00'
+    Assert-Eq (Resolve-JkAtTime @('tomorrow', '9am', 'submit', 'form') ([datetime]'2026-10-22 14:00')).K 2
+    Assert-Throws { Resolve-JkAtTime @('whenever') ([datetime]'2026-10-22 14:00') }
+}
+Test 'reopen and grade by title text, including finished items' {
+    $d = Get-JkDueData
+    $e = @($d.events | Where-Object { $_.title -eq 'A2A Synchronization' })[0]
+    Set-JkDueDone 'a2a sync'
+    Set-JkDueDone -Undo 'a2a sync'
+    Assert-True (-not @((Get-JkDueData).events | Where-Object { $_.id -eq $e.id })[0].done) 'reopened by text'
+    Set-JkDueDone 'a2a sync'
+    Set-JkGrade 'a2a sync' '9/10'
+    Assert-Eq @((Get-JkGradeData).scores | Where-Object { [string]$_.id -eq [string]$e.id })[0].score 90
+    Set-JkDueDone -Undo $e.id
+    Clear-JkGrade $e.id
+}
+
 Write-Host ''
 Write-Host 'classes' -ForegroundColor Cyan
 Test 'day lists and time ranges' {

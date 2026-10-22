@@ -217,7 +217,8 @@ function Set-JkGrade {
         $label = "$($x[0].title)"
         $courseKey = $x[0].course
     } else {
-        $e = @(Find-JkEvents $due @($key))[0]
+        # marks usually arrive after the item is checked off, so search finished ones too
+        $e = @(Find-JkEvents $due @($key) -Any)[0]
         $key = [string]$e.id
         $gd.scores = @($gd.scores | Where-Object { [string]$_.id -ne $key }) + [pscustomobject]@{ id = $key; score = $pct }
         $label = "$(Get-JkCourseLabel $e (Get-JkCourseMap $due)) $($e.title)"

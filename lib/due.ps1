@@ -102,7 +102,7 @@ function New-JkEvent {
 }
 
 function Find-JkEvents {
-    param($Data, [string[]]$Refs)
+    param($Data, [string[]]$Refs, [switch]$DoneOnly, [switch]$Any)
     $out = @()
     foreach ($r in $Refs) {
         if ($r -match '^#?(\d+)$') {
@@ -111,8 +111,9 @@ function Find-JkEvents {
             if (-not $e) { throw "no deadline with id #$id (see 'jk due all')" }
             $out += $e
         } else {
-            $hits = @($Data.events | Where-Object { -not $_.done -and ([string]$_.title).ToLower().Contains($r.ToLower()) })
-            if ($hits.Count -eq 0) { throw "no open deadline matches '$r'" }
+            # text matches look at open items, or at finished ones when reopening
+            $hits = @($Data.events | Where-Object { ($Any -or [bool]$_.done -eq [bool]$DoneOnly) -and ([string]$_.title).ToLower().Contains($r.ToLower()) })
+            if ($hits.Count -eq 0) { throw "no $(if ($DoneOnly) { 'finished' } else { 'open' }) deadline matches '$r'" }
             if ($hits.Count -gt 1) {
                 # prefer the single upcoming match over ones whose time already passed
                 $now = Get-JkNow
@@ -487,7 +488,7 @@ function Set-JkDueDone {
     if (-not $Refs) { throw 'usage: jk due done <id|text> [...]' }
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
-    $hits = Find-JkEvents $data $Refs
+    $hits = Find-JkEvents $data $Refs -DoneOnly:$Undo
     foreach ($e in $hits) {
         if ($Undo) { $e.done = $false; Set-JkProp $e 'doneAt' $null }
         else { $e.done = $true; Set-JkProp $e 'doneAt' ((Get-JkNow).ToString('s', $script:Inv)) }
