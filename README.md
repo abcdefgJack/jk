@@ -44,6 +44,7 @@ data stays in `~\.jk`.
 | School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick cs341 003` adds a section from the catalog; `jk class import` reads Quest's List View |
 | | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
+| | `jk due sync "<LEARN feed link>"` | Pulls deadlines from LEARN's calendar feed (or any `.ics`); re-syncs update moved dates, and the morning task syncs daily |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
 | | `jk plan` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight and days left; starts the next 25-minute block |
@@ -94,7 +95,8 @@ data stays in `~\.jk`.
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
 ```
 
-The tests use a throwaway data folder and a pinned clock. Source files must stay pure ASCII,
+The tests use a throwaway data folder and a pinned clock. CI runs them twice on GitHub's Windows runners,
+in UTC and in Pacific time, so nothing can quietly depend on the machine's time zone. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build
 non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`). The suite also lints for
 two PowerShell traps: `'a', 'b' + $c` (comma binds tighter than `+`) and helper calls that get

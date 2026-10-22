@@ -375,6 +375,99 @@ Test 'plan schedule: nothing after due, soon items get a block, budget respected
 }
 
 Write-Host ''
+Write-Host 'calendar feed sync' -ForegroundColor Cyan
+$feedText = @(
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//D2L//LEARN//EN',
+    'BEGIN:VEVENT', 'UID:d2l-1001', 'SUMMARY:Assignment 4 - Due',
+    'DESCRIPTION:CS 350 - Operating Systems (Fall 2026)\, see LEARN', 'DTSTART:20261202T010000Z', 'DTEND:20261202T010000Z',
+    'BEGIN:VALARM', 'DESCRIPTION:this alarm text must not replace the event description', 'TRIGGER:-PT15M', 'END:VALARM',
+    'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:d2l-1002', 'SUMMARY:CS 341: Midterm 3 - Due', 'DTSTART;TZID=America/Toronto:20261130T190000',
+    'DTEND;TZID=America/Toronto:20261130T205000', 'LOCATION:PAC 1', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:d2l-1003', 'SUMMARY:STAT 231 Project proposal - Due with a very long title that the server', ' folds onto a second line', 'DTSTART;VALUE=DATE:20261204', 'DTEND;VALUE=DATE:20261205', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:d2l-1004', 'SUMMARY:Quiz 7 - Availability Starts', 'DTSTART:20261110T130000Z', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:d2l-1005', 'SUMMARY:CO 367 LEC', 'DTSTART:20261027T083000', 'DTEND:20261027T095000', 'RRULE:FREQ=WEEKLY;BYDAY=TU,TH', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:d2l-1006', 'SUMMARY:Old thing - Due', 'DTSTART:20250101T120000Z', 'END:VEVENT',
+    'END:VCALENDAR') -join "`r`n"
+# Expected local time for a Toronto wall-clock time, whatever zone the test machine is in.
+function global:Get-TorontoAsLocal([string]$When) {
+    $t = [datetime]::ParseExact($When, 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+    [TimeZoneInfo]::ConvertTime($t, [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time'), [TimeZoneInfo]::Local)
+}
+Test 'ics parsing: folding, alarms, time zones, all-day, recurrence' {
+    $evs = @(ConvertFrom-JkIcs $feedText)
+    Assert-Eq $evs.Count 6
+    Assert-Eq $evs[0].Description 'CS 350 - Operating Systems (Fall 2026), see LEARN' 'alarm text kept out, \, unescaped'
+    Assert-Eq ($evs[1].Start.When.ToString('yyyy-MM-dd HH:mm')) ((Get-TorontoAsLocal '2026-11-30 19:00').ToString('yyyy-MM-dd HH:mm')) 'TZID America/Toronto converted to local'
+    $z = [datetime]::SpecifyKind([datetime]'2026-12-02 01:00', 'Utc').ToLocalTime()
+    Assert-Eq ($evs[0].Start.When.ToString('yyyy-MM-dd HH:mm')) ($z.ToString('yyyy-MM-dd HH:mm')) 'UTC converted to local'
+    Assert-True $evs[2].Start.AllDay
+    Assert-True $evs[2].Summary.EndsWith('folds onto a second line') 'folded line joined'
+    Assert-True $evs[4].Recurring
+    $utc = $evs[0].Start.When
+    Assert-Eq $utc.Kind 'Local' 'UTC times converted to local'
+}
+Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dates' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'sync-home'
+    try {
+        $f = Join-Path $saved 'feed.ics'
+        [IO.File]::WriteAllText($f, $feedText)
+        Invoke-JkDueSync $f
+        $d = Get-JkDueData
+        Assert-Eq @($d.events).Count 3 'starts marker, weekly class and the year-old item are skipped'
+        $a4 = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1001' })[0]
+        Assert-Eq $a4.course 'cs350' 'course found in the description'
+        Assert-Eq $a4.title 'Assignment 4'
+        $m3 = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0]
+        $m3when = Get-TorontoAsLocal '2026-11-30 19:00'
+        Assert-Eq "$($m3.course) $($m3.title) $($m3.kind) $($m3.date) $($m3.time)" "cs341 Midterm 3 exam $($m3when.ToString('yyyy-MM-dd')) $($m3when.ToString('HH:mm'))"
+        $p = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Assert-Eq "$($p.course) $($p.time)" 'stat231 ' 'new course created; all-day has no time'
+        Set-JkDueDone $a4.id
+        Invoke-JkDueSync $f
+        Assert-Eq @((Get-JkDueData).events).Count 3 're-sync adds nothing'
+        [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000'))
+        Invoke-JkDueSync $f
+        $d2 = Get-JkDueData
+        Assert-Eq @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0].date ((Get-TorontoAsLocal '2026-12-01 19:00').ToString('yyyy-MM-dd')) 'moved date updated in place'
+        Assert-True @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1001' })[0].done 'done mark survives a sync'
+        # your own edits survive re-syncs until the feed changes that item
+        $proj = @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Edit-JkDue $proj.id -Time 5pm -Title 'Proposal (renamed by me)'
+        [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000'))
+        Invoke-JkDueSync $f
+        $p2 = @((Get-JkDueData).events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Assert-Eq "$($p2.title) $($p2.time)" 'Proposal (renamed by me) 17:00' 'unchanged feed keeps your edits'
+        [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000').Replace('DTSTART;VALUE=DATE:20261204', 'DTSTART;VALUE=DATE:20261206'))
+        Invoke-JkDueSync $f
+        $p3 = @((Get-JkDueData).events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
+        Assert-Eq $p3.date '2026-12-06' 'a moved date in the feed still wins'
+        Assert-Throws { Invoke-JkDueSync (Join-Path $saved 'nope.ics') }
+    } finally { $env:JK_HOME = $saved }
+}
+Test 'sync round trip: jk''s own ics export reproduces the deadlines' {
+    $saved = $env:JK_HOME
+    $out = Join-Path $saved 'roundtrip.ics'
+    Export-JkDueIcs -Out $out -NoClasses
+    $orig = @((Get-JkDueData).events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge (Get-JkNow).Date.AddDays(-7) })
+    $env:JK_HOME = Join-Path $saved 'roundtrip-home'
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        $d.events = @(); Save-JkDueData $d
+        Invoke-JkDueSync $out
+        $back = @((Get-JkDueData).events)
+        Assert-Eq $back.Count $orig.Count 'same number of items'
+        foreach ($o in $orig) {
+            $b = @($back | Where-Object { $_.course -eq $o.course -and $_.title -eq $o.title })
+            Assert-Eq $b.Count 1 "found $($o.course) $($o.title)"
+            Assert-Eq "$($b[0].date) $($b[0].time) $($b[0].weight)" "$($o.date) $($o.time) $($o.weight)" "$($o.title)"
+        }
+    } finally { $env:JK_HOME = $saved }
+}
+
+Write-Host ''
 Write-Host 'grades' -ForegroundColor Cyan
 Test 'percent parsing' {
     Assert-Eq (ConvertTo-JkPercent '17/20') 85

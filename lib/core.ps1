@@ -136,6 +136,7 @@ $script:JkConfigDefaults = [ordered]@{
     'plan.examMin'  = '15'        # prep minutes per percent of grade, exams
     'plan.dueMin'   = '30'        # work minutes per percent of grade, assignments
     'repos.roots'   = (Join-Path $HOME 'Desktop')
+    'sync.url'      = ''          # calendar feed for jk due sync (LEARN > Calendar > Subscribe)
 }
 
 # Config is read once per `jk` call (the dispatcher clears the cache); Set-JkConfig refreshes it.
