@@ -125,6 +125,7 @@ $script:JkConfigDefaults = [ordered]@{
     'theme'         = 'dark'      # dark | light (terminal background)
     'remind.time'   = '08:30'
     'remind.hours'  = '48'
+    'alert.before'  = '2h'        # popup this long before graded items due today (off to disable)
     'cp.root'       = (Join-Path $HOME 'Desktop\cp')
     'cp.lang'       = 'cpp'
     'cp.std'        = 'c++20'
