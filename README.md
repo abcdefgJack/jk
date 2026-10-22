@@ -27,6 +27,9 @@ gh repo clone abcdefgJack/jk "$HOME\Desktop\jk"
 powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\jk\install.ps1"
 ```
 
+Your data (deadlines, classes, grades and the rest) lives in `~\.jk` and is not in the repo. Copy that
+folder over to bring it along.
+
 Install links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` autoloads in
 every new shell. It also adds a one-line summary to your profile and registers a morning
 brief popup: today's remaining classes plus anything due within 48 hours. It runs at 7:45 am
