@@ -416,6 +416,18 @@ function Test-JkClassOverlap($A, $B) {
     ([string]$A.start -lt [string]$B.end) -and ([string]$B.start -lt [string]$A.end)
 }
 
+# Course codes in the catalog that have no lecture on the timetable yet (drives the dashboard nudge).
+function Get-JkUnpickedCourses {
+    $cat = @(Get-JkSectionCatalog)
+    if (-not $cat) { return @() }
+    $mine = @((Get-JkClassData).items)
+    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+    @($cat | Where-Object { $_.kind -eq 'LEC' } | ForEach-Object { $_.course } | Select-Object -Unique | Where-Object {
+            $k = $_
+            -not @($mine | Where-Object { $_.course -eq $k -and $_.kind -eq 'LEC' }).Count
+        } | ForEach-Object { Format-JkClassLabel ([pscustomobject]@{ course = $_; kind = '' }) $cmap })
+}
+
 function Show-JkSectionCatalog {
     $cat = @(Get-JkSectionCatalog)
     $mine = @((Get-JkClassData).items)

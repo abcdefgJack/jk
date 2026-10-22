@@ -172,7 +172,11 @@ function Show-JkDashboard {
     Say ('  ' + ($sysBits -join (Paint 'gray' "  $($script:G.dot)  ")))
 
     Say ''
-    if ($now.DayOfWeek -eq 'Sunday') {
+    $unpicked = @()
+    try { $unpicked = @(Get-JkUnpickedCourses) } catch { }
+    if ($unpicked.Count) {
+        Say ('  ' + (Paint 'cyan' "$($script:G.star) add your class sections") + (Paint 'gray' " ($($unpicked -join ', ') not on your timetable yet)  $($script:G.arrow) ") + (Paint 'cyan' 'jk class pick'))
+    } elseif ($now.DayOfWeek -eq 'Sunday') {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) Sunday: ") + (Paint 'white' 'look back at the week and plan the next one') + (Paint 'gray' "  $($script:G.arrow) jk review"))
     } else {
         $tip = $script:JkTips[(Get-Random -Maximum $script:JkTips.Count)]
