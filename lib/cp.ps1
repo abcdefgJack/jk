@@ -334,14 +334,16 @@ function Invoke-JkCpTest {
         $v = Get-JkVerdictText $res $tms
         $stats = Paint 'gray' ("{0,6} ms  {1,6} MB" -f $res.Ms, $res.PeakMB)
         if (-not $v) {
-            if ($t.Ans) {
-                $cmp = Compare-JkOutput ([IO.File]::ReadAllText($t.Ans)) $res.Out
+            $expected = $null
+            if ($t.Ans) { $expected = [IO.File]::ReadAllText($t.Ans); if (-not $expected.Trim()) { $expected = $null } }
+            if ($null -ne $expected) {
+                $cmp = Compare-JkOutput $expected $res.Out
                 if ($cmp.Ok) { $v = @('PASS', 'bold green', '') } else { $v = @('WA', 'bold red', "token $($cmp.Index + 1): expected '$($cmp.Expected)', got '$($cmp.Got)'") }
-            } else { $v = @('RAN', 'bold cyan', 'no expected output file') }
+            } else { $v = @('RAN', 'bold cyan', 'no expected output yet') }
         }
         if ($v[0] -eq 'PASS') { $pass++ }
         Say ('  ' + (Paint $v[1] (Fit $v[0] 5)) + ' ' + (Paint 'white' (Fit $t.Name 14)) + $stats + '  ' + (Paint 'muted' $v[2]))
-        if ($v[0] -eq 'WA') { Write-JkSideBySide ([IO.File]::ReadAllText($t.Ans)) $res.Out }
+        if ($v[0] -eq 'WA') { Write-JkSideBySide $expected $res.Out }
         if ($v[0] -eq 'RAN') {
             foreach ($l in (@($res.Out.TrimEnd() -split "`r?`n") | Select-Object -First 15)) { Say ('      ' + $l) }
         }
@@ -412,6 +414,14 @@ function Open-JkInEditor([string]$Path) {
     try { & $cmd.Source $Path | Out-Null } catch { Say (Paint 'gray' "  could not open $ed") }
 }
 
+# Clipboard text with a short retry (another app may briefly hold the clipboard open).
+function Get-JkClipboardText {
+    for ($i = 0; $i -lt 4; $i++) {
+        try { return [string](Get-Clipboard -Raw -ErrorAction Stop) } catch { Start-Sleep -Milliseconds 120 }
+    }
+    throw 'could not read the clipboard (another app may be holding it) - try again'
+}
+
 # Saves the clipboard as the next sample: N.in, then (after you copy it) N.out.
 function Add-JkCpTest {
     param([switch]$In, [switch]$Out, [string]$Name)
@@ -422,7 +432,7 @@ function Add-JkCpTest {
         $n = $Name
         if (-not $n) { $n = [string](($existing | Measure-Object -Maximum).Maximum) }
         if (-not $n) { throw 'no N.in yet; run jk cp add first' }
-        Write-JkText (Join-Path $dir "$n.out") (& $norm (Get-Clipboard -Raw))
+        Write-JkText (Join-Path $dir "$n.out") (& $norm (Get-JkClipboardText))
         Say ((Paint 'green' "  saved $n.out $($script:G.check)"))
         return
     }
@@ -432,7 +442,7 @@ function Add-JkCpTest {
         # reuse an empty N.in (the template's 1.in) before creating a new number
         while ((Test-Path (Join-Path $dir "$n.in")) -and ((Get-Item (Join-Path $dir "$n.in")).Length -gt 0)) { $n++ }
     }
-    $clip = Get-Clipboard -Raw
+    $clip = Get-JkClipboardText
     if (-not $clip -or -not $clip.Trim()) { throw 'the clipboard is empty - copy the sample input first' }
     Write-JkText (Join-Path $dir "$n.in") (& $norm $clip)
     $lines = @($clip.Trim() -split "`r?`n").Count
@@ -442,7 +452,7 @@ function Add-JkCpTest {
     Write-Host (Paint 'cyan' '  now copy the expected output and press Enter (or type s to skip) ') -NoNewline
     $ans = Read-Host
     if ($ans -match '^s') { return }
-    $clip2 = Get-Clipboard -Raw
+    $clip2 = Get-JkClipboardText
     if ($clip2 -eq $clip) { Say (Paint 'yellow' '  clipboard still holds the input - skipped the .out (run: jk cp add -Out)'); return }
     Write-JkText (Join-Path $dir "$n.out") (& $norm $clip2)
     Say ((Paint 'green' "  saved $n.out $($script:G.check)"))

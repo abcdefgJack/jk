@@ -292,6 +292,8 @@ function Show-JkDue {
     if ($evs.Count -eq 0) {
         Say (Paint 'green' "  Nothing due in the next $Days days. $($script:G.check)")
     }
+    # the "time left" column only appears when something is actually within 48 hours
+    $useCountdown = @($evs | Where-Object { ((Get-JkEventDue $_) - $now).TotalHours -le 48 }).Count -gt 0
     $lastDay = $null
     foreach ($e in $evs) {
         $day = (Get-JkEventDue $e).Date
@@ -300,7 +302,7 @@ function Show-JkDue {
             Write-JkDayHeader $day $now $info
             $lastDay = $day
         }
-        Say (Format-JkDueLine $e $cmap $w -Countdown -Now $now)
+        Say (Format-JkDueLine $e $cmap $w -Countdown:$useCountdown -Now $now)
     }
     $later = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $horizon }).Count
     Say ''

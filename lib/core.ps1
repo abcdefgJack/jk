@@ -139,9 +139,10 @@ function Set-JkConfig {
 # ---------------------------------------------------------------- color & layout
 
 function Test-JkColor {
-    if ($env:NO_COLOR) { return $false }
+    # the explicit JK_COLOR wins over the generic NO_COLOR convention
     if ($env:JK_COLOR -eq 'always') { return $true }
     if ($env:JK_COLOR -eq 'never') { return $false }
+    if ($env:NO_COLOR) { return $false }
     try { if ([Console]::IsOutputRedirected) { return $false } } catch { }
     [bool]$Host.UI.SupportsVirtualTerminal
 }

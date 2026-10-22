@@ -313,6 +313,23 @@ Test 'source discovery prefers main over brute/gen' {
     Assert-Eq (Get-JkCpSource -Dir $dir).Name 'main.cpp'
     Assert-Eq (Find-JkCpHelper 'brute|naive' $dir).Name 'brute.cpp'
 }
+Test 'cp add: clipboard to numbered samples, CRLF normalized, empty template reused' {
+    $dir = Join-Path $env:JK_HOME 'cp-add'
+    New-Item -ItemType Directory $dir -Force | Out-Null
+    Set-Content (Join-Path $dir '1.in') -Value '' -NoNewline
+    Push-Location $dir
+    try {
+        function script:Get-JkClipboardText { $script:FakeClip }
+        $script:FakeClip = "3`r`n1 2 3`r`n"; Add-JkCpTest -In
+        $script:FakeClip = '6'; Add-JkCpTest -Out
+        $script:FakeClip = "2`r`n10 20"; Add-JkCpTest -In
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $dir '1.in'))) "3`n1 2 3`n"
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $dir '1.out'))) "6`n"
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $dir '2.in'))) "2`n10 20`n"
+        $script:FakeClip = '   '
+        Assert-Throws { Add-JkCpTest -In } 'empty clipboard is rejected'
+    } finally { Pop-Location }
+}
 if (Get-Command g++ -ErrorAction SilentlyContinue) {
     Test 'compile, run, PASS/WA/RTE end to end (g++)' {
         $dir = Join-Path $env:JK_HOME 'cp-e2e'
