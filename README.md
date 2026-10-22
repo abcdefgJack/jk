@@ -95,7 +95,8 @@ data stays in `~\.jk`.
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
 ```
 
-The tests use a throwaway data folder and a pinned clock. Source files must stay pure ASCII,
+The tests use a throwaway data folder and a pinned clock. CI runs them twice on GitHub's Windows runners,
+in UTC and in Pacific time, so nothing can quietly depend on the machine's time zone. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build
 non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`). The suite also lints for
 two PowerShell traps: `'a', 'b' + $c` (comma binds tighter than `+`) and helper calls that get
