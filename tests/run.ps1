@@ -314,6 +314,29 @@ Test 'meetings skip breaks and holidays; next class' {
     Show-JkClasses; Show-JkTimetable; Show-JkClassList
 }
 
+Test 'section catalog: pick adds meetings, skips duplicates, flags clashes' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'pick-home'
+    try {
+        Import-JkDueHtml $htmlPath
+        $mk = { param($course, $kind, $section, $days, $start, $end, $room) [pscustomobject]@{ course = $course; kind = $kind; section = $section; days = @($days); start = $start; end = $end; room = $room } }
+        Save-JkJson 'sections.json' ([pscustomobject]@{ items = @(
+                    (& $mk 'cs350' 'LEC' '001' @('Tue', 'Thu') '10:00' '11:20' 'MC 4040'),
+                    (& $mk 'cs350' 'LEC' '002' @('Tue', 'Thu') '13:00' '14:20' 'MC 4040'),
+                    (& $mk 'health' 'LEC' '081' @('Tue') '10:30' '11:00' 'online')) })
+        Select-JkSections cs350 1
+        Select-JkSections cs350 001
+        $items = @((Get-JkClassData).items)
+        Assert-Eq $items.Count 1 'second pick of the same section is skipped'
+        Assert-Eq "$($items[0].start)-$($items[0].end) $($items[0].room)" '10:00-11:20 MC 4040'
+        Assert-True (Test-JkClassOverlap $items[0] ([pscustomobject]@{ days = @('Tue'); start = '10:30'; end = '11:00' })) 'overlap detected'
+        Assert-True (-not (Test-JkClassOverlap $items[0] ([pscustomobject]@{ days = @('Wed'); start = '10:30'; end = '11:00' }))) 'different day is no clash'
+        Assert-Throws { Select-JkSections cs350 009 }
+        Assert-Throws { Select-JkSections cs350 }
+        Show-JkSectionCatalog
+    } finally { $env:JK_HOME = $saved }
+}
+
 Write-Host ''
 Write-Host 'study plan' -ForegroundColor Cyan
 Test 'plan items: weights to effort, exam windows once, focus subtracts' {

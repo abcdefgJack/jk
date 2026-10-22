@@ -74,7 +74,7 @@ function Save-JkJson {
 
 # Before the first change of the day, the current version of a top-level data file is kept in
 # backups\<yyyy-MM-dd>\ (30 days are kept). `jk backup restore <day>` brings a day back.
-$script:JkBackupFiles = @('deadlines.json', 'classes.json', 'grades.json', 'todo.json', 'focus.json', 'bookmarks.json', 'config.json')
+$script:JkBackupFiles = @('deadlines.json', 'classes.json', 'sections.json', 'grades.json', 'todo.json', 'focus.json', 'bookmarks.json', 'config.json')
 
 function Backup-JkFile([string]$Name) {
     if ($script:JkBackupFiles -notcontains $Name) { return }

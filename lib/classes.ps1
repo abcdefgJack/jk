@@ -400,6 +400,72 @@ function Import-JkClasses {
     }
 }
 
+# ---------------------------------------------------------------- section catalog
+
+# sections.json lists every section of your courses (from the outlines); `jk class pick`
+# turns the ones you are in into weekly meetings without retyping days, times and rooms.
+function Get-JkSectionCatalog {
+    $d = Read-JkJson 'sections.json' $null
+    if (-not $d -or $null -eq (Get-JkProp $d 'items')) { return @() }
+    @($d.items)
+}
+
+function Test-JkClassOverlap($A, $B) {
+    $shared = @(@($A.days) | Where-Object { @($B.days) -contains $_ })
+    if (-not $shared) { return $false }
+    ([string]$A.start -lt [string]$B.end) -and ([string]$B.start -lt [string]$A.end)
+}
+
+function Show-JkSectionCatalog {
+    $cat = @(Get-JkSectionCatalog)
+    $mine = @((Get-JkClassData).items)
+    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+    Write-JkHeader 'Sections' "$($cat.Count) in the catalog" -Sub 'pick the ones you are enrolled in'
+    if (-not $cat) { Say (Paint 'gray' "  no catalog yet ($(Get-JkPath 'sections.json'))"); return }
+    foreach ($g in ($cat | Group-Object course)) {
+        $code = Format-JkClassLabel ([pscustomobject]@{ course = $g.Name; kind = '' }) $cmap
+        Say (' ' + (Paint "bold #$(Get-JkCourseColor $g.Name $cmap)" $code))
+        foreach ($s in ($g.Group | Sort-Object @{ Expression = { if ($_.kind -eq 'LEC') { 0 } else { 1 } } }, section)) {
+            $picked = @($mine | Where-Object { $_.course -eq $s.course -and $_.kind -eq $s.kind -and $_.start -eq $s.start -and ((@($_.days) -join ',') -eq (@($s.days) -join ',')) }).Count -gt 0
+            $clash = @($mine | Where-Object { $_.course -ne $s.course -and (Test-JkClassOverlap $_ $s) } | ForEach-Object { Format-JkClassLabel $_ $cmap })
+            $state = ''
+            if ($picked) { $state = Paint 'green' "$($script:G.check) yours" }
+            elseif ($clash) { $state = Paint 'orange' "clashes with $($clash -join ', ')" }
+            $time = (Format-JkTime $s.start) + ' ' + $script:G.dash + ' ' + (Format-JkTime $s.end)
+            Say ('   ' + (Paint 'white' (Fit "$($s.kind) $($s.section)" 9)) + (Paint 'muted' (Fit ((@($s.days) -join ' ')) 9)) + (Paint 'white' (Fit $time 22)) + (Paint 'gray' (Fit ([string]$s.room) 10)) + $state)
+        }
+    }
+    Say ''
+    Say (Paint 'gray' "  jk class pick cs341 003 cs350 002 cs370 001   (course and section pairs; labs too: cs341 101)")
+}
+
+function Select-JkSections {
+    $a = @($args | ForEach-Object { [string]$_ })
+    if ($a.Count -eq 0) { Show-JkSectionCatalog; return }
+    if ($a.Count % 2 -ne 0) { throw 'give course and section pairs: jk class pick cs341 003 cs350 002' }
+    $cat = @(Get-JkSectionCatalog)
+    if (-not $cat) { throw "no section catalog ($(Get-JkPath 'sections.json'))" }
+    $due = Get-JkDueData
+    $cmap = Get-JkCourseMap $due
+    $d = Get-JkClassData
+    for ($i = 0; $i -lt $a.Count; $i += 2) {
+        $c = Resolve-JkCourse $due $a[$i]
+        if (-not $c) { throw "unknown course '$($a[$i])'" }
+        $sec = $a[$i + 1].PadLeft(3, '0')
+        $s = @($cat | Where-Object { $_.course -eq $c.key -and [string]$_.section -eq $sec })
+        if (-not $s) { throw "no section $sec of $($c.code) in the catalog (see: jk class pick)" }
+        $s = $s[0]
+        $dup = @($d.items | Where-Object { $_.course -eq $s.course -and $_.kind -eq $s.kind -and $_.start -eq $s.start -and ((@($_.days) -join ',') -eq (@($s.days) -join ',')) })
+        if ($dup) { Say (Paint 'gray' "  already there: $($c.code) $($s.kind) $sec"); continue }
+        $clash = @($d.items | Where-Object { $_.course -ne $s.course -and (Test-JkClassOverlap $_ $s) } | ForEach-Object { Format-JkClassLabel $_ $cmap })
+        $item = [pscustomobject][ordered]@{ id = [int]$d.nextId; course = $s.course; kind = $s.kind; days = @($s.days); start = $s.start; end = $s.end; room = [string]$s.room; from = ''; to = '' }
+        $d.nextId = [int]$d.nextId + 1
+        $d.items = @($d.items) + $item
+        Say ((Paint 'green' "  added $($script:G.check)") + "  #$($item.id) $($c.code) $($s.kind) $sec  $(@($s.days) -join ' ')  $(Format-JkTime $s.start) $($script:G.dash) $(Format-JkTime $s.end)  $($s.room)" + $(if ($clash) { Paint 'orange' "  (clashes with $($clash -join ', '))" } else { '' }))
+    }
+    Save-JkClassData $d
+}
+
 function Invoke-JkClass {
     $a = @($args)
     if ($a.Count -eq 0) { Show-JkClasses; return }
@@ -412,6 +478,7 @@ function Invoke-JkClass {
         '^(add|new|\+)$' { Add-JkClass @rest; return }
         '^(rm|remove|del|delete)$' { Remove-JkClass @rest; return }
         '^(import|quest)$' { Import-JkClasses @rest; return }
+        '^(pick|sections|section)$' { Select-JkSections @rest; return }
         '^(next)$' {
             $n = Get-JkNextClass
             if (-not $n) { Say (Paint 'gray' '  no upcoming classes'); return }
