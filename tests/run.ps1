@@ -328,6 +328,20 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
         $script:JkConfigCache = $null
     }
 }
+Test 'morning brief: once per 3 hours, and a future stamp never silences it' {
+    $orig = ${function:Show-JkNotify}
+    $script:BriefCalls = 0
+    function script:Show-JkNotify { $script:BriefCalls++; 'stub' }
+    try {
+        Save-JkJson 'state.json' ([pscustomobject]@{ lastRemind = '2026-10-22T12:30:00' })
+        Invoke-JkDueRemind -Quiet -Hours 200
+        Assert-Eq $script:BriefCalls 0 'reminded 90 minutes ago'
+        Save-JkJson 'state.json' ([pscustomobject]@{ lastRemind = '2026-10-28T07:45:00' })
+        Invoke-JkDueRemind -Quiet -Hours 200
+        Assert-Eq $script:BriefCalls 1 'a stamp from the future is ignored'
+        Assert-Eq (Read-JkJson 'state.json' $null).lastRemind '2026-10-22T14:00:00' 'and replaced with now'
+    } finally { Set-Item function:script:Show-JkNotify $orig }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

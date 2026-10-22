@@ -902,7 +902,8 @@ function Invoke-JkDueRemind {
     $last = Get-JkProp $state 'lastRemind'
     if (-not $Force -and $last) {
         $lastDt = [datetime]::Parse([string]$last, $script:Inv)
-        if (($now - $lastDt).TotalHours -lt 3) { if (-not $Quiet) { Say (Paint 'gray' '  reminded less than 3h ago; use -Force') }; return }
+        # a stamp from the future (clock change, pinned test clock) must not silence the brief
+        if ($lastDt -le $now -and ($now - $lastDt).TotalHours -lt 3) { if (-not $Quiet) { Say (Paint 'gray' '  reminded less than 3h ago; use -Force') }; return }
     }
     $soon = @(Get-JkDueSoon -Hours $Hours)
     # the rest of today's classes ride along, so the morning popup doubles as a day brief
