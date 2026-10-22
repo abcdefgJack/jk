@@ -20,7 +20,14 @@ jk help       # every command;  jk help <command> for examples
 powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\jk\install.ps1"
 ```
 
-This links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` autoloads in
+On another PC, clone it first:
+
+```powershell
+gh repo clone abcdefgJack/jk "$HOME\Desktop\jk"
+powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\jk\install.ps1"
+```
+
+Install links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` autoloads in
 every new shell. It also adds a one-line summary to your profile and registers a morning
 brief popup: today's remaining classes plus anything due within 48 hours. It runs at 7:45 am
 (`jk config set remind.time 8am` changes that), or as soon as the PC wakes if it was asleep,
