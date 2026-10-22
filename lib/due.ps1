@@ -5,7 +5,21 @@ $script:CourseColors = @('F87171', '7C9CF8', '4FD1BE', 'B79BF6', 'F2B04A', 'F472
 
 # ---------------------------------------------------------------- data
 
+# -Cached returns a shared copy that is reused while the file is unchanged (path, mtime and
+# size match). Only read-only callers use it; anything that edits gets a fresh object.
+$script:JkDueCache = $null
+
 function Get-JkDueData {
+    param([switch]$Cached)
+    if ($Cached) {
+        $p = Get-JkPath 'deadlines.json'
+        $stamp = "$p|none"
+        if (Test-Path -LiteralPath $p) { $fi = Get-Item -LiteralPath $p; $stamp = "$p|$($fi.LastWriteTimeUtc.Ticks)|$($fi.Length)" }
+        if ($script:JkDueCache -and $script:JkDueCache.Stamp -eq $stamp) { return $script:JkDueCache.Data }
+        $fresh = Get-JkDueData
+        $script:JkDueCache = @{ Stamp = $stamp; Data = $fresh }
+        return $fresh
+    }
     $d = Read-JkJson 'deadlines.json' $null
     if (-not $d) {
         $d = [pscustomobject]@{ version = 1; term = $null; courses = @(); events = @(); nextId = 1 }
@@ -22,6 +36,7 @@ function Save-JkDueData($Data) {
     $Data.courses = @($Data.courses)
     $Data.events = @($Data.events | Sort-Object date, time, id)
     Save-JkJson 'deadlines.json' $Data
+    $script:JkDueCache = $null
     Clear-JkBriefCache
     # keep an already-generated calendar page current (the reminder popup links to it)
     if (Test-Path -LiteralPath (Get-JkPath 'calendar.html')) { try { Export-JkDueHtml -NoOpen -Quiet } catch { } }

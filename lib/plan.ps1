@@ -9,7 +9,7 @@ $script:PlanBlock = 25
 
 function Get-JkPlanItems {
     param([datetime]$Now = (Get-JkNow), [int]$HorizonDays = 14)
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $fd = Get-JkFocusData
     $examPer = [double](Get-JkConfig 'plan.examMin')
     $duePer = [double](Get-JkConfig 'plan.dueMin')
@@ -29,19 +29,21 @@ function Get-JkPlanItems {
         }
     }
     $items = @($groups.Values)
+    # resolve each session's course once (labels repeat a lot)
+    $sessions = foreach ($s in @($fd.sessions)) {
+        $first = ([string]$s.label -split '\s+')[0]
+        if (-not $first) { continue }
+        $c = Resolve-JkCourse $data $first
+        if ($c) { [pscustomobject]@{ Course = $c.key; Start = [datetime]::Parse([string]$s.start, $script:Inv); Minutes = [double]$s.actual } }
+    }
     # focus already logged on a course since two weeks before an item counts toward it,
     # shared between that course's items in proportion to their effort
     foreach ($course in ($items | Group-Object Course)) {
         $courseItems = @($course.Group)
         $since = ($courseItems | ForEach-Object { $_.Due.AddDays(-14) } | Measure-Object -Minimum).Minimum
         $logged = 0.0
-        foreach ($s in @($fd.sessions)) {
-            $start = [datetime]::Parse([string]$s.start, $script:Inv)
-            if ($start -lt $since -or $start -gt $Now) { continue }
-            $first = ([string]$s.label -split '\s+')[0]
-            if (-not $first) { continue }
-            $c = Resolve-JkCourse $data $first
-            if ($c -and $c.key -eq $course.Name) { $logged += [double]$s.actual }
+        foreach ($s in @($sessions)) {
+            if ($s.Course -eq $course.Name -and $s.Start -ge $since -and $s.Start -le $Now) { $logged += $s.Minutes }
         }
         $total = ($courseItems | Measure-Object -Property Effort -Sum).Sum
         foreach ($it in $courseItems) { if ($total -gt 0) { $it.Done = [Math]::Min($it.Effort, $logged * $it.Effort / $total) } }
@@ -55,7 +57,8 @@ function Get-JkPlanItems {
 function Get-JkPlanSchedule {
     param($Items, [datetime]$Now = (Get-JkNow), [int]$Days = 7, [double]$BudgetMin = 180, [double]$TodayLeftFraction = 1.0)
     $remaining = @{}
-    foreach ($it in $Items) { $remaining[$it.Key] = [Math]::Max(0, $it.Effort - $it.Done) }
+    $byKey = @{}
+    foreach ($it in $Items) { $remaining[$it.Key] = [Math]::Max(0, $it.Effort - $it.Done); $byKey[$it.Key] = $it }
     $sched = @()
     for ($d = 0; $d -lt $Days; $d++) {
         $day = $Now.Date.AddDays($d)
@@ -74,7 +77,7 @@ function Get-JkPlanSchedule {
         if ($sum -gt $budget -and $sum -gt 0) { $scale = $budget / $sum }
         $alloc = @{}
         foreach ($k in $asks.Keys) {
-            $it = @($Items | Where-Object { $_.Key -eq $k })[0]
+            $it = $byKey[$k]
             $m = [Math]::Round($asks[$k] * $scale / $script:PlanBlock) * $script:PlanBlock
             if ($m -lt $script:PlanBlock -and ($it.Due.Date - $day).TotalDays -le 2) { $m = $script:PlanBlock }
             $m = [Math]::Min($m, [Math]::Ceiling($remaining[$k] / $script:PlanBlock) * $script:PlanBlock)
@@ -87,7 +90,7 @@ function Get-JkPlanSchedule {
 
 # Focus minutes logged today per course key.
 function Get-JkTodayFocusByCourse([datetime]$Now = (Get-JkNow)) {
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $out = @{}
     foreach ($s in @((Get-JkFocusData).sessions)) {
         $start = [datetime]::Parse([string]$s.start, $script:Inv)
@@ -196,7 +199,7 @@ function Start-JkPlanBlock {
 function Get-JkPlanLine {
     $p = Get-JkPlanToday
     if (-not $p -or $p.Today.Alloc.Count -eq 0) { return $null }
-    $cmap = Get-JkCourseMap (Get-JkDueData)
+    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
     $logged = Get-JkTodayFocusByCourse
     $byCourse = @{}
     foreach ($it in $p.Items) { if ($p.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $p.Today.Alloc[$it.Key] } }

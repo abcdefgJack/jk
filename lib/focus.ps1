@@ -72,7 +72,7 @@ function Format-JkMinutes([double]$Minutes) {
 
 function Get-JkLabelColor([string]$Label) {
     if (-not $Label) { return $script:JkPalette.blue }
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $first = ($Label -split '\s+')[0]
     $c = Resolve-JkCourse $data $first
     if ($c -and $c.color) { return ([string]$c.color).TrimStart('#') }
@@ -84,7 +84,7 @@ function Get-JkLabelColor([string]$Label) {
 function Format-JkFocusLabel([string]$Label) {
     if (-not $Label) { return $Label }
     $words = @($Label -split '\s+')
-    $c = Resolve-JkCourse (Get-JkDueData) $words[0]
+    $c = Resolve-JkCourse (Get-JkDueData -Cached) $words[0]
     if (-not $c) { return $Label }
     (@([string]$c.code) + @($words | Select-Object -Skip 1)) -join ' '
 }

@@ -64,7 +64,7 @@ function ConvertTo-JkTimeRange([string]$Text) {
 }
 
 function Get-JkTermSkipDays {
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $skip = @{}
     $t = Get-JkProp $data 'term'
     if (-not $t) { return $skip }
@@ -78,7 +78,7 @@ function Get-JkTermSkipDays {
 }
 
 function Get-JkClassRange($Class) {
-    $data = Get-JkDueData
+    $data = Get-JkDueData -Cached
     $t = Get-JkProp $data 'term'
     $from = [string](Get-JkProp $Class 'from')
     $to = [string](Get-JkProp $Class 'to')
