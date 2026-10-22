@@ -686,11 +686,14 @@ function Export-JkDueHtml {
     $data = Get-JkDueData
     if (-not $Out) { $Out = Get-JkPath 'calendar.html' }
     $tpl = [IO.File]::ReadAllText((Join-Path (Get-JkRoot) 'templates\calendar.html'))
+    $classes = @()
+    try { $classes = @((Get-JkClassData).items) } catch { }
     $payload = [pscustomobject]@{
         generated = (Get-JkNow).ToString('s', $script:Inv)
         term      = (Get-JkProp $data 'term')
         courses   = @($data.courses)
         events    = @($data.events)
+        classes   = $classes
     }
     $json = (ConvertTo-Json -InputObject $payload -Depth 8 -Compress).Replace('</', '<\/')
     $html = $tpl.Replace('/*JK_DATA*/null', $json)
