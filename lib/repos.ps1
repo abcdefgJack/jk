@@ -48,7 +48,11 @@ function Invoke-JkRepos {
     $repos = @(Find-JkRepos $roots $Depth)
     if ($Fetch) {
         Say (Paint 'gray' "  fetching $($repos.Count) repos$($script:G.ell)")
-        foreach ($r in $repos) { & git -C $r fetch --quiet 2>$null | Out-Null }
+        # never sit waiting on a credential prompt for a repo that needs a login
+        $oldPrompt = $env:GIT_TERMINAL_PROMPT
+        $env:GIT_TERMINAL_PROMPT = '0'
+        try { foreach ($r in $repos) { & git -C $r fetch --quiet 2>$null | Out-Null } }
+        finally { $env:GIT_TERMINAL_PROMPT = $oldPrompt }
     }
     $st = @($repos | ForEach-Object { Get-JkRepoStatus $_ } | Sort-Object @{ Expression = { if ($_.Modified + $_.Untracked + $_.Ahead + $_.Behind -gt 0) { 0 } else { 1 } } }, Name)
     $dirty = @($st | Where-Object { $_.Modified + $_.Untracked -gt 0 }).Count

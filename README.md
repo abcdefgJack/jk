@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\jk\install.ps1"
 
 This links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` autoloads in
 every new shell. It also adds a one-line summary to your profile and registers a daily
-deadline check (8:30 am and at sign-in). To undo the profile line, task and link, run
+morning brief popup (8:30 am and at sign-in): today's remaining classes plus anything due within 48 hours. To undo the profile line, task and link, run
 `jk setup uninstall`; your data stays in `~\.jk`.
 
 ## Commands
@@ -31,6 +31,7 @@ deadline check (8:30 am and at sign-in). To undo the profile line, task and link
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
 | | `jk grade cs350` | Running weighted average and "to finish with 80% you need 77% on the rest" |
 | | `jk todo "email the TA" -Due fri` | Lightweight to-do list |
+| | `jk review` | Last 7 days (done, slipped, focus per course) and next 7 (load, where the marks are) |
 | Time | `jk focus 50 cs350` | Focus block; a popup slides in when it ends. `jk focus log` for the week |
 | | `jk in 20m "laundry"` / `jk at 5pm "leave"` | One-off reminders (re-armed after a restart) |
 | Code | `jk cp new A` / `jk cp add` / `jk cp` | Scaffold, paste samples from the clipboard, compile + test with diffs |

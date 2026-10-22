@@ -217,6 +217,11 @@ Test 'upcoming window and reminder selection' {
 Test 'renders the list views without errors' {
     Show-JkDue; Show-JkDueAll; Show-JkDueAll -Course cs350; Show-JkExams; Show-JkDueWeek; Show-JkCourses; Show-JkDashboard; Show-JkBrief -Force
 }
+Test 'weekly review renders, counts slipped items' {
+    Show-JkReview
+    $slipped = @((Get-JkDueData).events | Where-Object { -not $_.done -and $_.kind -eq 'due' -and (Get-JkEventDue $_) -lt (Get-JkNow) -and (Get-JkEventDue $_) -ge (Get-JkNow).Date.AddDays(-6) })
+    Assert-True ($slipped.Count -ge 1) 'the Oct 19 assignment counts as slipped'
+}
 Test 'calendar page embeds parseable data' {
     $out = Join-Path $env:JK_HOME 'cal-test.html'
     Export-JkDueHtml -Out $out -NoOpen

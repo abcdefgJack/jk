@@ -334,9 +334,12 @@ function ConvertTo-JkDate {
         return Resolve-JkYear $m ([int]$Matches[1]) $today
     }
     if ($t -match '^(\d{1,2})(?:st|nd|rd|th)?$') {
+        # the next date with that day number (skipping months that are too short)
         $d = [int]$Matches[1]
+        if ($d -lt 1 -or $d -gt 31) { throw "there is no day $d in a month" }
         $cand = New-Object DateTime $today.Year, $today.Month, 1
         if ($d -lt $today.Day) { $cand = $cand.AddMonths(1) }
+        while ([DateTime]::DaysInMonth($cand.Year, $cand.Month) -lt $d) { $cand = $cand.AddMonths(1) }
         return $cand.AddDays($d - 1)
     }
     throw "can't understand the date '$Text' (try 2026-10-28, oct 28, fri, tomorrow, +3)"
@@ -569,9 +572,19 @@ function Show-JkPopup {
     $win.Add_MouseEnter({ $timer.Stop() })
     $win.Add_MouseLeave({ if ($Seconds -gt 0) { $timer.Start() } })
 
+    # Several popups at once (a reminder and a focus timer, say) stack instead of overlapping:
+    # each claims the lowest free slot through a named mutex held until it closes.
+    $slot = 0; $slotMutex = $null
+    for ($i = 0; $i -lt 4; $i++) {
+        $created = $false
+        $mx = [System.Threading.Mutex]::new($true, "Local\jk-popup-slot-$i", [ref]$created)
+        if ($created) { $slot = $i; $slotMutex = $mx; break }
+        $mx.Dispose()
+    }
     $win.Add_Loaded({
-        $win.Top = $area.Bottom - $win.ActualHeight + 16
-        $target = $area.Bottom - $win.ActualHeight - 4
+        $offset = $slot * ($win.ActualHeight - 8)
+        $win.Top = $area.Bottom - $win.ActualHeight + 16 - $offset
+        $target = $area.Bottom - $win.ActualHeight - 4 - $offset
         $dur = New-Object System.Windows.Duration ([TimeSpan]::FromMilliseconds(260))
         $ease = New-Object System.Windows.Media.Animation.CubicEase
         $ease.EasingMode = 'EaseOut'
@@ -582,12 +595,15 @@ function Show-JkPopup {
         $win.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $fade)
         if ($Seconds -gt 0) { $timer.Start() }
         if ($env:JK_TRACE) {
-            Add-Content -LiteralPath (Join-Path (Get-JkHome) 'background.log') -Value ('{0} popup shown "{1}" {2:N0}x{3:N0} at left {4:N0}, settling at top {5:N0} (work area {6:N0}x{7:N0})' -f (Get-Date -Format s), $Title, $win.ActualWidth, $win.ActualHeight, $win.Left, $target, $area.Width, $area.Height)
+            Add-Content -LiteralPath (Join-Path (Get-JkHome) 'background.log') -Value ('{0} popup shown "{1}" slot {8} {2:N0}x{3:N0} at left {4:N0}, settling at top {5:N0} (work area {6:N0}x{7:N0})' -f (Get-Date -Format s), $Title, $win.ActualWidth, $win.ActualHeight, $win.Left, $target, $area.Width, $area.Height, $slot)
         }
     })
     if ($Sound) { try { [System.Media.SystemSounds]::Asterisk.Play() } catch { } }
     # Show() + a private dispatcher loop (not ShowDialog) so the card never takes keyboard focus.
-    $win.Add_Closed({ $win.Dispatcher.InvokeShutdown() })
+    $win.Add_Closed({
+        if ($slotMutex) { try { $slotMutex.ReleaseMutex() } catch { }; $slotMutex.Dispose() }
+        $win.Dispatcher.InvokeShutdown()
+    })
     $win.Show()
     [System.Windows.Threading.Dispatcher]::Run()
 }

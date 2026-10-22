@@ -839,10 +839,16 @@ function Invoke-JkDueRemind {
         if (($now - $lastDt).TotalHours -lt 3) { if (-not $Quiet) { Say (Paint 'gray' '  reminded less than 3h ago; use -Force') }; return }
     }
     $soon = @(Get-JkDueSoon -Hours $Hours)
-    if ($soon.Count -eq 0) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours") }; return }
+    # the rest of today's classes ride along, so the morning popup doubles as a day brief
+    $classes = @()
+    try { $classes = @(Get-JkClassesOn $now.Date | Where-Object { $_.Start -gt $now }) } catch { }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
     $lines = @()
+    if ($classes.Count) {
+        $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
+    }
     foreach ($e in ($soon | Select-Object -First 6)) {
         $due = Get-JkEventDue $e
         $when = Format-JkRelDay $due $now
@@ -854,11 +860,15 @@ function Invoke-JkDueRemind {
         $lines += $txt
     }
     if ($soon.Count -gt 6) { $lines += "+$($soon.Count - 6) more" }
-    $first = $soon[0]
-    $accent = Get-JkCourseColor $first.course $cmap
-    $title = "$($soon.Count) deadline$(if ($soon.Count -ne 1) {'s'}) in the next $([int]$Hours)h"
+    if ($soon.Count) {
+        $accent = Get-JkCourseColor $soon[0].course $cmap
+        $title = "$($soon.Count) deadline$(if ($soon.Count -ne 1) {'s'}) in the next $([int]$Hours)h"
+    } else {
+        $accent = Get-JkCourseColor $classes[0].Class.course $cmap
+        $title = "$($classes.Count) class$(if ($classes.Count -ne 1) {'es'}) today, nothing due soon"
+    }
     $cal = Get-JkPath 'calendar.html'
-    if (-not (Test-Path $cal)) { Export-JkDueHtml -NoOpen | Out-Null }
+    if (-not (Test-Path $cal)) { Export-JkDueHtml -NoOpen -Quiet }
     $mode = Show-JkNotify -Title $title -Lines $lines -Accent $accent -Open $cal -OpenLabel 'Open calendar' -Seconds 20 -Sound -Wait:$Quiet
     Set-JkProp $state 'lastRemind' ($now.ToString('s', $script:Inv))
     Save-JkJson 'state.json' $state

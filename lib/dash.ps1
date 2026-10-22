@@ -16,7 +16,11 @@ $script:JkTips = @(
     'jk mark                bookmarks the current folder for j',
     'jk repos               shows uncommitted/unpushed work across every repo',
     'jk sys                 CPU, memory, disks, battery and the apps eating RAM',
-    'jk todo "email TA"     adds a to-do; jk todo done 1 checks it off'
+    'jk todo "email TA"     adds a to-do; jk todo done 1 checks it off',
+    'jk review              last week done/slipped, next week load, where the marks are',
+    'jk class week          this week''s timetable; jk class import reads Quest''s list view',
+    'jk space               what is filling the disk, with the right cleanup for each',
+    'jk exams               every remaining exam with a countdown'
 )
 
 function Get-JkGreeting([datetime]$Now) {
@@ -158,9 +162,13 @@ function Show-JkDashboard {
     } catch { }
     Say ('  ' + ($sysBits -join (Paint 'gray' "  $($script:G.dot)  ")))
 
-    $tip = $script:JkTips[(Get-Random -Maximum $script:JkTips.Count)]
     Say ''
-    Say (Paint 'gray' "  tip: $tip")
+    if ($now.DayOfWeek -eq 'Sunday') {
+        Say ('  ' + (Paint 'cyan' "$($script:G.star) Sunday: ") + (Paint 'white' 'look back at the week and plan the next one') + (Paint 'gray' "  $($script:G.arrow) jk review"))
+    } else {
+        $tip = $script:JkTips[(Get-Random -Maximum $script:JkTips.Count)]
+        Say (Paint 'gray' "  tip: $tip")
+    }
 }
 
 # One line, shown by the profile hook when a terminal opens. The rendered line is cached

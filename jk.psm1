@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -11,6 +11,7 @@ $script:JkCommands = [ordered]@{
     'class'  = @{ Fn = 'Invoke-JkClass'; Aliases = @('classes', 'cls', 'timetable', 'schedule', 'sched'); Desc = 'class schedule: what is on today, the next class, a weekly timetable' }
     'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
     'exams'  = @{ Fn = 'Show-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown (same as jk due exams)' }
+    'review' = @{ Fn = 'Show-JkReview'; Aliases = @('weekly', 'retro'); Desc = 'last 7 days done and slipped, next 7 days load, where the marks are' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }
     'focus'  = @{ Fn = 'Invoke-JkFocus'; Aliases = @('f', 'pomo', 'pomodoro'); Desc = 'focus timer with a popup when time is up, plus weekly stats' }
     'in'     = @{ Fn = 'Invoke-JkRemindIn'; Aliases = @(); Desc = 'remind me in a while:  jk in 20m "take laundry out"' }

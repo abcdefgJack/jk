@@ -135,7 +135,9 @@ function Get-JkClassWhen($Meeting, [datetime]$Now) {
         $st = 'white'; if ($span.TotalMinutes -le 15) { $st = 'bold orange' } elseif ($span.TotalMinutes -le 60) { $st = 'yellow' }
         return @("in $(Format-JkDuration $span)", $st)
     }
-    @("$(Format-JkRelDay $Meeting.Start $Now) $($Meeting.Start.ToString('ddd', $script:Inv)) $(Format-JkTime $Meeting.Start.ToString('HH:mm'))", 'muted')
+    $at = Format-JkTime $Meeting.Start.ToString('HH:mm')
+    if (($Meeting.Start.Date - $Now.Date).TotalDays -eq 1) { return @("tomorrow $at", 'muted') }
+    @("$($Meeting.Start.ToString('ddd', $script:Inv)) $at ($(Format-JkRelDay $Meeting.Start $Now))", 'muted')
 }
 
 function Show-JkClasses {
