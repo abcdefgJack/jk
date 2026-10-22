@@ -466,6 +466,9 @@ function Add-JkDue {
     Save-JkDueData $data
     $cmap = Get-JkCourseMap $data
     Say ((Paint 'green' "  added $($script:G.check)") + '  ' + (Format-JkDueLine $e $cmap ((Get-JkWidth) - 12) -WithDate).TrimStart())
+    if ((Get-JkEventDue $e) -lt (Get-JkNow)) {
+        Say (Paint 'yellow' "  note: that is in the past ($($parsed.Date.ToString('ddd MMM d yyyy', $script:Inv))) - fix with: jk due edit $($e.id) -Date <date>")
+    }
 }
 
 # Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time.

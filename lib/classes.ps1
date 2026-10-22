@@ -28,7 +28,11 @@ function ConvertTo-JkDays([string]$Text) {
     $t = $Text.Trim()
     if ($t -match '^(?i)weekdays?$') { return @('Mon', 'Tue', 'Wed', 'Thu', 'Fri') }
     $days = @()
-    if ($t -cmatch '^(Th|Su|Sa|M|T|W|R|F|S|U)+$') {
+    if ($t -cmatch '^(Mo|Tu|We|Th|Fr|Sa|Su)+$') {
+        # newer Quest style: MoWe, TuTh, Fr
+        $map2 = @{ Mo = 'Mon'; Tu = 'Tue'; We = 'Wed'; Th = 'Thu'; Fr = 'Fri'; Sa = 'Sat'; Su = 'Sun' }
+        foreach ($m in [regex]::Matches($t, 'Mo|Tu|We|Th|Fr|Sa|Su')) { $days += $map2[$m.Value] }
+    } elseif ($t -cmatch '^(Th|Su|Sa|M|T|W|R|F|S|U)+$') {
         $map = @{ M = 'Mon'; T = 'Tue'; W = 'Wed'; Th = 'Thu'; R = 'Thu'; F = 'Fri'; S = 'Sat'; Sa = 'Sat'; Su = 'Sun'; U = 'Sun' }
         foreach ($m in [regex]::Matches($t, 'Th|Su|Sa|M|T|W|R|F|S|U')) { $days += $map[$m.Value] }
     } else {
@@ -310,12 +314,23 @@ function ConvertFrom-JkQuestText([string]$Text) {
     $course = $null; $component = $null
     foreach ($raw in ($Text -split "`r?`n")) {
         $line = $raw.TrimEnd()
+        # outline.uwaterloo.ca schedule row: STAT 341 002 [LEC] Monday, Wednesday - 02:30PM - 03:50PM EIT 1015 ...
+        $om = [regex]::Match($line, '(?<subj>[A-Z]{2,8})\s+(?<num>\d{3}[A-Z]?)\s+\d{3}\s+\[(?<kind>[A-Z]{3})\]\s+(?<days>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*(?:\s*,\s*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*)*)\s*-\s*(?<s>\d{1,2}:\d{2}\s*(?i:[AP]M))\s*-\s*(?<e>\d{1,2}:\d{2}\s*(?i:[AP]M))\s*(?<room>[A-Z0-9]{2,5}\s+\d{3,4}[A-Z]?)?')
+        if ($om.Success) {
+            $classes += [pscustomobject]@{
+                Course = "$($om.Groups['subj'].Value) $($om.Groups['num'].Value)"; Kind = $om.Groups['kind'].Value
+                Days = @(ConvertTo-JkDays ($om.Groups['days'].Value -replace '\s', ''))
+                Start = ConvertTo-JkTime ($om.Groups['s'].Value -replace '\s', ''); End = ConvertTo-JkTime ($om.Groups['e'].Value -replace '\s', '')
+                Room = $om.Groups['room'].Value; From = ''; To = ''
+            }
+            continue
+        }
         if ($line -match '^\s*([A-Z]{2,8})\s+(\d{3}[A-Z]?)\s+-\s+(.+?)\s*$') { $course = "$($Matches[1]) $($Matches[2])"; continue }
         if (-not $course) { continue }
         $cm = [regex]::Match($line, '\b(LEC|TUT|LAB|SEM|TST|PRJ|DIS|STU|CLN|ORL|RDG|WRK)\b')
         if ($cm.Success) { $component = $cm.Value }
         # day codes are case-sensitive (TTh, MWF); AM/PM is not
-        $tm = [regex]::Match($line, '\b((?:Th|Su|Sa|M|T|W|F|S)+)\s+(\d{1,2}:\d{2}\s*(?i:[AP]M))\s*-\s*(\d{1,2}:\d{2}\s*(?i:[AP]M))')
+        $tm = [regex]::Match($line, '\b((?:Mo|Tu|We|Th|Fr|Sa|Su|M|T|W|F|S)+)\s+(\d{1,2}:\d{2}\s*(?i:[AP]M))\s*-\s*(\d{1,2}:\d{2}\s*(?i:[AP]M))')
         if (-not $tm.Success -or -not $component) { continue }
         $after = $line.Substring($tm.Index + $tm.Length)
         $cells = @($after -split "`t|\s{2,}" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -375,6 +390,14 @@ function Import-JkClasses {
     Save-JkDueData $due
     Save-JkClassData $d
     Say ((Paint 'green' "  imported $($script:G.check)") + "  $added weekly meetings" + $(if ($skipped) { " ($skipped already there)" } else { '' }) + $(if ($tests) { ", $tests test slots merged into deadlines" } else { '' }))
+    # a whole outline table has every section; you are only in one lecture per course
+    $multi = @($d.items | Group-Object { "$($_.course)|$($_.kind)" } | Where-Object { $_.Count -gt 1 -and ($_.Name -like '*|LEC') })
+    $cmap = Get-JkCourseMap (Get-JkDueData)
+    foreach ($g in $multi) {
+        $ids = ($g.Group | ForEach-Object { "#$($_.id)" }) -join ' '
+        $code = Format-JkClassLabel ([pscustomobject]@{ course = $g.Group[0].course; kind = '' }) $cmap
+        Say ('  ' + (Paint 'yellow' "! $($g.Count) lecture sections for $code") + (Paint 'gray' " ($ids) - keep yours: jk class rm <id>  (jk class list shows times and rooms)"))
+    }
 }
 
 function Invoke-JkClass {

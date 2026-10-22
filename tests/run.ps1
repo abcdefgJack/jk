@@ -275,6 +275,9 @@ Test 'day lists and time ranges' {
     Assert-Eq ((ConvertTo-JkDays 'MTWThF') -join ' ') 'Mon Tue Wed Thu Fri'
     Assert-Eq ((ConvertTo-JkDays 'mon/wed') -join ' ') 'Mon Wed'
     Assert-Eq ((ConvertTo-JkDays 'weekdays').Count) 5
+    Assert-Eq ((ConvertTo-JkDays 'MoWe') -join ' ') 'Mon Wed'
+    Assert-Eq ((ConvertTo-JkDays 'TuTh') -join ' ') 'Tue Thu'
+    Assert-Eq ((ConvertTo-JkDays 'Monday,Wednesday') -join ' ') 'Mon Wed'
     Assert-Throws { ConvertTo-JkDays 'someday' }
     $r = ConvertTo-JkTimeRange '4pm-5:20pm'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
     $r = ConvertTo-JkTimeRange '4-5:20pm'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
@@ -291,6 +294,12 @@ Test 'Quest list view parsing (continuation rows, tests)' {
     $c = @($p.Classes)[2]
     Assert-Eq $c.Course 'CS 350'; Assert-Eq $c.Kind 'LEC'; Assert-Eq (@($c.Days) -join ' ') 'Fri'; Assert-Eq $c.Room 'DC 1350'; Assert-Eq $c.From '2026-09-08'
     Assert-Eq @($p.Tests)[0].Date '2026-11-09'
+    # newer Quest day codes and outline.uwaterloo.ca rows
+    $p2 = ConvertFrom-JkQuestText "CS 370 - Numerical Computation`n7001`t001`tLEC`tTuTh 1:00PM - 2:20PM`tDC 1351`tProf`t09/08/2026 - 12/08/2026`nSTAT 341 002 [LEC] Monday, Wednesday - 02:30PM - 03:50PM EIT 1015 Some Prof prof@uwaterloo.ca"
+    Assert-Eq @($p2.Classes).Count 2
+    Assert-Eq (@(@($p2.Classes)[0].Days) -join ' ') 'Tue Thu'
+    $o = @($p2.Classes)[1]
+    Assert-Eq "$($o.Course) $($o.Kind) $(@($o.Days) -join ',') $($o.Start)-$($o.End) $($o.Room)" 'STAT 341 LEC Mon,Wed 14:30-15:50 EIT 1015'
 }
 Test 'meetings skip breaks and holidays; next class' {
     Add-JkClass cs350 @('tue', 'thu') '8:30am-9:50am' 'MC 2017'
