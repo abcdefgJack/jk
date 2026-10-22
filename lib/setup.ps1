@@ -151,6 +151,9 @@ function Invoke-JkSetup {
             Uninstall-JkRemindTask
             Uninstall-JkModuleLink
             Say (Paint 'gray' "  your data is still in $(Get-JkHome) - delete that folder to remove it too")
+            if (@(Get-JkProfileFiles | Where-Object { ([IO.File]::ReadAllText($_.Path)) -match 'jk speed: fast conda' }).Count) {
+                Say (Paint 'gray' '  the fast conda block in profile.ps1 stays (it does not need jk); jk speed undo, run before uninstalling, restores the original')
+            }
             return
         }
         '^(status)$' { Invoke-JkDoctor; return }
