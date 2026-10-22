@@ -149,6 +149,7 @@ $script:JkHelpTopics['at'] = $script:JkHelpTopics['remind']
 $script:JkHelpTopics['port'] = $script:JkHelpTopics['sys']
 $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
 $script:JkHelpTopics['doctor'] = $script:JkHelpTopics['setup']
+$script:JkHelpTopics['plan'] = "jk plan                        today's study blocks per course, and the next 7 days if you follow the plan`njk plan start                  start a 25-minute focus block on the most urgent item`n                               Work per item = weight x 15 min (exams) or x 30 min (assignments), minus focus`n                               already logged on that course, spread over the days left.`njk config set plan.hours 4     daily budget (default 3)   plan.examMin / plan.dueMin tune the estimates"
 $script:JkHelpTopics['backup'] = "jk backup                      days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file"
 
 function Write-JkHelpBlock([string]$Text) {
@@ -178,7 +179,7 @@ function Show-JkHelp {
     }
     Write-JkHeader 'jk' "v$((Get-Module jk).Version) $($script:G.dot) your command-line sidekick"
     $groups = [ordered]@{
-        'School'   = @('class', 'due', 'week', 'exams', 'grade', 'todo', 'review')
+        'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
         'Machine'  = @('tidy', 'space', 'sys', 'go', 'mark', 'speed')

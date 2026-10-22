@@ -97,6 +97,15 @@ function Show-JkDashboard {
     }
     if ($soon.Count -gt $shown) { Say (Paint 'gray' "  +$($soon.Count - $shown) more $($script:G.arrow) jk due") }
 
+    # today's study blocks from jk plan
+    try {
+        $planLine = Get-JkPlanLine
+        if ($planLine) {
+            Say ''
+            Say (' ' + (Paint 'bold white' 'STUDY TODAY') + '  ' + $planLine + (Paint 'gray' "   $($script:G.arrow) jk plan start"))
+        }
+    } catch { }
+
     # to-dos
     $td = Get-JkTodoData
     $open = @($td.items | Where-Object { -not $_.done } | Sort-Object @{ Expression = { $x = Get-JkTodoDue $_; if ($x) { $x } else { [datetime]::MaxValue } } }, id)

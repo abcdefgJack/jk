@@ -315,6 +315,43 @@ Test 'meetings skip breaks and holidays; next class' {
 }
 
 Write-Host ''
+Write-Host 'study plan' -ForegroundColor Cyan
+Test 'plan items: weights to effort, exam windows once, focus subtracts' {
+    $items = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00'))
+    $mid = @($items | Where-Object { $_.Course -eq 'health' -and $_.Title -eq 'Midterm' })
+    Assert-Eq $mid.Count 1 'opens/closes pair is one item'
+    Assert-Eq $mid[0].Due.ToString('MM-dd HH:mm') '10-26 06:00' 'prepare for the opening'
+    Assert-Eq $mid[0].Effort (30 * 15) 'exam: 30% x 15 min'
+    $a2a = @($items | Where-Object { $_.Title -eq 'A2A Synchronization' })[0]
+    Assert-Eq $a2a.Effort (8 * 30) 'assignment: 8% x 30 min'
+    $fd = Get-JkFocusData
+    $fd.sessions = @($fd.sessions) + [pscustomobject]@{ label = 'cs350 a2a'; start = '2026-10-21T19:00:00'; planned = 60; actual = 60; completed = $true }
+    Save-JkFocusData $fd
+    $items2 = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00'))
+    $cs350 = @($items2 | Where-Object { $_.Course -eq 'cs350' })
+    $doneSum = ($cs350 | Measure-Object -Property Done -Sum).Sum
+    Assert-Eq ([Math]::Round($doneSum)) 60 'logged focus is shared across the course items'
+}
+Test 'plan schedule: nothing after due, soon items get a block, budget respected' {
+    $now = [datetime]'2026-10-22T09:00'
+    $items = @(Get-JkPlanItems -Now $now)
+    $sched = @(Get-JkPlanSchedule -Items $items -Now $now -Days 7 -BudgetMin 180)
+    foreach ($s in $sched) {
+        $sum = 0; foreach ($v in $s.Alloc.Values) { $sum += $v }
+        Assert-True ($sum -le 180 + 25 * $items.Count) "day $($s.Day.ToString('MM-dd')) way over budget: $sum"
+        foreach ($k in $s.Alloc.Keys) {
+            $it = @($items | Where-Object { $_.Key -eq $k })[0]
+            Assert-True ($s.Day -le $it.Due.Date) "$($it.Title) scheduled after its due date"
+            if ($s.Day -eq $it.Due.Date) { Assert-True ($it.Due.Hour -ge 18) "$($it.Title) scheduled on the morning it is due" }
+        }
+    }
+    $mid = @($items | Where-Object { $_.Course -eq 'health' -and $_.Title -eq 'Midterm' })[0]
+    $sunday = @($sched | Where-Object { $_.Day -eq [datetime]'2026-10-25' })[0]
+    Assert-True ($sunday.Alloc[$mid.Key] -ge 25) 'the day before the midterm gets at least one block'
+    Show-JkPlan
+}
+
+Write-Host ''
 Write-Host 'grades' -ForegroundColor Cyan
 Test 'percent parsing' {
     Assert-Eq (ConvertTo-JkPercent '17/20') 85
