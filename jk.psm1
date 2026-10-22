@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -23,6 +23,7 @@ $script:JkCommands = [ordered]@{
     'repos'  = @{ Fn = 'Invoke-JkRepos'; Aliases = @('git'); Desc = 'status of every git repo on the Desktop: dirty, ahead, behind' }
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
+    'space'  = @{ Fn = 'Invoke-JkSpace'; Aliases = @('disk', 'du'); Desc = 'what is filling the disk: caches, temp, Docker, node_modules (read-only report)' }
     'speed'  = @{ Fn = 'Invoke-JkSpeed'; Aliases = @('startup', 'slow'); Desc = 'why new terminals are slow; jk speed fix makes the conda hook instant' }
     'brief'  = @{ Fn = 'Show-JkBrief'; Aliases = @(); Desc = 'one-line summary (shown when PowerShell starts)' }
     'config' = @{ Fn = 'Invoke-JkConfig'; Aliases = @('cfg', 'settings'); Desc = 'show or change settings' }
@@ -97,6 +98,8 @@ $script:JkParamTargets = @{
     'due all'      = 'Show-JkDueAll'
     'focus log'    = 'Show-JkFocusLog'
     'tidy undo'    = 'Undo-JkTidy'
+    'space'        = 'Show-JkSpace'
+    'space clean'  = 'Invoke-JkSpaceClean'
     'port'         = 'Invoke-JkPort'
     'focus'        = 'Start-JkFocus'
     'week'         = 'Show-JkDueWeek'
@@ -116,6 +119,7 @@ $script:JkActions = @{
     'config' = @('set', 'reset', 'edit', 'path')
     'setup'  = @('install', 'uninstall', 'status')
     'speed'  = @('fix', 'undo')
+    'space'  = @('clean')
     'port'   = @()
     'go'     = @()
     'help'   = @()

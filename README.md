@@ -24,7 +24,7 @@ deadline check (8:30 am and at sign-in). To undo the profile line, task and link
 
 | Area | Command | What it does |
 |---|---|---|
-| School | `jk due` | Deadlines in the next 14 days with countdowns. `jk due week` grid, `jk due exams`, `jk due cs350` |
+| School | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
@@ -39,6 +39,7 @@ deadline check (8:30 am and at sign-in). To undo the profile line, task and link
 | Machine | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable); `dupes`, `old` |
 | | `j co250`, `j co250/final`, `j -` | Fuzzy jump; `jk mark` bookmarks the current folder |
 | | `jk sys` | CPU, memory, disks, battery, Wi-Fi, apps using the most RAM |
+| | `jk space` / `jk space clean conda` | What fills the disk (caches, temp, Docker, `node_modules`), with the right cleanup for each |
 | | `jk speed` / `jk speed fix` | Times shell startup per profile file; makes the `conda init` hook instant (about 2.4 s to 0.3 s) |
 
 ## Notable details

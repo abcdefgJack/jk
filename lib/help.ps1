@@ -106,6 +106,14 @@ jk config set cp.root D:\cp    where jk cp new puts problems;  cp.lang cpp|py|ja
 jk config set tidy.minAge 7    keep files newer than 7 days in place
 jk config reset <key> | jk config edit | jk config path
 '@
+    'space'  = @'
+jk space                       sizes of Downloads, Recycle Bin, temp, conda/pip/npm caches, Gradle, Maven,
+                               Docker's disk, browser/editor caches and every node_modules under the Desktop
+jk space -NoNodeModules       skip the node_modules search (faster)
+jk space clean temp           delete temp files older than 7 days (-Days 30 to keep more)
+jk space clean conda          conda clean --all   (also: pip, npm)
+The report never deletes anything; each row names the right tool to free that space.
+'@
     'speed'  = @'
 jk speed                       time a new PowerShell with and without your profiles, and each profile file
 jk speed fix                   replace the conda init hook (about 2 s per terminal) with an instant equivalent:
@@ -158,7 +166,7 @@ function Show-JkHelp {
         'School'   = @('due', 'week', 'exams', 'grade', 'todo')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
-        'Machine'  = @('tidy', 'sys', 'go', 'mark', 'speed')
+        'Machine'  = @('tidy', 'space', 'sys', 'go', 'mark', 'speed')
         'jk'       = @('brief', 'config', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {

@@ -116,7 +116,8 @@ function Show-JkDashboard {
         $c = New-Object IO.DriveInfo ($env:SystemDrive)
         $free = $c.AvailableFreeSpace / $c.TotalSize
         $st = 'muted'; if ($free -lt 0.1) { $st = 'red' } elseif ($free -lt 0.2) { $st = 'orange' }
-        $sysBits += Paint $st "$($env:SystemDrive) $(Format-JkSize $c.AvailableFreeSpace) free"
+        $hint = ''; if ($free -lt 0.2) { $hint = Paint 'gray' " $($script:G.arrow) jk space" }
+        $sysBits += (Paint $st "$($env:SystemDrive) $(Format-JkSize $c.AvailableFreeSpace) free") + $hint
     } catch { }
     try {
         $mem = Get-JkMemory
@@ -183,13 +184,24 @@ function Get-JkBriefLine {
         $label = (Get-JkCourseLabel $e $cmap) -replace '\s', ''
         $parts += (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when)
     }
-    $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' '
-    if ($parts.Count) { $line += ($parts -join (Paint 'gray' "  $($script:G.dot)  ")) }
-    else { $line += Paint 'green' 'nothing due this week' }
-    if ($soon.Count -gt 3) { $line += Paint 'gray' "  +$($soon.Count - 3)" }
     $td = Get-JkTodoData
     $openTodo = @($td.items | Where-Object { -not $_.done }).Count
-    if ($openTodo) { $line += Paint 'gray' "  $($script:G.vline)  $openTodo to-do" }
-    $line += Paint 'gray' "   (jk for more)"
+    $tail = ''
+    if ($openTodo) { $tail += Paint 'gray' "  $($script:G.vline)  $openTodo to-do" }
+    $tail += Paint 'gray' '   (jk for more)'
+    # keep it on one line: drop trailing items (they become "+N") until it fits the window
+    $width = Get-JkWidth
+    $shown = $parts.Count
+    while ($true) {
+        $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' '
+        if ($shown -gt 0) { $line += (@($parts | Select-Object -First $shown) -join (Paint 'gray' "  $($script:G.dot)  ")) }
+        else { $line += Paint 'green' 'nothing due this week' }
+        $more = $soon.Count - $shown
+        if ($shown -eq 0 -and $soon.Count) { $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' ' + (Paint 'white' "$($soon.Count) due this week") ; $more = 0 }
+        if ($more -gt 0) { $line += Paint 'gray' "  +$more" }
+        $line += $tail
+        if ((Get-JkVisibleLength $line) -le $width -or $shown -eq 0) { break }
+        $shown--
+    }
     $line
 }

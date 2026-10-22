@@ -385,6 +385,18 @@ Test 'duplicate detection keeps the clean name' {
     Assert-Eq $g.Count 1
     Assert-Eq $g[0].Keep.Name 'notes.pdf'
 }
+Test 'folder size via robocopy list mode (no exit-code leak)' {
+    $dir = Join-Path $env:JK_HOME 'sizeprobe'
+    New-Item -ItemType Directory (Join-Path $dir 'sub') -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $dir 'a.bin'), (New-Object byte[] 1000))
+    [IO.File]::WriteAllBytes((Join-Path $dir 'sub\b.bin'), (New-Object byte[] 2345))
+    $s = Get-JkFolderSize $dir
+    Assert-Eq $s.Bytes 3345
+    Assert-Eq $s.Files 2
+    Assert-Eq $global:LASTEXITCODE 0
+    Assert-Eq (Get-JkFolderSize (Join-Path $dir 'missing')) $null
+    Assert-Eq (Get-JkFolderSize (Join-Path $dir 'a.bin')).Bytes 1000
+}
 Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     $c = { param($a) [pscustomobject]@{ Alias = $a; Path = "C:\x\$a"; Source = 'auto' } }
     $v = @{}
