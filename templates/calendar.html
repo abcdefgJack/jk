@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deadline Calendar</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#F1F3F6; --surface:#FFFFFF; --surface-2:#E8EBF0; --line:#D5DAE2; --line-strong:#AEB6C2;
+    --ink:#161A21; --ink-2:#4B5563; --ink-3:#7C8592; --today:#161A21; --break:#E4E8EE; --urgent:#B91C1C;
+    --shadow:0 1px 2px rgba(22,26,33,.06),0 8px 24px rgba(22,26,33,.08);
+    --mix-ink:#000; --soft-pct:20%;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12151A; --surface:#1A1E25; --surface-2:#232830; --line:#2E343E; --line-strong:#465061;
+      --ink:#EEF1F5; --ink-2:#B4BCC8; --ink-3:#7E8794; --today:#EEF1F5; --break:#1E232B; --urgent:#F87171;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); --mix-ink:#fff; --soft-pct:16%;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12151A; --surface:#1A1E25; --surface-2:#232830; --line:#2E343E; --line-strong:#465061;
+    --ink:#EEF1F5; --ink-2:#B4BCC8; --ink-3:#7E8794; --today:#EEF1F5; --break:#1E232B; --urgent:#F87171;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); --mix-ink:#fff; --soft-pct:16%;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.5;padding-inline:clamp(16px,3vw,40px);padding-block:28px 60px}
+  .mono{font-family:"IBM Plex Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
+  h1{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:700;font-size:clamp(28px,4vw,40px);letter-spacing:-.02em;line-height:1.05;margin:0;text-wrap:balance}
+  h2{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:700;font-size:22px;letter-spacing:-.01em;margin:0}
+  .eyebrow{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px 32px;max-width:1280px;margin:0 auto 22px}
+  header p{margin:6px 0 0;color:var(--ink-2);max-width:62ch}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .legend{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer;font:inherit;font-weight:500;color:var(--ink);transition:opacity .15s,border-color .15s}
+  .chip .sw{width:12px;height:12px;border-radius:3px;background:var(--c)}
+  .chip .cnt{color:var(--ink-3);font-size:12px}
+  .chip[aria-pressed="false"]{opacity:.45}
+  .chip:focus-visible,.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .chip:hover,.btn:hover{border-color:var(--line-strong)}
+  .btn{padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-weight:500;cursor:pointer}
+  .btn[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+  .wrap{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:24px;align-items:start}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  .months{display:grid;gap:20px;min-width:0}
+  .month{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+  .month-head{display:flex;align-items:baseline;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--line)}
+  .month-head .sum{color:var(--ink-3);font-size:12px}
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--line);background:var(--surface-2)}
+  .dow div{padding:6px 8px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr)}
+  .day{min-height:92px;padding:6px 6px 8px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:3px;min-width:0}
+  .day:nth-child(7n){border-right:0}
+  .day.pad{background:var(--surface-2);opacity:.55}
+  .day.break{background:var(--break)}
+  .day .n{font-size:12px;color:var(--ink-2);display:flex;justify-content:space-between;align-items:center;gap:4px}
+  .day .n small{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .day.today .n b{background:var(--today);color:var(--bg);border-radius:999px;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+  .ev{--soft:color-mix(in srgb,var(--c) var(--soft-pct),var(--surface));font-size:11.5px;line-height:1.25;padding:3px 6px;border-radius:4px;border-left:3px solid var(--c);background:var(--soft);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative}
+  .ev.exam,.ev.appt{background:var(--c);color:#111;font-weight:600;border-left-color:transparent}
+  .ev.dim{opacity:.5}
+  .ev.done{opacity:.45;text-decoration:line-through}
+  .ev.done::before{content:"\2713  "}
+  .hidden{display:none !important}
+  .ev[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:0;top:calc(100% + 4px);z-index:5;white-space:pre-line;width:240px;background:var(--ink);color:var(--bg);padding:8px 10px;border-radius:6px;font-size:11.5px;font-weight:400;box-shadow:var(--shadow);text-decoration:none}
+  .ev:hover{overflow:visible}
+  @media (max-width:640px){
+    .day{min-height:70px;padding:4px}
+    .ev{font-size:10px;padding:2px 4px}
+    .day .n small{display:none}
+  }
+  aside{display:grid;gap:16px;position:sticky;top:16px}
+  @media (max-width:900px){aside{position:static}}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .panel h2{font-size:17px;margin-bottom:10px}
+  .up{display:grid;margin:0;padding:0;list-style:none}
+  .up li{display:grid;grid-template-columns:46px 1fr auto;gap:10px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
+  .up li:first-child{border-top:0}
+  .up .d{font-size:12px;color:var(--ink-2);line-height:1.3}
+  .up .d b{display:block;font-size:15px;color:var(--ink);font-weight:500}
+  .up .t{min-width:0}
+  .up .t .name{font-weight:500}
+  .up .t .meta{font-size:12px;color:var(--ink-3)}
+  .up .t .course{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:color-mix(in srgb,var(--c) 75%,var(--mix-ink))}
+  .up .in{font-size:11px;color:var(--ink-3);white-space:nowrap;padding-top:3px}
+  .up .in.soon{color:var(--urgent);font-weight:600}
+  .finals{display:grid;gap:6px;font-size:13px}
+  .finals div{display:flex;justify-content:space-between;gap:8px}
+  .finals span:first-child{font-weight:600;color:color-mix(in srgb,var(--c) 75%,var(--mix-ink))}
+  .finals span:last-child{color:var(--ink-2);text-align:right}
+  .stat{display:flex;gap:18px;flex-wrap:wrap}
+  .stat div{display:grid}
+  .stat b{font-family:"Bricolage Grotesque",sans-serif;font-size:26px;line-height:1.1}
+  .stat span{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+  .note{font-size:12px;color:var(--ink-3);margin:10px 0 0}
+  code{font-family:"IBM Plex Mono",Consolas,monospace;font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="eyebrow" id="eyebrow"></div>
+    <h1 id="title">Deadline Calendar</h1>
+    <p>Every assignment, quiz and exam in one grid. Click a course to hide or show it, and hover an item for the time, weight and notes. Finished items are struck through.</p>
+  </div>
+  <div class="tools">
+    <div class="legend" id="legend" role="group" aria-label="Filter by course"></div>
+    <button class="btn" id="hideDone" type="button" aria-pressed="false">Hide done</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="months" id="months" aria-label="Term calendar"></section>
+  <aside>
+    <div class="panel">
+      <div class="stat" id="stats"></div>
+    </div>
+    <div class="panel">
+      <h2>Next up</h2>
+      <ul class="up" id="upcoming"></ul>
+      <p class="note">Relative to <span id="todayLabel"></span>. Mark something finished with <code>jk due done &lt;id&gt;</code>, then <code>jk due cal</code> to refresh.</p>
+    </div>
+    <div class="panel" id="finalsPanel">
+      <h2>Final exams</h2>
+      <div class="finals" id="finals"></div>
+    </div>
+    <p class="note" id="gen"></p>
+  </aside>
+</div>
+
+<script>
+const DATA = /*JK_DATA*/null;
+const D = DATA || {courses:[],events:[],term:null,generated:""};
+const COURSES = Object.fromEntries((D.courses||[]).map(c=>[c.key,c]));
+const hex = c => c ? (c.startsWith("#")?c:"#"+c) : "#7E8794";
+const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const todayISO = iso(TODAY);
+const parse = s => { const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const MN = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const fmtTime = t => { if(!t) return ""; let [h,m]=t.split(":").map(Number); const ap=h>=12?"pm":"am"; h=h%12||12; return h+":"+String(m).padStart(2,"0")+" "+ap; };
+const dueAt = e => { const d=parse(e.date); if(e.time){const [h,m]=e.time.split(":").map(Number); d.setHours(h,m);} else d.setHours(23,59); return d; };
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON.parse(v);}catch(_){return d;} }, set(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch(_){} } };
+
+const term = D.term || {};
+const events = (D.events||[]).slice().sort((a,b)=>(a.date+(a.time||"23:59")).localeCompare(b.date+(b.time||"23:59")));
+document.getElementById("title").textContent = (term.name ? term.name+" " : "") + "Deadline Calendar";
+document.title = (term.name ? term.name+" " : "") + "Deadlines";
+const fmtShort = s => s ? parse(s).toLocaleDateString("en-CA",{month:"short",day:"numeric"}) : "";
+let eyebrow = [];
+if (term.start) eyebrow.push("Classes "+fmtShort(term.start)+(term.classesEnd?" – "+fmtShort(term.classesEnd):""));
+if (term.examsStart) eyebrow.push("Exams "+fmtShort(term.examsStart)+(term.examsEnd?" – "+fmtShort(term.examsEnd):""));
+document.getElementById("eyebrow").textContent = eyebrow.join(" · ") || "Generated by jk";
+
+const marks = Object.fromEntries((term.marks||[]).map(m=>[m.date,m.name]));
+const breaks = term.breaks||[];
+const inBreak = k => breaks.some(b=>k>=b.from&&k<=b.to);
+const breakStart = k => { const b=breaks.find(b=>b.from===k); return b ? (b.name||"Break") : null; };
+
+const active = store.get("jk-active", Object.fromEntries(Object.keys(COURSES).map(k=>[k,true])));
+let hideDone = store.get("jk-hideDone", false);
+
+const byDate = {};
+events.forEach(e => (byDate[e.date] ||= []).push(e));
+Object.values(byDate).forEach(l => l.sort((a,b)=>((b.kind==="exam")-(a.kind==="exam")) || (a.time||"").localeCompare(b.time||"")));
+
+// legend
+const legend = document.getElementById("legend");
+for (const c of (D.courses||[])) {
+  const n = events.filter(e=>e.course===c.key).length;
+  if (!n) continue;
+  if (!(c.key in active)) active[c.key]=true;
+  const b = document.createElement("button");
+  b.className="chip"; b.type="button"; b.dataset.k=c.key; b.setAttribute("aria-pressed",String(active[c.key]));
+  b.style.setProperty("--c",hex(c.color));
+  b.innerHTML=`<span class="sw"></span>${c.code}<span class="cnt">${n}</span>`;
+  b.title=c.name||c.code;
+  b.addEventListener("click",()=>{active[c.key]=!active[c.key]; b.setAttribute("aria-pressed",String(active[c.key])); store.set("jk-active",active); applyFilter();});
+  legend.appendChild(b);
+}
+const hd = document.getElementById("hideDone");
+hd.setAttribute("aria-pressed",String(hideDone));
+hd.addEventListener("click",()=>{hideDone=!hideDone; hd.setAttribute("aria-pressed",String(hideDone)); store.set("jk-hideDone",hideDone); applyFilter();});
+
+// months span: term start (or first event) through exams end (or last event)
+const first = term.start ? parse(term.start) : (events[0] ? parse(events[0].date) : TODAY);
+const lastS = [term.examsEnd, events.length ? events[events.length-1].date : null].filter(Boolean).sort().pop();
+const last = lastS ? parse(lastS) : TODAY;
+const months = document.getElementById("months");
+for (let y=first.getFullYear(), m=first.getMonth(); y<last.getFullYear() || (y===last.getFullYear() && m<=last.getMonth()); m===11?(y++,m=0):m++) {
+  const f = new Date(y,m,1), l = new Date(y,m+1,0);
+  const evs = events.filter(e=>{const d=parse(e.date);return d.getFullYear()===y&&d.getMonth()===m;});
+  const nExam = evs.filter(e=>e.kind==="exam").length;
+  const sec = document.createElement("section"); sec.className="month";
+  sec.innerHTML=`<div class="month-head"><h2>${MN[m]} ${y}</h2><span class="sum mono">${evs.length} items · ${nExam} exam${nExam===1?"":"s"}</span></div>
+    <div class="dow">${DOW.map(d=>`<div>${d}</div>`).join("")}</div><div class="grid"></div>`;
+  const grid = sec.querySelector(".grid");
+  const cells=[];
+  for (let i=0;i<f.getDay();i++) cells.push(null);
+  for (let d=1; d<=l.getDate(); d++) cells.push(new Date(y,m,d));
+  while (cells.length%7) cells.push(null);
+  cells.forEach(dt=>{
+    const cell=document.createElement("div"); cell.className="day";
+    if(!dt){cell.classList.add("pad");grid.appendChild(cell);return;}
+    const k=iso(dt);
+    if(inBreak(k)) cell.classList.add("break");
+    if(k===todayISO) cell.classList.add("today");
+    const label = marks[k] || breakStart(k);
+    cell.innerHTML=`<div class="n"><b>${dt.getDate()}</b>${label?`<small>${label}</small>`:""}</div>`;
+    (byDate[k]||[]).forEach(e=>{
+      const c=COURSES[e.course]||{code:e.course,name:"",color:"7E8794"};
+      const el=document.createElement("div");
+      const past = dueAt(e) < new Date();
+      el.className=`ev${e.kind==="exam"?" exam":""}${e.kind==="appt"?" appt":""}${e.done?" done":(past?" dim":"")}`;
+      el.dataset.k=e.course; if(e.done) el.dataset.done="1";
+      el.style.setProperty("--c",hex(c.color));
+      el.textContent = e.kind==="appt" ? e.title : `${String(c.code).replace(/^HEALTH /,"H")} · ${e.title}`;
+      const when = [fmtTime(e.time), e.end?"– "+fmtTime(e.end):""].filter(Boolean).join(" ");
+      el.setAttribute("data-tip",`#${e.id}  ${c.code} ${c.name||""}\n${e.title}${e.weight?" · "+e.weight:""}${e.done?" · done":""}\n${[when,e.note].filter(Boolean).join(" · ")}`);
+      cell.appendChild(el);
+    });
+    grid.appendChild(cell);
+  });
+  months.appendChild(sec);
+}
+
+// stats
+const open = events.filter(e=>!e.done && dueAt(e)>=new Date());
+const week = open.filter(e=>dueAt(e) < new Date(TODAY.getTime()+8*86400000));
+const exams = open.filter(e=>e.kind==="exam");
+const doneN = events.filter(e=>e.done).length;
+document.getElementById("stats").innerHTML =
+  `<div><b>${week.length}</b><span>due this week</span></div><div><b>${exams.length}</b><span>exams left</span></div><div><b>${doneN}</b><span>done</span></div>`;
+
+// upcoming
+const up = document.getElementById("upcoming");
+const dayDiff = d => Math.round((new Date(d.getFullYear(),d.getMonth(),d.getDate()) - TODAY)/86400000);
+open.slice(0,40).forEach(e=>{
+  const c=COURSES[e.course]||{code:e.course,color:"7E8794"}, d=parse(e.date), n=dayDiff(d);
+  const li=document.createElement("li"); li.dataset.k=e.course; li.style.setProperty("--c",hex(c.color));
+  li.innerHTML=`<div class="d mono"><b>${d.getDate()}</b>${d.toLocaleDateString("en-CA",{month:"short"})} ${DOW[d.getDay()]}</div>
+    <div class="t"><div class="course">${c.code} · #${e.id}</div><div class="name">${e.title}${e.kind==="exam"?" ✦":""}</div><div class="meta">${[fmtTime(e.time),e.weight].filter(Boolean).join(" · ")}</div></div>
+    <div class="in${n<=3?" soon":""}">${n===0?"today":n===1?"tomorrow":"in "+n+" d"}</div>`;
+  up.appendChild(li);
+});
+if (!open.length) up.innerHTML = "<li><div></div><div class='t'>Nothing left. Enjoy it.</div><div></div></li>";
+document.getElementById("todayLabel").textContent = TODAY.toLocaleDateString("en-CA",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+
+// finals
+const fin=document.getElementById("finals");
+let anyFinal=false;
+for (const c of (D.courses||[])) {
+  if (!c.final) continue; anyFinal=true;
+  const div=document.createElement("div"); div.style.setProperty("--c",hex(c.color));
+  div.innerHTML=`<span>${c.code}</span><span>${c.final}</span>`; fin.appendChild(div);
+}
+if(!anyFinal) document.getElementById("finalsPanel").classList.add("hidden");
+if (D.generated) document.getElementById("gen").textContent = "Generated by jk on " + new Date(D.generated).toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"}) + ". Regenerate with jk due cal.";
+
+function applyFilter(){
+  document.querySelectorAll(".ev[data-k], .up li[data-k]").forEach(el=>{
+    el.classList.toggle("hidden", !active[el.dataset.k] || (hideDone && el.dataset.done==="1"));
+  });
+}
+applyFilter();
+</script>
+</body>
+</html>

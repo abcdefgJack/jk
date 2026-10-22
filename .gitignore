@@ -1,0 +1,4 @@
+.preview/
+.jk/
+*.exe
+*.stamp
