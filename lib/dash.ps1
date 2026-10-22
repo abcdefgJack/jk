@@ -206,6 +206,16 @@ function Get-JkBriefLine {
         $label = (Get-JkCourseLabel $e $cmap) -replace '\s', ''
         $parts += (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when)
     }
+    # the next class today leads the line (absolute time: the line is cached for the hour)
+    try {
+        $nc = @(Get-JkClassesOn $now.Date | Where-Object { $_.End -gt $now }) | Select-Object -First 1
+        if ($nc) {
+            $label = (Format-JkClassLabel $nc.Class $cmap) -replace '\s(?=\d)', ''
+            $room = ''; if ($nc.Class.room) { $room = ' ' + $nc.Class.room }
+            $parts = @((Paint "bold #$(Get-JkCourseColor $nc.Class.course $cmap)" $label) + ' ' + (Paint 'white' (Format-JkTime $nc.Start.ToString('HH:mm'))) + (Paint 'muted' $room)) + $parts
+            $soon = @($null) + $soon   # keeps the "+N more" arithmetic in step with $parts
+        }
+    } catch { }
     $td = Get-JkTodoData
     $openTodo = @($td.items | Where-Object { -not $_.done }).Count
     $tail = ''
@@ -219,7 +229,8 @@ function Get-JkBriefLine {
         if ($shown -gt 0) { $line += (@($parts | Select-Object -First $shown) -join (Paint 'gray' "  $($script:G.dot)  ")) }
         else { $line += Paint 'green' 'nothing due this week' }
         $more = $soon.Count - $shown
-        if ($shown -eq 0 -and $soon.Count) { $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' ' + (Paint 'white' "$($soon.Count) due this week") ; $more = 0 }
+        $dueCount = @($soon | Where-Object { $_ }).Count
+        if ($shown -eq 0 -and $dueCount) { $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' ' + (Paint 'white' "$dueCount due this week"); $more = 0 }
         if ($more -gt 0) { $line += Paint 'gray' "  +$more" }
         $line += $tail
         if ((Get-JkVisibleLength $line) -le $width -or $shown -eq 0) { break }
