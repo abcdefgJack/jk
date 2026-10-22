@@ -867,6 +867,15 @@ function Invoke-JkDueRemind {
         $lines += $txt
     }
     if ($soon.Count -gt 6) { $lines += "+$($soon.Count - 6) more" }
+    # today's study blocks ride along (they never trigger a popup on their own)
+    try {
+        $plan = Get-JkPlanToday
+        if ($plan -and $plan.Today.Alloc.Count) {
+            $byCourse = @{}
+            foreach ($it in $plan.Items) { if ($plan.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $plan.Today.Alloc[$it.Key] } }
+            $lines += 'Study today: ' + (($byCourse.Keys | Sort-Object { $byCourse[$_] } -Descending | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" }) -join ', ')
+        }
+    } catch { }
     if ($soon.Count) {
         $accent = Get-JkCourseColor $soon[0].course $cmap
         $title = "$($soon.Count) deadline$(if ($soon.Count -ne 1) {'s'}) in the next $([int]$Hours)h"
