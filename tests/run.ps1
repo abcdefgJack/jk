@@ -238,6 +238,45 @@ Test 'ICS export: valid structure, 75-octet folding, escaping' {
 }
 
 Write-Host ''
+Write-Host 'classes' -ForegroundColor Cyan
+Test 'day lists and time ranges' {
+    Assert-Eq ((ConvertTo-JkDays 'tue,thu') -join ' ') 'Tue Thu'
+    Assert-Eq ((ConvertTo-JkDays 'TTh') -join ' ') 'Tue Thu'
+    Assert-Eq ((ConvertTo-JkDays 'MWF') -join ' ') 'Mon Wed Fri'
+    Assert-Eq ((ConvertTo-JkDays 'MTWThF') -join ' ') 'Mon Tue Wed Thu Fri'
+    Assert-Eq ((ConvertTo-JkDays 'mon/wed') -join ' ') 'Mon Wed'
+    Assert-Eq ((ConvertTo-JkDays 'weekdays').Count) 5
+    Assert-Throws { ConvertTo-JkDays 'someday' }
+    $r = ConvertTo-JkTimeRange '4pm-5:20pm'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
+    $r = ConvertTo-JkTimeRange '4-5:20pm'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
+    $r = ConvertTo-JkTimeRange '11:30-12:20pm'; Assert-Eq "$($r.Start) $($r.End)" '11:30 12:20'
+    $r = ConvertTo-JkTimeRange '10:00AM - 11:20AM'; Assert-Eq "$($r.Start) $($r.End)" '10:00 11:20'
+    $r = ConvertTo-JkTimeRange '16:00-17:20'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
+    Assert-Throws { ConvertTo-JkTimeRange '5pm-4pm' }
+}
+Test 'Quest list view parsing (continuation rows, tests)' {
+    $q = "CS 341 - Algorithms`nClass Nbr`tSection`tComponent`tDays & Times`tRoom`tInstructor`tStart/End Date`n5678`t001`tLEC`tTTh 10:00AM - 11:20AM`tMC 2065`tSome Prof`t09/08/2026 - 12/08/2026`n5680`t051`tTST`tM 7:00PM - 8:50PM`tPAC 1`tTBA`t11/09/2026 - 11/09/2026`nCS 350 - Operating Systems`n6001`t002`tLEC`tMW 4:00PM - 5:20PM`tMC 1056`tProf`t09/08/2026 - 12/08/2026`n`t`t`tF 4:00PM - 4:50PM`tDC 1350`tProf`t09/08/2026 - 12/08/2026"
+    $p = ConvertFrom-JkQuestText $q
+    Assert-Eq @($p.Classes).Count 3
+    Assert-Eq @($p.Tests).Count 1
+    $c = @($p.Classes)[2]
+    Assert-Eq $c.Course 'CS 350'; Assert-Eq $c.Kind 'LEC'; Assert-Eq (@($c.Days) -join ' ') 'Fri'; Assert-Eq $c.Room 'DC 1350'; Assert-Eq $c.From '2026-09-08'
+    Assert-Eq @($p.Tests)[0].Date '2026-11-09'
+}
+Test 'meetings skip breaks and holidays; next class' {
+    Add-JkClass cs350 @('tue', 'thu') '8:30am-9:50am' 'MC 2017'
+    Add-JkClass cs350 mon '4-5:20pm' 'MC 1056' -From sep 9
+    Assert-Eq @(Get-JkClassesOn ([datetime]'2026-10-22')).Count 1 'Thu Oct 22 has the TTh class'
+    Assert-Eq @(Get-JkClassesOn ([datetime]'2026-10-13')).Count 0 'reading week'
+    Assert-Eq @(Get-JkClassesOn ([datetime]'2026-12-15')).Count 0 'after classes end'
+    $n = Get-JkNextClass ([datetime]'2026-10-22T09:00')
+    Assert-Eq $n.Start.ToString('MM-dd HH:mm') '10-22 08:30' 'in progress counts as next'
+    $n = Get-JkNextClass ([datetime]'2026-10-22T10:00')
+    Assert-Eq $n.Start.ToString('MM-dd HH:mm') '10-26 16:00'
+    Show-JkClasses; Show-JkTimetable; Show-JkClassList
+}
+
+Write-Host ''
 Write-Host 'grades' -ForegroundColor Cyan
 Test 'percent parsing' {
     Assert-Eq (ConvertTo-JkPercent '17/20') 85

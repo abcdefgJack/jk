@@ -342,6 +342,20 @@ function ConvertTo-JkDate {
     throw "can't understand the date '$Text' (try 2026-10-28, oct 28, fri, tomorrow, +3)"
 }
 
+# `-From sep 9` binds "sep" to -From and leaves "9" over. Given an option's value and the
+# leftover words, returns the value extended with as many leftovers as make it a valid date.
+function Join-JkLooseDate([string]$Value, [System.Collections.Generic.List[string]]$Extra) {
+    if (-not $Value) { return $Value }
+    $ok = $true
+    try { $null = ConvertTo-JkDate $Value } catch { $ok = $false }
+    while (-not $ok -and $Extra.Count -gt 0) {
+        $Value = "$Value $($Extra[0])"
+        $Extra.RemoveAt(0)
+        try { $null = ConvertTo-JkDate $Value; $ok = $true } catch { }
+    }
+    $Value
+}
+
 # Accepts: 8pm, 8:30 pm, 20:00, 2359, noon, midnight/eod (23:59). Returns 'HH:mm'.
 function ConvertTo-JkTime {
     param([string]$Text)

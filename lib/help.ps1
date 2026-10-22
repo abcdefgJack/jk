@@ -19,6 +19,17 @@ jk due remind                  pop up anything due in the next 48h (the daily ta
 jk due import <file.html>      import a calendar page that has COURSES/EVENTS arrays
 Tab completion knows ids, so `jk due done <Tab>` cycles through upcoming items.
 '@
+    'class'  = @'
+jk class                       today's classes (now / in 25m / done) and the next one
+jk class week                  Mon-Fri timetable for this week (reading week and holidays left out)
+jk class week -Date nov 2     another week
+jk class add cs350 tue,thu 4pm-5:20pm "MC 1056"        add a weekly meeting (days: tue,thu  TTh  MWF  weekdays)
+jk class add cs341 fri 2:30-3:20pm "MC 4060" -Kind TUT    tutorial / lab: -Kind TUT|LAB
+jk class import                Quest > Class Schedule > List View: select all, copy, run this
+jk class import page.txt       ... or from a saved copy. Midterm (TST) slots fill in deadline times.
+jk class list | jk class rm 3 | jk class next
+Classes run from the term start to the last day of classes unless -From / -To say otherwise.
+'@
     'todo'   = @'
 jk todo                        open items (soonest due first) and what you finished today
 jk todo email the TA           add (anything that is not a sub-command becomes the text)
@@ -163,7 +174,7 @@ function Show-JkHelp {
     }
     Write-JkHeader 'jk' "v$((Get-Module jk).Version) $($script:G.dot) your command-line sidekick"
     $groups = [ordered]@{
-        'School'   = @('due', 'week', 'exams', 'grade', 'todo')
+        'School'   = @('class', 'due', 'week', 'exams', 'grade', 'todo')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
         'Machine'  = @('tidy', 'space', 'sys', 'go', 'mark', 'speed')

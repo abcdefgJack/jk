@@ -56,6 +56,20 @@ function Show-JkDashboard {
         Say (' ' + (Paint "bold bg:#$color ink" ' NEXT EXAM ') + ' ' + (Paint "bold #$color" (Get-JkCourseLabel $e $cmap)) + ' ' + (Paint 'bold white' ([string]$e.title)) + (Paint 'muted' "  $cd $($script:G.dot) $when") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }))
     }
 
+    # next class (today or tomorrow), with how many are left today
+    try {
+        $nc = Get-JkNextClass $now 1
+        if ($nc) {
+            $cw = Get-JkClassWhen $nc $now
+            $color = Get-JkCourseColor $nc.Class.course $cmap
+            $leftToday = @(Get-JkClassesOn $now.Date | Where-Object { $_.End -gt $now }).Count
+            $extra = ''
+            if ($nc.Start.Date -eq $now.Date -and $leftToday -gt 1) { $extra = Paint 'gray' "  +$($leftToday - 1) more today" }
+            $label = ' NEXT CLASS '; if ($nc.Start -le $now) { $label = '  IN CLASS  ' }
+            Say (' ' + (Paint "bold bg:#$color ink" $label) + ' ' + (Paint "bold #$color" (Format-JkClassLabel $nc.Class $cmap)) + '  ' + (Paint $cw[1] $cw[0]) + (Paint 'muted' "  $($script:G.dot) $($nc.Class.room)") + $extra)
+        }
+    } catch { }
+
     # deadlines for the next 7 days
     $soon = @($data.events | Where-Object { -not $_.done } | Where-Object { $d = Get-JkEventDue $_; $d -ge $now -and $d -lt $now.Date.AddDays(8) } | Sort-Object { Get-JkEventDue $_ })
     Say ''

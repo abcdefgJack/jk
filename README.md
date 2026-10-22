@@ -24,7 +24,8 @@ deadline check (8:30 am and at sign-in). To undo the profile line, task and link
 
 | Area | Command | What it does |
 |---|---|---|
-| School | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
+| School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class import` reads Quest's List View |
+| | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |

@@ -518,8 +518,15 @@ function Edit-JkDue {
     param(
         [Parameter(Position = 0)][string]$Ref,
         [string]$Title, [string]$Date, [string]$Time, [string]$Weight, [string]$Note,
-        [string]$Course, [string]$End, [switch]$Exam, [switch]$Due, [switch]$Appt, [switch]$NoTime
+        [string]$Course, [string]$End, [switch]$Exam, [switch]$Due, [switch]$Appt, [switch]$NoTime,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra
     )
+    $left = New-Object System.Collections.Generic.List[string]
+    foreach ($x in @($Extra)) { if ($x) { $left.Add([string]$x) } }
+    $Date = Join-JkLooseDate $Date $left
+    # "-Time 4:30 pm" leaves "pm" over
+    if ($Time -and $left.Count -and $left[0] -match '^(?i)[ap]\.?m\.?$') { $Time = "$Time $($left[0])"; $left.RemoveAt(0) }
+    if ($left.Count) { throw "unexpected words: $($left -join ' ') (quote values with spaces)" }
     if (-not $Ref) { throw 'usage: jk due edit <id> [-Title ..] [-Date ..] [-Time ..] [-Weight ..] [-Note ..] [-Course ..] [-Exam|-Due|-Appt] [-NoTime]' }
     $data = Get-JkDueData
     $e = @(Find-JkEvents $data @($Ref))[0]
@@ -713,7 +720,7 @@ function Format-JkIcsLine([string]$Line) {
 }
 
 function Export-JkDueIcs {
-    param([string]$Out, [switch]$Open, [switch]$IncludeDone)
+    param([string]$Out, [switch]$Open, [switch]$IncludeDone, [switch]$NoClasses)
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
     if (-not $Out) { $Out = Get-JkPath 'deadlines.ics' }
@@ -759,10 +766,49 @@ function Export-JkDueIcs {
         $L.Add('END:VEVENT')
         $count++
     }
+    # weekly classes as recurring events; reading week and holidays become EXDATEs
+    $nClasses = 0
+    if (-not $NoClasses) {
+        $byDay = @{ Mon = 'MO'; Tue = 'TU'; Wed = 'WE'; Thu = 'TH'; Fri = 'FR'; Sat = 'SA'; Sun = 'SU' }
+        $skip = Get-JkTermSkipDays
+        foreach ($c in @((Get-JkClassData).items)) {
+            $r = Get-JkClassRange $c
+            if ($r[0] -eq [datetime]::MinValue -or $r[1] -eq [datetime]::MaxValue) { continue }
+            $first = $r[0]
+            while ($first -le $r[1] -and @($c.days) -notcontains $script:DayNames[[int]$first.DayOfWeek]) { $first = $first.AddDays(1) }
+            if ($first -gt $r[1]) { continue }
+            $s = ([string]$c.start).Split(':'); $e = ([string]$c.end).Split(':')
+            $st = $first.AddHours([int]$s[0]).AddMinutes([int]$s[1])
+            $en = $first.AddHours([int]$e[0]).AddMinutes([int]$e[1])
+            $ex = @()
+            $d = $first
+            while ($d -le $r[1]) {
+                if ($skip.ContainsKey($d.ToString('yyyy-MM-dd')) -and @($c.days) -contains $script:DayNames[[int]$d.DayOfWeek]) {
+                    $ex += $d.AddHours([int]$s[0]).AddMinutes([int]$s[1]).ToString('yyyyMMddTHHmmss', $script:Inv)
+                }
+                $d = $d.AddDays(1)
+            }
+            $label = Format-JkClassLabel $c $cmap
+            $L.Add('BEGIN:VEVENT')
+            $L.Add("UID:jk-class-$($c.id)-$($c.course)@jk.local")
+            $L.Add("DTSTAMP:$stamp")
+            $L.Add('DTSTART:' + $st.ToString('yyyyMMddTHHmmss', $script:Inv))
+            $L.Add('DTEND:' + $en.ToString('yyyyMMddTHHmmss', $script:Inv))
+            $L.Add('RRULE:FREQ=WEEKLY;BYDAY=' + ((@($c.days) | ForEach-Object { $byDay[$_] }) -join ',') + ';UNTIL=' + $r[1].ToString('yyyyMMdd', $script:Inv) + 'T235959')
+            if ($ex.Count) { $L.Add('EXDATE:' + ($ex -join ',')) }
+            $L.Add('SUMMARY:' + (ConvertTo-JkIcsText $label))
+            if ($c.room) { $L.Add('LOCATION:' + (ConvertTo-JkIcsText ([string]$c.room))) }
+            $L.Add('CATEGORIES:' + (ConvertTo-JkIcsText (Get-JkCourseLabel ([pscustomobject]@{ course = $c.course }) $cmap)))
+            $L.Add('END:VEVENT')
+            $nClasses++
+        }
+    }
     $L.Add('END:VCALENDAR')
     $text = (($L | ForEach-Object { Format-JkIcsLine $_ }) -join "`r`n") + "`r`n"
     Write-JkText $Out $text
-    Say ((Paint 'green' "  exported $($script:G.check)") + "  $count events $($script:G.arrow) $Out")
+    $classTxt = ''
+    if ($nClasses) { $classTxt = " + $nClasses weekly classes" }
+    Say ((Paint 'green' "  exported $($script:G.check)") + "  $count events$classTxt $($script:G.arrow) $Out")
     Say (Paint 'gray' '  Import into Google Calendar (Settings > Import) or Outlook to get phone reminders 1 day and 3 hours before.')
     if ($Open) { Start-Process $Out }
 }

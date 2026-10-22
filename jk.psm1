@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -8,6 +8,7 @@ foreach ($lib in 'core', 'due', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp'
 # name -> handler, aliases, one-line description (drives dispatch, `jk help` and tab completion)
 $script:JkCommands = [ordered]@{
     'due'    = @{ Fn = 'Invoke-JkDue'; Aliases = @('d', 'deadlines'); Desc = 'course deadlines: upcoming, add, done, week grid, calendar, .ics, reminders' }
+    'class'  = @{ Fn = 'Invoke-JkClass'; Aliases = @('classes', 'cls', 'timetable', 'schedule', 'sched'); Desc = 'class schedule: what is on today, the next class, a weekly timetable' }
     'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
     'exams'  = @{ Fn = 'Show-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown (same as jk due exams)' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }
@@ -81,6 +82,9 @@ $script:JkParamTargets = @{
     'due week'     = 'Show-JkDueWeek'
     'due course'   = 'Set-JkCourse'
     'todo add'     = 'Add-JkTodo'
+    'class add'    = 'Add-JkClass'
+    'class import' = 'Import-JkClasses'
+    'class week'   = 'Show-JkTimetable'
     'tidy'         = 'Invoke-JkTidyRun'
     'tidy scan'    = 'Invoke-JkTidyRun'
     'tidy apply'   = 'Invoke-JkTidyRun'
@@ -111,6 +115,7 @@ $script:JkParamTargets = @{
 $script:JkActions = @{
     'due'    = @('add', 'done', 'undone', 'edit', 'rm', 'all', 'past', 'week', 'exams', 'courses', 'course', 'cal', 'ics', 'remind', 'import', 'help')
     'todo'   = @('add', 'done', 'undo', 'rm', 'clear', 'edit', 'all', 'help')
+    'class'  = @('week', 'list', 'next', 'add', 'rm', 'import', 'help')
     'focus'  = @('25', '50', '15', 'status', 'stop', 'log', 'help')
     'remind' = @('list', 'cancel', 'install', 'uninstall', 'status', 'test', 'help')
     'grade'  = @('set', 'clear', 'target', 'help')
@@ -191,7 +196,14 @@ function Get-JkCompletions {
                 & $mk "$($_.id)" $tip $tip
             }
         }
-        if (($cmd -eq 'due' -and $action -eq 'add' -and $idx -eq 3) -or ($cmd -eq 'grade' -and $idx -eq 3 -and $action -ne 'set')) {
+        if ($cmd -eq 'class' -and $action -match '^(rm|remove|del)$') {
+            $cd = Get-JkClassData
+            return @($cd.items) | Where-Object { "$($_.id)" -like "$Word*" } | ForEach-Object {
+                $tip = "#$($_.id)  $($_.course) $($_.kind)  $(@($_.days) -join ' ')  $($_.start)-$($_.end)  $($_.room)"
+                & $mk "$($_.id)" $tip $tip
+            }
+        }
+        if (($cmd -eq 'due' -and $action -eq 'add' -and $idx -eq 3) -or ($cmd -eq 'class' -and $action -eq 'add' -and $idx -eq 3) -or ($cmd -eq 'grade' -and $idx -eq 3 -and $action -ne 'set')) {
             $vals = @((Get-JkDueData).courses | ForEach-Object { [string]$_.key })
         }
         if ($cmd -eq 'grade' -and $action -eq 'set' -and $idx -eq 3) {
