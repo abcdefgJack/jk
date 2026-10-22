@@ -15,7 +15,7 @@ function Save-JkReminderData($Data) { $Data.items = @($Data.items); Save-JkJson 
 function Get-JkReminderList { @((Get-JkReminderData).items | Sort-Object at) }
 
 function New-JkReminder {
-    param([datetime]$At, [string]$Text)
+    param([datetime]$At, [string]$Text, [string]$Key = '', [int]$DueId = 0)
     if (-not $Text) { $Text = 'Reminder' }
     $d = Get-JkReminderData
     $id = [int](Get-JkProp $d 'nextId' 1)
@@ -23,7 +23,7 @@ function New-JkReminder {
     # spawn first, then save once with the pid: the timer needs over a second just to load,
     # so the record is on disk long before it can fire (no read-modify-write race)
     $p = Start-JkBackground -Script (Get-JkReminderScript $id $At)
-    $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = $p.Id; spawned = $p.StartTime.ToString('s', $script:Inv) }
+    $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = $p.Id; spawned = $p.StartTime.ToString('s', $script:Inv); key = $Key; dueId = $DueId }
     $d.items = @($d.items) + $item
     Save-JkReminderData $d
     $item
@@ -55,9 +55,66 @@ function Complete-JkReminder {
     Save-JkReminderData $d
     $at = [datetime]::Parse([string]$item.at, $script:Inv)
     $lines = @()
-    if ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm')) $($at.ToString('ddd MMM d', $script:Inv))" }
+    $accent = $script:JkPalette.amber
+    $dueId = [int](Get-JkProp $item 'dueId' 0)
+    if ($dueId) {
+        # a same-day deadline alert: stay quiet if it was finished in the meantime
+        $data = Get-JkDueData
+        $e = @($data.events | Where-Object { [int]$_.id -eq $dueId })[0]
+        if (-not $e -or $e.done -or -not $e.time) { return }
+        $due = Get-JkEventDue $e
+        # moved to another day or already past since the alert was set: nothing useful to say
+        $now = Get-JkNow
+        if ($due -le $now -or $due.Date -ne $at.Date) { return }
+        $lines += "Due $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+        $lines += "Finished? jk due done $dueId"
+        $accent = Get-JkCourseColor $e.course (Get-JkCourseMap $data)
+    }
+    elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm')) $($at.ToString('ddd MMM d', $script:Inv))" }
     else { $lines += "Set $(Format-JkRelTime ([datetime]::Parse([string]$item.created, $script:Inv)))" }
-    $null = Show-JkNotify -Title ([string]$item.text) -Lines $lines -Accent $script:JkPalette.amber -Seconds 0 -Sound -Wait
+    $null = Show-JkNotify -Title ([string]$item.text) -Lines $lines -Accent $accent -Seconds 0 -Sound -Wait
+}
+
+# Same-day alerts: for each item due later today, a reminder alert.before ahead of it
+# (default 2h). Run by the morning task and again at sign-in; today's keys are remembered in
+# reminders.json, so an alert is set once even if it was cancelled or has already fired.
+function Register-JkTodayAlerts {
+    param([datetime]$Now = (Get-JkNow))
+    $before = Get-JkConfig 'alert.before'
+    if (-not $before -or $before -match '^(0|off|none)$') { return 0 }
+    $secs = ConvertTo-JkSeconds $before
+    $data = Get-JkDueData
+    $cmap = Get-JkCourseMap $data
+    $today = $Now.ToString('yyyy-MM-dd', $script:Inv)
+    $rd = Get-JkReminderData
+    $seen = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).EndsWith(":$today") })
+    $known = @($seen) + @($rd.items | ForEach-Object { [string](Get-JkProp $_ 'key') })
+    $added = @()
+    $n = 0
+    foreach ($e in @($data.events)) {
+        if ($e.done -or -not $e.time) { continue }
+        # anything timed (interviews and OAs carry no weight), except work marked 0% and the
+        # opening of a quiz window
+        if ($e.weight -and (Get-JkWeightValue $e.weight) -le 0) { continue }
+        if ([string]$e.title -match '(?i)\s+opens?$') { continue }
+        $due = Get-JkEventDue $e
+        if ($due.Date -ne $Now.Date -or $due -le $Now) { continue }
+        $at = $due.AddSeconds(-$secs)
+        if ($at -le $Now) { continue }
+        $key = "due:$($e.id):$($e.date)"
+        if ($known -contains $key) { continue }
+        $text = "$(Get-JkCourseLabel $e $cmap) $($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' }) at $(Format-JkTime $e.time)"
+        $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
+        $added += $key
+        $n++
+    }
+    $old = @(Get-JkProp $rd 'alerted' @())
+    if ($n -or $old.Count -ne $seen.Count) {
+        $rd = Get-JkReminderData
+        Set-JkProp $rd 'alerted' @(@($seen) + @($added))
+        Save-JkReminderData $rd
+    }
+    $n
 }
 
 function Format-JkRelTime([datetime]$When) {
@@ -232,6 +289,7 @@ function Invoke-JkRemind {
             Restore-JkReminders
             # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
             if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
+            try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
             Invoke-JkDueRemind -Quiet
             return
         }

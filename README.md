@@ -34,8 +34,11 @@ Install links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` 
 every new shell. It also adds a one-line summary to your profile and registers a morning
 brief popup: today's remaining classes plus anything due within 48 hours. It runs at 7:45 am
 (`jk config set remind.time 8am` changes that), or as soon as the PC wakes if it was asleep,
-and again at sign-in. To undo the profile line, task and link, run `jk setup uninstall`; your
-data stays in `~\.jk`.
+and again at sign-in. The same task sets a popup 2 hours before each deadline or appointment later
+that day. Interviews and OAs count too; work marked 0% and quiz-window openings don't. The popup is
+skipped if you mark the item done first. `jk config set alert.before 90m`
+changes the lead time, and `off` turns it off. To undo the profile line, task and link, run
+`jk setup uninstall`; your data stays in `~\.jk`.
 
 ## Commands
 

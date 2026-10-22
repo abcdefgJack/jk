@@ -253,6 +253,66 @@ Test 'jk at: bare hours mean the next such hour, day + time phrases' {
     Assert-Eq (Resolve-JkAtTime @('tomorrow', '9am', 'submit', 'form') ([datetime]'2026-10-22 14:00')).K 2
     Assert-Throws { Resolve-JkAtTime @('whenever') ([datetime]'2026-10-22 14:00') }
 }
+Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can be turned off' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'alerts-home'
+    $orig = ${function:Start-JkBackground}
+    try {
+        # no real timers in tests
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        $iv = Resolve-JkCourse $d 'intv' -Create
+        $null = New-JkEvent $d -Course $iv.key -Date ([datetime]'2026-10-28') -Time '15:30' -Title 'Interview' -Kind 'appt'
+        $null = New-JkEvent $d -Course 'cs350' -Date ([datetime]'2026-10-28') -Time '17:00' -Title 'Practice set' -Weight '0%'
+        $null = New-JkEvent $d -Course 'health' -Date ([datetime]'2026-10-28') -Time '16:00' -Title 'Quiz 3 opens' -Weight '5%'
+        Save-JkDueData $d
+        $now = [datetime]'2026-10-28T09:00'
+        Assert-Eq (Register-JkTodayAlerts -Now $now) 2 'A2A (8 pm) and the interview (no weight); not the 0% set or the quiz opening'
+        $items = @((Get-JkReminderData).items | Sort-Object at)
+        Assert-True ($items[0].text -like '* Interview at 3:30 pm') "interview: $($items[0].text)"
+        $r = $items[1]
+        Assert-Eq $r.at '2026-10-28T18:00:00' '2 hours before 8 pm'
+        Assert-True ($r.text -like 'CS 350 A2A Synchronization at 8:00 pm*')
+        # only the A2A alert from here on
+        $rd = Get-JkReminderData; $rd.items = @($r); Save-JkReminderData $rd
+        Assert-Eq (Register-JkTodayAlerts -Now $now) 0 'a second morning run adds nothing'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-28T19:00')) 0 'too late to warn 2 hours ahead'
+        $script:PopupCalls = 0
+        $origNotify = ${function:Show-JkNotify}
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:PopupLines = $Lines; $script:PopupCalls++; 'stub' }
+        try {
+            # finished before the alert fires: no popup, and the alert clears itself
+            Set-JkDueDone ([string]$r.dueId)
+            Complete-JkReminder -Id ([int]$r.id)
+            Assert-Eq $script:PopupCalls 0 'no popup for a finished item'
+            Assert-Eq @((Get-JkReminderData).items).Count 0 'alert removed'
+            # fired or cancelled: signing in again later that day does not set it again
+            Set-JkDueDone -Undo ([string]$r.dueId)
+            Assert-Eq (Register-JkTodayAlerts -Now $now) 0 'remembered for the day'
+            # still open and still due that evening: the popup says when, and how to close it
+            $a = New-JkReminder -At ([datetime]'2026-10-28T18:00') -Text 'x' -DueId ([int]$r.dueId)
+            Complete-JkReminder -Id ([int]$a.id)
+            Assert-Eq $script:PopupCalls 1 'popup for an open item'
+            Assert-True ($script:PopupLines[0] -like 'Due 8:00 pm*') "first line: $($script:PopupLines[0])"
+            Assert-Eq $script:PopupLines[1] "Finished? jk due done $($r.dueId)"
+            # moved to another day after the alert was set: stay quiet
+            $d = Get-JkDueData
+            @($d.events | Where-Object { [int]$_.id -eq [int]$r.dueId })[0].date = '2026-10-29'
+            Save-JkDueData $d
+            $a = New-JkReminder -At ([datetime]'2026-10-28T18:00') -Text 'x' -DueId ([int]$r.dueId)
+            Complete-JkReminder -Id ([int]$a.id)
+            Assert-Eq $script:PopupCalls 1 'no popup once the deadline moved'
+        } finally { Set-Item function:script:Show-JkNotify $origNotify }
+        Assert-Throws { Invoke-JkConfig set alert.before soon } 'bad durations are refused'
+        Set-JkConfig 'alert.before' 'off'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-29T08:00')) 0 'turned off'
+    } finally {
+        Set-Item function:script:Start-JkBackground $orig
+        $env:JK_HOME = $saved
+        $script:JkConfigCache = $null
+    }
+}
 Test 'reopen and grade by title text, including finished items' {
     $d = Get-JkDueData
     $e = @($d.events | Where-Object { $_.title -eq 'A2A Synchronization' })[0]
