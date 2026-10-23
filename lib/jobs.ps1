@@ -110,15 +110,25 @@ function Get-JkJobNote($Row) {
     $s
 }
 
-function Format-JkJobLine($Row, [int]$Width) {
+# Rows still waiting after this many days are dimmed: the posting has likely moved on.
+$script:JkJobStaleDays = 21
+
+function Test-JkJobStale($Row, [datetime]$Now) {
+    $Row.State -eq 'todo' -and ($Now.Date - $Row.Date).TotalDays -gt $script:JkJobStaleDays
+}
+
+function Format-JkJobLine($Row, [int]$Width, [datetime]$Now = (Get-JkNow)) {
+    $stale = Test-JkJobStale $Row $Now
     $glyph = switch ($Row.State) {
         'applied' { Paint 'green' $script:G.check }
-        'todo' { Paint 'amber' '!' }
+        'todo' { if ($stale) { Paint 'gray' '!' } else { Paint 'amber' '!' } }
         default { Paint 'gray' $script:G.dash }
     }
+    $nameStyle = 'bold white'; $roleStyle = ''
+    if ($stale) { $nameStyle = 'muted'; $roleStyle = 'muted' }
     $roleW = [Math]::Max(18, [int](($Width - 30) * 0.42))
     $noteW = [Math]::Max(10, $Width - 2 - 7 - 2 - 18 - $roleW - 2)
-    '  ' + (Paint 'muted' (Fit $Row.Date.ToString('MMM d', $script:Inv) 7)) + $glyph + ' ' + (Paint 'bold white' (Fit $Row.Company 17)) + ' ' + (Fit $Row.Role $roleW) + '  ' + (Paint 'gray' (Fit (Get-JkJobNote $Row) $noteW).TrimEnd())
+    '  ' + (Paint 'muted' (Fit $Row.Date.ToString('MMM d', $script:Inv) 7)) + $glyph + ' ' + (Paint $nameStyle (Fit $Row.Company 17)) + ' ' + (Paint $roleStyle (Fit $Row.Role $roleW)) + '  ' + (Paint 'gray' (Fit (Get-JkJobNote $Row) $noteW).TrimEnd())
 }
 
 function Show-JkJobs {
@@ -136,7 +146,10 @@ function Show-JkJobs {
     $right = "$($rows.Count) rows"
     if ($rows.Count) { $right += " $($script:G.dot) last entry $(Format-JkRelDay (@($rows | Sort-Object Date)[-1].Date) $now)" }
     Write-JkHeader 'Jobs' $right -Sub (Split-Path $path -Leaf)
-    Say ('  ' + (Paint 'green' "$($script:G.check) $($applied.Count) applied") + '   ' + (Paint 'amber' "! $($todo.Count) waiting on you") + '   ' + (Paint 'gray' "$($script:G.dash) $($skip.Count) ruled out"))
+    $fresh = @($todo | Where-Object { -not (Test-JkJobStale $_ $now) }).Count
+    $freshTxt = ''
+    if ($todo.Count) { $freshTxt = Paint 'gray' " ($fresh from the last $($script:JkJobStaleDays) days)" }
+    Say ('  ' + (Paint 'green' "$($script:G.check) $($applied.Count) applied") + '   ' + (Paint 'amber' "! $($todo.Count) waiting on you") + $freshTxt + '   ' + (Paint 'gray' "$($script:G.dash) $($skip.Count) ruled out"))
 
     # applications per week (Mon-Sun), the last 8 weeks
     $monday = $now.Date.AddDays(-(([int]$now.DayOfWeek + 6) % 7))
@@ -153,8 +166,8 @@ function Show-JkJobs {
 
     if ($todo.Count) {
         Say ''
-        Say (' ' + (Paint 'bold white' 'Waiting on you') + (Paint 'gray' '  sign-ins, MFA, take-homes, queued; newest first'))
-        foreach ($r in @($todo | Sort-Object Date, N -Descending | Select-Object -First 8)) { Say (Format-JkJobLine $r $w) }
+        Say (' ' + (Paint 'bold white' 'Waiting on you') + (Paint 'gray' "  sign-ins, MFA, take-homes, queued; newest first, dimmed after $($script:JkJobStaleDays) days"))
+        foreach ($r in @($todo | Sort-Object Date, N -Descending | Select-Object -First 8)) { Say (Format-JkJobLine $r $w $now) }
         if ($todo.Count -gt 8) { Say (Paint 'gray' "  +$($todo.Count - 8) more  $($script:G.dot)  jk jobs todo") }
     }
 

@@ -369,7 +369,10 @@ Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled o
         Assert-Eq (Get-JkJobNote $rows[0]) 'via Greenhouse'
         Assert-Eq (Get-JkJobNote $rows[1]) 'IBMid login now requires MFA enrollment'
         $sum = (Show-JkJobs 6>&1 | ForEach-Object { "$_" }) -join "`n"
-        Assert-True ($sum -match '3 applied\s+! 2 waiting on you\s+. 2 ruled out') 'summary counts'
+        Assert-True ($sum -match '3 applied\s+! 2 waiting on you \(1 from the last 21 days\)\s+. 2 ruled out') "summary counts: $(@($sum -split "`n" | Where-Object { $_ -match 'applied' })[0])"
+        # Semgrep (Sep 25) has waited 27 days: stale; Tesla (Oct 1) 21 days: not yet
+        Assert-True (Test-JkJobStale $rows[4] (Get-JkNow)) 'Semgrep is stale'
+        Assert-True (-not (Test-JkJobStale $rows[5] (Get-JkNow))) 'Tesla is not stale yet'
         Assert-True ($sum -notmatch 'IBMid') 'the resolved IBM row is not listed as waiting'
         $hit = (Find-JkJobs 'robinhood backend' 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($hit -match '1 row . 1 applied' -and $hit -match 'https://x.test/1') 'found, with its link'
