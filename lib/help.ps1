@@ -19,7 +19,8 @@ jk due remind                  pop up anything due in the next 48h (the daily ta
 jk due import <file.html>      import a calendar page that has COURSES/EVENTS arrays
 jk due sync "<feed link>"      pull deadlines from LEARN (Calendar > Subscribe) or any .ics link/file;
                                re-syncs update moved dates, keep done marks; the link is remembered
-jk due sync                    sync again (the morning task does this daily once a link is saved)
+jk due sync                    sync again (the morning task does this daily once a link is saved);
+                               the first time, it takes the link from your clipboard or asks you to paste it
 Tab completion knows ids, so `jk due done <Tab>` cycles through upcoming items.
 '@
     'class'  = @'

@@ -711,6 +711,23 @@ Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dat
         Assert-Throws { Invoke-JkDueSync (Join-Path $saved 'nope.ics') }
     } finally { $env:JK_HOME = $saved }
 }
+Test 'feed links are recognised on the clipboard or in a paste' {
+    Assert-Eq (Find-JkFeedLink '  "https://learn.uwaterloo.ca/d2l/le/calendar/feed/user/feed.ics?token=abc"  ') 'https://learn.uwaterloo.ca/d2l/le/calendar/feed/user/feed.ics?token=abc'
+    Assert-Eq (Find-JkFeedLink 'webcal://example.test/x') 'webcal://example.test/x'
+    Assert-Eq (Find-JkFeedLink 'https://example.test/cal/term.ics') 'https://example.test/cal/term.ics'
+    Assert-True ($null -eq (Find-JkFeedLink 'https://github.com/abcdefgJack/jk')) 'an ordinary page is not a feed'
+    Assert-True ($null -eq (Find-JkFeedLink 'see https://x.test/feed.ics for details')) 'only a bare link counts'
+    Assert-True ($null -eq (Find-JkFeedLink '')) 'empty'
+    # with no saved feed and prompts off, the error explains where to get the link
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'nofeed-home'
+    $script:JkConfigCache = $null
+    try {
+        $msg = ''
+        try { Invoke-JkDueSync } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg -match 'Calendar > Subscribe') "error: $msg"
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'sync round trip: jk''s own ics export reproduces the deadlines' {
     $saved = $env:JK_HOME
     $out = Join-Path $saved 'roundtrip.ics'
