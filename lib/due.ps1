@@ -198,6 +198,12 @@ function Get-JkTermInfo {
     elseif ($end -and $today -gt $end -and $exStart -and $today -lt $exStart) { $phase = 'study' }
     elseif ($exStart -and $today -ge $exStart -and (-not $exEnd -or $today -le $exEnd)) { $phase = 'exams' }
     elseif ($exEnd -and $today -gt $exEnd) { $phase = 'after' }
+    # a week after the stored term's exams the next term has begun (its dates come from a new
+    # calendar import; a LEARN sync brings only the deadlines): name it by the season and stop
+    # describing the old one
+    if ($phase -eq 'after' -and $today -ge $exEnd.AddDays(7)) {
+        return [pscustomobject]@{ Name = (Get-JkSeasonName $today); Start = $null; ClassesEnd = $null; ExamsStart = $null; ExamsEnd = $null; Week = $null; TotalWeeks = $null; Phase = 'next'; InBreak = $false; BreakName = ''; DaysToEnd = $null; DaysToExams = $null; Previous = [string]$t.name }
+    }
     $inBreak = $breakMondays -contains (& $monday $today)
     $breakName = ''
     foreach ($b in @(Get-JkProp $t 'breaks' @())) {
@@ -221,6 +227,13 @@ function Get-JkTermInfo {
     }
 }
 
+# Waterloo's three terms by month: Winter (Jan-Apr), Spring (May-Aug), Fall (Sep-Dec).
+function Get-JkSeasonName([datetime]$Date) {
+    $season = 'Fall'
+    if ($Date.Month -le 4) { $season = 'Winter' } elseif ($Date.Month -le 8) { $season = 'Spring' }
+    "$season $($Date.Year)"
+}
+
 function Format-JkTermLine($Info) {
     if (-not $Info) { return '' }
     $parts = @($Info.Name)
@@ -236,6 +249,7 @@ function Format-JkTermLine($Info) {
         'study' { $parts += "study break $($script:G.dot) exams in $($Info.DaysToExams)d" }
         'exams' { $parts += 'exam period' }
         'after' { $parts += 'term over' }
+        'next' { }
     }
     $parts -join " $($script:G.dot) "
 }
