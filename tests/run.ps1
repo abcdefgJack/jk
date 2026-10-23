@@ -391,6 +391,23 @@ Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled o
         Assert-Eq $again[0].Company 'Robinhood'
     } finally { Invoke-JkConfig reset jobs.file }
 }
+Test 'doctor flags a stale LEARN feed and this week''s background errors' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'doctor-home'
+    $script:JkConfigCache = $null
+    try {
+        New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+        Set-JkConfig 'sync.url' 'https://example.test/feed.ics'
+        # doctor reads the wall clock (it reports on the real machine), so stamps are relative to it
+        Save-JkJson 'state.json' ([pscustomobject]@{ lastSync = (Get-Date).AddDays(-5).ToString('s', $script:Inv) })
+        Set-Content -LiteralPath (Get-JkPath 'background.log') -Value @(
+            ((Get-Date).AddDays(-30).ToString('s', $script:Inv) + ' old: ignored'),
+            ((Get-Date).AddHours(-2).ToString('s', $script:Inv) + ' sync: The remote name could not be resolved'))
+        $out = (Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match 'LEARN feed\s+last synced 5 days ago') 'stale feed'
+        Assert-True ($out -match 'background errors\s+1 this week, latest: sync: The remote name') 'recent error only'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

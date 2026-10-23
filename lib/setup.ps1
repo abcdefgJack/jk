@@ -253,6 +253,30 @@ function Invoke-JkDoctor {
     else { & $ok 'notifications' "Windows toasts are off ($ts), jk uses its own popup $($script:G.dot) mode $mode" }
     $ev = @((Get-JkDueData).events)
     if ($ev.Count) { & $ok 'deadlines' "$($ev.Count) events $($script:G.dot) $(@((Get-JkDueData).courses).Count) courses" } else { & $meh 'deadlines' 'none yet - jk due import <calendar.html> or jk due add' }
+    # the LEARN feed: the morning task syncs daily, so a stale stamp means it has been failing
+    if (Get-JkConfig 'sync.url') {
+        $last = Get-JkProp (Read-JkJson 'state.json' $null) 'lastSync'
+        if (-not $last) { & $meh 'LEARN feed' 'connected, never synced - jk due sync' }
+        else {
+            $ago = (Get-Date) - [datetime]::Parse([string]$last, $script:Inv)
+            if ($ago.TotalDays -gt 2) { & $meh 'LEARN feed' "last synced $([int]$ago.TotalDays) days ago - jk due sync (errors: background.log)" }
+            else { & $ok 'LEARN feed' "synced $(Format-JkRelTime ([datetime]::Parse([string]$last, $script:Inv)))" }
+        }
+    } else { & $meh 'LEARN feed' 'not connected - LEARN > Calendar > Subscribe, then jk due sync "<link>"' }
+    try {
+        $jf = Find-JkJobsFile
+        if ($jf) { & $ok 'job tracker' "$(@(Get-JkJobs $jf).Count) rows $($script:G.dot) $jf" }
+        else { & $meh 'job tracker' 'none found (optional) - jk config set jobs.file <path>' }
+    } catch { & $bad 'job tracker' $_.Exception.Message }
+    # windowless timers and the morning task log failures here instead of showing them
+    $log = Get-JkPath 'background.log'
+    $recent = @()
+    if (Test-Path -LiteralPath $log) {
+        $since = (Get-Date).AddDays(-7)
+        $recent = @(Get-Content -LiteralPath $log | Where-Object { $_ -match '^(\d{4}-\d{2}-\d{2}T[\d:]+)' -and [datetime]::Parse($Matches[1], $script:Inv) -ge $since })
+    }
+    if ($recent.Count) { & $meh 'background errors' "$($recent.Count) this week, latest: $(Fit ($recent[-1] -replace '^\S+\s+', '') 60)  ($log)" }
+    else { & $ok 'background errors' 'none this week' }
     foreach ($tool in @(@('g++', 'C++ for jk cp'), @('python', 'Python for jk cp'), @('javac', 'Java for jk cp'), @('git', 'git for jk repos'))) {
         $c = Get-Command $tool[0] -ErrorAction SilentlyContinue
         if ($c) {
