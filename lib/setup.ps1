@@ -29,7 +29,7 @@ function Invoke-JkConfig {
             if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
             if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
             if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
-            if ($key -eq 'alert.before' -and $val -notmatch '^(0|off|none)$') { $null = ConvertTo-JkSeconds $val }
+            if ($key -match '^alert\.(before|class)$' -and $val -notmatch '^(0|off|none)$') { $null = ConvertTo-JkSeconds $val }
             Set-JkConfig $key $val
             Clear-JkBriefCache
             $echo = $val
