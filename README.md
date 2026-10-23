@@ -1,7 +1,7 @@
 # jk
 
 A personal command-line toolkit for Windows PowerShell 5.1. It covers:
-- **School:** classes and timetable, deadlines, grades, a weekly review.
+- **School:** classes and timetable, deadlines, grades, a weekly review, and the co-op job search.
 - **Time:** reminders and a focus timer.
 - **Code:** a competitive-programming runner.
 - **Machine:** Downloads and disk cleanup reports, fuzzy folder jumping, machine/port/repo status, and a
@@ -54,6 +54,7 @@ changes the lead time, and `off` turns it off. To undo the profile line, task an
 | | `jk grade cs350` | Running weighted average and "to finish with 80% you need 77% on the rest" |
 | | `jk todo "email the TA" -Due fri` | Lightweight to-do list |
 | | `jk review` | Last 7 days (done, slipped, focus per course) and next 7 (load, where the marks are) |
+| | `jk jobs` / `jk jobs stripe` | Job applications from your tracker table: applied, waiting on you (sign-ins, MFA, take-homes), ruled out, weekly pace; search answers "did I already apply?" (read-only) |
 | Time | `jk focus 50 cs350` | Focus block; a popup slides in when it ends. `jk focus log` for the week |
 | | `jk in 20m "laundry"` / `jk at 5pm "leave"` | One-off reminders (re-armed after a restart) |
 | Code | `jk cp new A` / `jk cp add` / `jk cp` | Scaffold, paste samples from the clipboard, compile + test with diffs |

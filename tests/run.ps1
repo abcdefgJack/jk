@@ -342,6 +342,41 @@ Test 'morning brief: once per 3 hours, and a future stamp never silences it' {
         Assert-Eq (Read-JkJson 'state.json' $null).lastRemind '2026-10-22T14:00:00' 'and replaced with now'
     } finally { Set-Item function:script:Show-JkNotify $orig }
 }
+Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled out, finds by company' {
+    $md = Join-Path $env:JK_HOME 'tracker.md'
+    $d = [string][char]0x2014
+    $lines = @(
+        '# Job Application Tracker', '',
+        '| Date | Company | Role | Location / term | Status | Link |',
+        '|---|---|---|---|---|---|',
+        "| 2026-10-06 | Robinhood | Software Developer Intern, Backend (Summer 2027) (gh 1) | Toronto | Submitted successfully via Greenhouse embed $d 'Thank you' | https://x.test/1 |",
+        "| 2026-09-15 | IBM | Data Services Developer Intern (WW 1) | Markham | NOT SUBMITTED $d IBMid login now requires MFA enrollment | https://x.test/2 |",
+        "| 2026-09-20 | IBM | Data Services Developer Intern (WW 2) | Markham | Submitted via WaterlooWorks | https://x.test/3 |",
+        "| 2026-09-04 | Geotab | Data Scientist | Oakville | Not submitted $d posted salary minimum below C`$30/hour | |",
+        "| 2026-09-25 | Semgrep | Software Engineer Intern \| Cloud | Remote | NOT SUBMITTED $d form includes a human-verification question | https://x.test/4 |",
+        "| 2026-10-01 | Tesla | Internship | Palo Alto | Queued $d apply after the password reset | |",
+        "| 2026-10-02 | Acme | Intern | Remote | SKIPPED $d requires US work authorization | |",
+        "| 2026-10-03 | Beta | Intern | Remote | Direct Greenhouse application submitted | |"
+    )
+    [IO.File]::WriteAllLines($md, $lines, (New-Object Text.UTF8Encoding $false))
+    Set-JkConfig 'jobs.file' $md
+    try {
+        $rows = @(Get-JkJobs)
+        Assert-Eq $rows.Count 8
+        Assert-Eq (($rows | ForEach-Object { $_.State }) -join ',') 'applied,todo,applied,skip,todo,todo,skip,applied'
+        Assert-True (@($rows | Where-Object { $_.Company -eq 'IBM' -and $_.State -eq 'todo' })[0].Resolved) 'blocked, then applied later: no longer waiting'
+        Assert-Eq $rows[4].Role 'Software Engineer Intern | Cloud' 'an escaped bar stays inside its cell'
+        Assert-Eq (Get-JkJobNote $rows[0]) 'via Greenhouse'
+        Assert-Eq (Get-JkJobNote $rows[1]) 'IBMid login now requires MFA enrollment'
+        $sum = (Show-JkJobs 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($sum -match '3 applied\s+! 2 waiting on you\s+. 2 ruled out') 'summary counts'
+        Assert-True ($sum -notmatch 'IBMid') 'the resolved IBM row is not listed as waiting'
+        $hit = (Find-JkJobs 'robinhood backend' 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($hit -match '1 row . 1 applied' -and $hit -match 'https://x.test/1') 'found, with its link'
+        $none = (Find-JkJobs 'stripe' 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($none -match 'Not in the tracker') 'no match says so'
+    } finally { Invoke-JkConfig reset jobs.file }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

@@ -128,6 +128,17 @@ jk config set cp.root D:\cp    where jk cp new puts problems;  cp.lang cpp|py|ja
 jk config set tidy.minAge 7    keep files newer than 7 days in place
 jk config reset <key> | jk config edit | jk config path
 '@
+    'jobs'   = @'
+jk jobs                        applied / waiting on you / ruled out, applications per week, most-applied companies
+jk jobs stripe                 did I already apply? every row for a company or role, with links
+jk jobs robinhood backend      all words must match (company, role or location)
+jk jobs todo                   everything still waiting on you: sign-ins, MFA, take-homes, queued
+jk jobs skipped                what was ruled out, and why
+jk jobs edit                   open the tracker
+Reads job_application_tracker.md (a markdown table: Date | Company | Role | Location | Status | Link)
+from a Desktop folder, or jk config set jobs.file <path>. Read-only: jk never changes the tracker.
+A blocked row counts as done once a later row applies to the same company and role.
+'@
     'space'  = @'
 jk space                       sizes of Downloads, Recycle Bin, temp, conda/pip/npm caches, Gradle, Maven,
                                Docker's disk, browser/editor caches and every node_modules under the Desktop
