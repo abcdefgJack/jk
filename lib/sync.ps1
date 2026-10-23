@@ -97,7 +97,11 @@ function Get-JkIcsTitle([string]$Summary, [string]$CourseCode) {
         $pat = [regex]::Escape($CourseCode).Replace('\ ', '[ -]?')
         $t = [regex]::Replace($t, "(?i)\b$pat\b\s*[:\-|]*\s*", '')
     }
-    $t = [regex]::Replace($t, '(?i)\s*[-:]\s*(due|due date|availability ends|end date|deadline)\s*$', '')
+    # LEARN's own labels: "Assignment 2 Dropbox - Due", "Midterm 1 - Availability Ends", ...
+    for ($i = 0; $i -lt 3; $i++) {
+        $t = [regex]::Replace($t, '(?i)\s*[-:]\s*(due|due date|availability ends|end date|deadline)\s*$', '')
+        $t = [regex]::Replace($t, '(?i)\s+(dropbox|submission folder|assignment folder|submission)\s*$', '')
+    }
     $t = $t.Trim(' ', '-', ':', '|')
     if (-not $t) { $t = $Summary.Trim() }
     [pscustomobject]@{ Title = $t; Weight = $weight }
@@ -105,6 +109,13 @@ function Get-JkIcsTitle([string]$Summary, [string]$CourseCode) {
 
 # A calendar-feed link in some text (the clipboard, a paste): webcal://, or http(s) to an .ics or
 # a calendar/feed path such as LEARN's /d2l/le/calendar/feed/... Returns the link or $null.
+# What a title is about, for matching a feed item to one typed in by hand: "Assignment 3 closes",
+# "Assignment 3 Dropbox" and "Assignment 3" all give "assignment3".
+function Get-JkTitleKey([string]$Title) {
+    $t = [regex]::Replace($Title, '(?i)\b(dropbox|submission folder|assignment folder|submission|availability (starts|ends)|opens?|closes?|due( date)?|deadline)\b', ' ')
+    ($t -replace '[^\p{L}\p{Nd}]', '').ToLower()
+}
+
 function Find-JkFeedLink([string]$Text) {
     $t = ([string]$Text).Trim().Trim('"', "'", '<', '>')
     if ($t -notmatch '^(?i)(https?|webcal)://\S+$') { return $null }
@@ -174,13 +185,19 @@ function Invoke-JkDueSync {
         $title = $parsed.Title
         $date = $when.Date.ToString('yyyy-MM-dd', $script:Inv)
         $time = ''; if (-not $ev.Start.AllDay) { $time = $when.ToString('HH:mm', $script:Inv) }
-        $kind = 'due'; if ($title -match '(?i)\b(midterm|exam|final|test|quiz)\b' -and $ev.Summary -notmatch '^(?i)due\s*:') { $kind = 'exam' }
+        $kind = 'due'
+        if ($title -match '(?i)\b(midterm|exam|final|test|quiz)\b' -and $title -notmatch '(?i)\bfinal\s+(project|report|paper|presentation|essay|submission)\b' -and $ev.Summary -notmatch '^(?i)due\s*:') { $kind = 'exam' }
         $uid = [string]$ev.Uid
         $hit = $null
         if ($uid) { $hit = @($data.events | Where-Object { [string](Get-JkProp $_ 'uid') -eq $uid })[0] }
+        $kept = $false
         if (-not $hit) {
-            $norm = ($title -replace '[^\p{L}\p{Nd}]', '').ToLower()
-            $hit = @($data.events | Where-Object { $_.course -eq $courseKey -and $_.date -eq $date -and (([string]$_.title -replace '[^\p{L}\p{Nd}]', '').ToLower()) -eq $norm })[0]
+            # first sync: link to the item typed in by hand (same course and day, same subject
+            # once LEARN's "Dropbox" / "Availability Ends" and your "opens" / "closes" are set aside)
+            $key = Get-JkTitleKey $title
+            $hit = @($data.events | Where-Object { $_.course -eq $courseKey -and $_.date -eq $date -and -not (Get-JkProp $_ 'uid') -and (Get-JkTitleKey ([string]$_.title)) -eq $key })[0]
+            # your title, weight and notes stay: only the date and time follow the feed from now on
+            if ($hit -and ([string]$hit.title -replace '[^\p{L}\p{Nd}]', '').ToLower() -ne ($title -replace '[^\p{L}\p{Nd}]', '').ToLower()) { $kept = $true }
         }
         # what the feed said, kept on the item: your own edits stay put until the feed itself changes
         $src = "$date|$time|$title"
@@ -190,15 +207,19 @@ function Invoke-JkDueSync {
                 $newTime = $time
                 # an all-day feed entry should not wipe a time you added for the same day
                 if (-not $newTime -and $hit.time -and $hit.date -eq $date) { $newTime = [string]$hit.time }
-                $changed = ($hit.date -ne $date) -or ([string]$hit.time -ne $newTime) -or ([string]$hit.title -ne $title)
-                $hit.date = $date; $hit.time = $newTime; $hit.title = $title
+                $newTitle = $title; if ($kept) { $newTitle = [string]$hit.title }
+                $changed = ($hit.date -ne $date) -or ([string]$hit.time -ne $newTime) -or ([string]$hit.title -ne $newTitle)
+                $hit.date = $date; $hit.time = $newTime; $hit.title = $newTitle
                 if ($changed) { $updated++ } else { $same++ }
                 Set-JkProp $hit 'src' $src
             }
             if ($uid) { Set-JkProp $hit 'uid' $uid }
             continue
         }
-        $e = New-JkEvent -Data $data -Course $courseKey -Date $when.Date -Time $time -Title $title -Kind $kind -Note ([string]$ev.Location) -Weight $parsed.Weight
+        # LEARN puts the course's name in LOCATION; only a real place is worth keeping as the note
+        $note = [string]$ev.Location
+        if ($code -and $note -match ('(?i)' + [regex]::Escape($code).Replace('\ ', '[ -]?'))) { $note = '' }
+        $e = New-JkEvent -Data $data -Course $courseKey -Date $when.Date -Time $time -Title $title -Kind $kind -Note $note -Weight $parsed.Weight
         Set-JkProp $e 'src' $src
         if ($uid) { Set-JkProp $e 'uid' $uid }
         $added += $e

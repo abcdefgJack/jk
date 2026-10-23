@@ -812,6 +812,34 @@ Test 'mornings: afternoon exams get study time that day; windows read "closes to
         $script:JkConfigCache = $null
     }
 }
+Test 'first LEARN sync links to items typed in by hand instead of duplicating them' {
+    Assert-Eq (Get-JkIcsTitle 'Assignment 2 Dropbox - Due' 'CS 341').Title 'Assignment 2'
+    Assert-Eq (Get-JkIcsTitle 'Midterm 1 - Availability Ends' 'HEALTH 105').Title 'Midterm 1'
+    Assert-Eq (Get-JkTitleKey 'Assignment 3 closes') (Get-JkTitleKey 'Assignment 3 Dropbox')
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'firstsync-home'
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $before = @((Get-JkDueData).events)
+        $f = Join-Path $env:JK_HOME 'learn.ics'
+        $ev = { param($uid, $utc, $sum, $loc) @('BEGIN:VEVENT', "UID:$uid", "DTSTART:$utc", "DTEND:$utc", "SUMMARY:$sum", "LOCATION:$loc", 'END:VEVENT') }
+        # 8 pm EDT Oct 28 = 00:00 UTC Oct 29; 11:59 pm EDT Oct 27 = 03:59 UTC Oct 28
+        $a2a = (Get-JkEventDue @($before | Where-Object { $_.title -eq 'A2A Synchronization' })[0]).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
+        $mid = (Get-JkEventDue @($before | Where-Object { $_.title -eq 'Midterm closes' })[0]).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
+        [IO.File]::WriteAllLines($f, @('BEGIN:VCALENDAR', 'VERSION:2.0') +
+            (& $ev 'l-1' $a2a 'A2A Synchronization Dropbox - Due' 'CS 350 - Operating Systems (Fall 2026)') +
+            (& $ev 'l-2' $mid 'Midterm - Availability Ends' 'HEALTH 105 - Mental Health Literacy (Fall 2026)') +
+            (& $ev 'l-3' '20261204T045900Z' 'Final Project Dropbox - Due' 'HEALTH 105 - Mental Health Literacy (Fall 2026)') + @('END:VCALENDAR'))
+        Invoke-JkDueSync $f
+        $after = @((Get-JkDueData).events)
+        Assert-Eq $after.Count ($before.Count + 1) 'only the final project is new'
+        $linked = @($after | Where-Object { (Get-JkProp $_ 'uid') -in 'l-1', 'l-2' })
+        Assert-Eq (($linked | ForEach-Object { $_.title } | Sort-Object) -join ',') 'A2A Synchronization,Midterm closes' 'hand-typed titles kept'
+        $fp = @($after | Where-Object { (Get-JkProp $_ 'uid') -eq 'l-3' })[0]
+        Assert-Eq "$($fp.title)|$($fp.kind)|$($fp.note)" 'Final Project|due|' 'a final project is not an exam; no course-name note'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
