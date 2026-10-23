@@ -88,15 +88,17 @@ function Get-JkJobs {
             })
         $n++
     }
-    # a row that was blocked and then applied to (same company, same role) is no longer waiting
+    # a row that was blocked and then applied to (same company, same role) is no longer waiting.
+    # Roles must match exactly once ids in brackets are dropped: "Intern" vs "Intern, Web" are
+    # different applications.
     $applied = @($rows | Where-Object { $_.State -eq 'applied' })
     foreach ($r in $rows) {
         if ($r.State -ne 'todo') { continue }
         $k = Get-JkJobKey $r.Role
+        if (-not $k) { continue }
         foreach ($a in $applied) {
             if ($a.Company -ne $r.Company -or $a.Date -lt $r.Date) { continue }
-            $ak = Get-JkJobKey $a.Role
-            if ($ak -eq $k -or ($k -and $ak.StartsWith($k)) -or ($ak -and $k.StartsWith($ak))) { $r.Resolved = $true; break }
+            if ((Get-JkJobKey $a.Role) -eq $k) { $r.Resolved = $true; break }
         }
     }
     $script:JkJobsCache = @{ Stamp = $stamp; Rows = $rows.ToArray() }

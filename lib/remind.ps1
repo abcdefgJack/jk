@@ -12,21 +12,40 @@ function Get-JkReminderData {
 
 function Save-JkReminderData($Data) { $Data.items = @($Data.items); Save-JkJson 'reminders.json' $Data }
 
+# reminders.json is read, changed and saved by several processes (each timer that fires, the
+# morning task, the shell). A machine-wide mutex keeps one change from overwriting another, for
+# example two alerts that fire in the same minute. Windows mutexes are re-entrant per thread,
+# so a locked function may call another.
+function Enter-JkReminderLock {
+    $m = New-Object Threading.Mutex($false, 'Local\jk-reminders')
+    # an owner that died while holding it leaves it "abandoned": the wait still acquires it
+    try { $null = $m.WaitOne(10000) } catch { }
+    $m
+}
+
+function Exit-JkReminderLock($Mutex) {
+    try { $Mutex.ReleaseMutex() } catch { }
+    $Mutex.Dispose()
+}
+
 function Get-JkReminderList { @((Get-JkReminderData).items | Sort-Object at) }
 
 function New-JkReminder {
     param([datetime]$At, [string]$Text, [string]$Key = '', [int]$DueId = 0)
     if (-not $Text) { $Text = 'Reminder' }
-    $d = Get-JkReminderData
-    $id = [int](Get-JkProp $d 'nextId' 1)
-    $d.nextId = $id + 1
-    # spawn first, then save once with the pid: the timer needs over a second just to load,
-    # so the record is on disk long before it can fire (no read-modify-write race)
-    $job = Get-JkReminderJob $id $At
-    $p = Start-JkBackground @job
-    $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = $p.Id; spawned = $p.StartTime.ToString('s', $script:Inv); key = $Key; dueId = $DueId }
-    $d.items = @($d.items) + $item
-    Save-JkReminderData $d
+    $lock = Enter-JkReminderLock
+    try {
+        $d = Get-JkReminderData
+        $id = [int](Get-JkProp $d 'nextId' 1)
+        $d.nextId = $id + 1
+        # spawn first, then save once with the pid: the timer needs over a second just to load,
+        # so the record is on disk long before it can fire
+        $job = Get-JkReminderJob $id $At
+        $p = Start-JkBackground @job
+        $item = [pscustomobject][ordered]@{ id = $id; text = $Text; at = $At.ToString('s', $script:Inv); created = (Get-Date).ToString('s', $script:Inv); pid = $p.Id; spawned = $p.StartTime.ToString('s', $script:Inv); key = $Key; dueId = $DueId }
+        $d.items = @($d.items) + $item
+        Save-JkReminderData $d
+    } finally { Exit-JkReminderLock $lock }
     $item
 }
 
@@ -40,22 +59,30 @@ function Start-JkReminderProcess($Item) {
     $at = [datetime]::Parse([string]$Item.at, $script:Inv)
     $job = Get-JkReminderJob ([int]$Item.id) $at
     $p = Start-JkBackground @job
-    $d = Get-JkReminderData
-    foreach ($i in @($d.items)) {
-        if ([int]$i.id -eq [int]$Item.id) { $i.pid = $p.Id; $i.spawned = $p.StartTime.ToString('s', $script:Inv) }
-    }
-    Save-JkReminderData $d
+    $lock = Enter-JkReminderLock
+    try {
+        $d = Get-JkReminderData
+        foreach ($i in @($d.items)) {
+            if ([int]$i.id -eq [int]$Item.id) { $i.pid = $p.Id; $i.spawned = $p.StartTime.ToString('s', $script:Inv) }
+        }
+        Save-JkReminderData $d
+    } finally { Exit-JkReminderLock $lock }
 }
 
 # Runs in the background process when a reminder is due.
 function Complete-JkReminder {
     param([int]$Id, [switch]$Missed)
-    $d = Get-JkReminderData
-    $item = @($d.items | Where-Object { [int]$_.id -eq $Id })
+    $lock = Enter-JkReminderLock
+    try {
+        $d = Get-JkReminderData
+        $item = @($d.items | Where-Object { [int]$_.id -eq $Id })
+        if ($item) {
+            $d.items = @($d.items | Where-Object { [int]$_.id -ne $Id })
+            Save-JkReminderData $d
+        }
+    } finally { Exit-JkReminderLock $lock }
     if (-not $item) { return }
     $item = $item[0]
-    $d.items = @($d.items | Where-Object { [int]$_.id -ne $Id })
-    Save-JkReminderData $d
     $at = [datetime]::Parse([string]$item.at, $script:Inv)
     $lines = @()
     $accent = $script:JkPalette.amber
@@ -125,9 +152,14 @@ function Register-JkTodayAlerts {
     }
     $old = @(Get-JkProp $rd 'alerted' @())
     if ($n -or $old.Count -ne $seen.Count) {
-        $rd = Get-JkReminderData
-        Set-JkProp $rd 'alerted' @(@($seen) + @($added))
-        Save-JkReminderData $rd
+        $lock = Enter-JkReminderLock
+        try {
+            $rd = Get-JkReminderData
+            # keep what others added meanwhile (a class alert), drop other days
+            $current = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
+            Set-JkProp $rd 'alerted' @(@($current) + @($added) | Select-Object -Unique)
+            Save-JkReminderData $rd
+        } finally { Exit-JkReminderLock $lock }
     }
     $n
 }
@@ -142,23 +174,27 @@ function Register-JkClassAlert {
     if (-not $lead -or $lead -match '^(0|off|none)$') { return $null }
     $secs = ConvertTo-JkSeconds $lead
     $today = $Now.ToString('yyyy-MM-dd', $script:Inv)
-    $rd = Get-JkReminderData
-    if (@($rd.items | Where-Object { ([string](Get-JkProp $_ 'key' '')).StartsWith("class:$today") }).Count) { return $null }
-    $alerted = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
-    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
-    foreach ($m in @(Get-JkClassesOn $Now.Date)) {
-        $at = $m.Start.AddSeconds(-$secs)
-        if ($at -le $Now) { continue }
-        $key = "class:${today}:$($m.Start.ToString('HH:mm', $script:Inv)):$($m.Class.course):$($m.Class.kind)"
-        if ($alerted -contains $key) { continue }
-        $text = "$(Format-JkClassLabel $m.Class $cmap) at $(Format-JkTime $m.Start.ToString('HH:mm'))"
-        $r = New-JkReminder -At $at -Text $text -Key $key
+    # check-and-add as one step: the morning task and a firing alert can both get here at once
+    $lock = Enter-JkReminderLock
+    try {
         $rd = Get-JkReminderData
-        Set-JkProp $rd 'alerted' @($alerted + $key)
-        Save-JkReminderData $rd
-        return $r
-    }
-    $null
+        if (@($rd.items | Where-Object { ([string](Get-JkProp $_ 'key' '')).StartsWith("class:$today") }).Count) { return $null }
+        $alerted = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
+        $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+        foreach ($m in @(Get-JkClassesOn $Now.Date)) {
+            $at = $m.Start.AddSeconds(-$secs)
+            if ($at -le $Now) { continue }
+            $key = "class:${today}:$($m.Start.ToString('HH:mm', $script:Inv)):$($m.Class.course):$($m.Class.kind)"
+            if ($alerted -contains $key) { continue }
+            $text = "$(Format-JkClassLabel $m.Class $cmap) at $(Format-JkTime $m.Start.ToString('HH:mm'))"
+            $r = New-JkReminder -At $at -Text $text -Key $key
+            $rd = Get-JkReminderData
+            Set-JkProp $rd 'alerted' @($alerted + $key)
+            Save-JkReminderData $rd
+            return $r
+        }
+        $null
+    } finally { Exit-JkReminderLock $lock }
 }
 
 function Format-JkRelTime([datetime]$When) {
@@ -264,16 +300,26 @@ function Show-JkReminders {
 function Cancel-JkReminder {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Ids)
     if (-not $Ids) { throw 'usage: jk remind cancel <id>' }
-    $d = Get-JkReminderData
-    foreach ($r in $Ids) {
-        $id = [int]($r.TrimStart('#'))
-        $hit = @($d.items | Where-Object { [int]$_.id -eq $id })
-        if (-not $hit) { Say (Paint 'red' "  no reminder #$id"); continue }
-        if (Test-JkBackgroundAlive ([int]$hit[0].pid) ([string]$hit[0].spawned)) { Stop-JkProcessTree ([int]$hit[0].pid) }
-        $d.items = @($d.items | Where-Object { [int]$_.id -ne $id })
-        Say ((Paint 'yellow' '  cancelled') + "  #$id $($hit[0].text)")
+    $classCancelled = $false
+    $lock = Enter-JkReminderLock
+    try {
+        $d = Get-JkReminderData
+        foreach ($r in $Ids) {
+            $id = [int]($r.TrimStart('#'))
+            $hit = @($d.items | Where-Object { [int]$_.id -eq $id })
+            if (-not $hit) { Say (Paint 'red' "  no reminder #$id"); continue }
+            if (Test-JkBackgroundAlive ([int]$hit[0].pid) ([string]$hit[0].spawned)) { Stop-JkProcessTree ([int]$hit[0].pid) }
+            $d.items = @($d.items | Where-Object { [int]$_.id -ne $id })
+            if (([string](Get-JkProp $hit[0] 'key' '')).StartsWith('class:')) { $classCancelled = $true }
+            Say ((Paint 'yellow' '  cancelled') + "  #$id $($hit[0].text)")
+        }
+        Save-JkReminderData $d
+    } finally { Exit-JkReminderLock $lock }
+    # class alerts are chained: skipping one class must not silence the rest of the day
+    if ($classCancelled) {
+        $next = Register-JkClassAlert
+        if ($next) { Say (Paint 'gray' "  next class alert: $($next.text)") }
     }
-    Save-JkReminderData $d
 }
 
 # ---------------------------------------------------------------- daily scheduled task

@@ -7,9 +7,10 @@
 
 $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 
+# One pass, left to right: "\\n" is a backslash and an n, not a newline.
 function ConvertFrom-JkIcsText([string]$s) {
     if ($null -eq $s) { return '' }
-    $s.Replace('\n', "`n").Replace('\N', "`n").Replace('\,', ',').Replace('\;', ';').Replace('\\', '\')
+    [regex]::Replace($s, '\\([\\;,nN])', { param($m) if ($m.Groups[1].Value -match '^[nN]$') { "`n" } else { $m.Groups[1].Value } })
 }
 
 # Returns @{ When = <local datetime>; AllDay = <bool> } for a DTSTART/DTEND value.
@@ -69,12 +70,19 @@ function ConvertFrom-JkIcs([string]$Text) {
     $events
 }
 
-# Course code from the event text: prefers codes already known to jk.
+# Course code from the event text: prefers codes already known to jk. A new course is only
+# made from the title, the categories, or a code that opens the description (LEARN writes
+# "CS 350 - Operating Systems (Fall 2026)" there); a code mentioned further on ("LEC 001",
+# "AFM 425 students write at 4:30") must not invent one.
 function Find-JkIcsCourse($Event, $Data) {
-    $text = "$($Event.Summary) | $($Event.Categories) | $($Event.Location) | $($Event.Description)"
-    $codes = @([regex]::Matches($text, '\b([A-Z]{2,6})[ -]?(\d{3}[A-Z]?)\b') | ForEach-Object { "$($_.Groups[1].Value) $($_.Groups[2].Value)" } | Select-Object -Unique)
-    foreach ($c in $codes) { $hit = Resolve-JkCourse $Data $c; if ($hit) { return $hit } }
-    if ($codes.Count) { return (Resolve-JkCourse $Data $codes[0] -Create) }
+    $rx = '\b([A-Z]{2,6})[ -]?(\d{3}[A-Z]?)\b'
+    $codesIn = { param($t) [regex]::Matches($t, $rx) | Where-Object { $_.Groups[1].Value -notmatch '^(LEC|LAB|TUT|SEM|SEC|TST|ROOM|RM)$' } | ForEach-Object { "$($_.Groups[1].Value) $($_.Groups[2].Value)" } | Select-Object -Unique }
+    $all = @(& $codesIn "$($Event.Summary) | $($Event.Categories) | $($Event.Location) | $($Event.Description)")
+    foreach ($c in $all) { $hit = Resolve-JkCourse $Data $c; if ($hit) { return $hit } }
+    $lead = ''
+    if ([string]$Event.Description -match '^\s*([A-Z]{2,6}[ -]?\d{3}[A-Z]?)\b') { $lead = $Matches[1] }
+    $own = @(& $codesIn "$($Event.Summary) | $($Event.Categories) | $lead")
+    if ($own.Count) { return (Resolve-JkCourse $Data $own[0] -Create) }
     $null
 }
 
@@ -108,13 +116,17 @@ function Invoke-JkDueSync {
     param([Parameter(Position = 0)][string]$Source, [switch]$Quiet, [int]$PastDays = 7, [int]$AheadDays = 200)
     $saved = Get-JkConfig 'sync.url'
     if (-not $Source) { $Source = $saved }
-    if (-not $Source -and -not $Quiet -and -not $env:JK_NONINTERACTIVE) {
-        # first time: the link was most likely just copied from LEARN, so look on the clipboard,
-        # then (in a terminal) ask for it to be pasted
+    if (-not $Source -and -not $Quiet -and (Test-JkInteractive)) {
+        # first time: the link was most likely just copied from LEARN, so offer the clipboard
+        # (after a yes: it becomes the feed the morning task syncs every day), else ask for a paste
         $clip = $null
         try { $clip = Find-JkFeedLink ([string](Get-Clipboard -Raw -ErrorAction Stop)) } catch { }
-        if ($clip) { Say (Paint 'gray' '  using the calendar link on your clipboard'); $Source = $clip }
-        elseif (Test-JkInteractive) {
+        if ($clip) {
+            $hostName = ([Uri]($clip -replace '^(?i)webcal://', 'https://')).Host
+            $ans = [string](Read-Host "  Use the calendar link on your clipboard ($hostName)? [Y/n]")
+            if ($ans.Trim() -match '^(|y|yes)$') { $Source = $clip }
+        }
+        if (-not $Source) {
             Say (Paint 'gray' '  In LEARN open Calendar > Subscribe and copy the link.')
             $pasted = [string](Read-Host '  Paste it here (Enter to cancel)')
             if ($pasted.Trim()) {

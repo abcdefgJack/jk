@@ -17,6 +17,15 @@ function Find-JkRepos {
     $found
 }
 
+# A path safe inside "...": a trailing backslash would escape the closing quote ("D:\" -> D:")
+function Get-JkGitDirArg([string]$Path) {
+    if ($Path.EndsWith('\')) { return $Path + '.' }
+    $Path
+}
+
+# At most this many repos are queried at once (three git processes each).
+$script:JkGitParallel = 8
+
 # git in one repo as a background process; its output is collected later by Receive-JkGit.
 # Starting every call before reading any runs them side by side, and reading stdout as UTF-8
 # keeps commit subjects in any language intact (the console code page would garble them).
@@ -24,7 +33,7 @@ function Start-JkGit([string]$Path, [string]$Arguments) {
     if (-not $script:JkGitExe) { $script:JkGitExe = (Get-Command git -ErrorAction Stop).Source }
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $script:JkGitExe
-    $psi.Arguments = "-C `"$Path`" $Arguments"
+    $psi.Arguments = "-C `"$(Get-JkGitDirArg $Path)`" $Arguments"
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -49,18 +58,23 @@ function Receive-JkGit($Job, [int]$TimeoutMs = 30000) {
     @($text -split "`r?`n" | Where-Object { $_ -ne '' })
 }
 
-# Status of many repos at once: three git calls each, all started before any is read.
+# Status of many repos: three git calls each, started side by side in batches of JkGitParallel
+# repos so a folder of forty repos does not launch 120 processes at once.
 function Get-JkRepoStatuses([string[]]$Paths) {
-    $jobs = @(foreach ($p in $Paths) {
-            [pscustomobject]@{
-                Path   = $p
-                Status = (Start-JkGit $p 'status --porcelain=v1 -b')
-                Log    = (Start-JkGit $p 'log -1 --format=%cr|%s')
-                Remote = (Start-JkGit $p 'remote')
-            }
-        })
-    foreach ($j in $jobs) {
-        ConvertTo-JkRepoStatus -Path $j.Path -Lines (Receive-JkGit $j.Status) -Last (@(Receive-JkGit $j.Log) | Select-Object -First 1) -Remote (@(Receive-JkGit $j.Remote) | Select-Object -First 1)
+    $Paths = @($Paths)
+    for ($b = 0; $b -lt $Paths.Count; $b += $script:JkGitParallel) {
+        $batch = @($Paths[$b..([Math]::Min($Paths.Count, $b + $script:JkGitParallel) - 1)])
+        $jobs = @(foreach ($p in $batch) {
+                [pscustomobject]@{
+                    Path   = $p
+                    Status = (Start-JkGit $p 'status --porcelain=v1 -b')
+                    Log    = (Start-JkGit $p 'log -1 --format=%cr|%s')
+                    Remote = (Start-JkGit $p 'remote')
+                }
+            })
+        foreach ($j in $jobs) {
+            ConvertTo-JkRepoStatus -Path $j.Path -Lines (Receive-JkGit $j.Status) -Last (@(Receive-JkGit $j.Log) | Select-Object -First 1) -Remote (@(Receive-JkGit $j.Remote) | Select-Object -First 1)
+        }
     }
 }
 
@@ -100,9 +114,14 @@ function Invoke-JkRepos {
         $oldPrompt = $env:GIT_TERMINAL_PROMPT
         $env:GIT_TERMINAL_PROMPT = '0'
         try {
-            # all at once: fetches wait on the network, not the CPU
-            $jobs = @(foreach ($r in $repos) { Start-JkGit $r 'fetch --quiet' })
-            foreach ($j in $jobs) { $null = Receive-JkGit $j 60000 }
+            # side by side (fetches wait on the network, not the CPU), with one deadline for each
+            # batch so several hung remotes cost a minute in total, not a minute each
+            for ($b = 0; $b -lt $repos.Count; $b += $script:JkGitParallel) {
+                $batch = @($repos[$b..([Math]::Min($repos.Count, $b + $script:JkGitParallel) - 1)])
+                $jobs = @(foreach ($r in $batch) { Start-JkGit $r 'fetch --quiet' })
+                $deadline = (Get-Date).AddSeconds(60)
+                foreach ($j in $jobs) { $null = Receive-JkGit $j ([int][Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)) }
+            }
         } finally { $env:GIT_TERMINAL_PROMPT = $oldPrompt }
     }
     $st = @(Get-JkRepoStatuses $repos | Sort-Object @{ Expression = { if ($_.Modified + $_.Untracked + $_.Ahead + $_.Behind -gt 0) { 0 } else { 1 } } }, Name)
