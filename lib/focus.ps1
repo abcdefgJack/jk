@@ -106,7 +106,8 @@ function Start-JkFocus {
     $lbl = ($Label -join ' ').Trim()
     $now = Get-Date
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
-    $endIso = $now.AddSeconds($secs).ToString('o', $script:Inv)
+    $end = Get-JkLocalAfter $secs
+    $endIso = $end.ToString('o', $script:Inv)
     $proc = Start-JkBackground -Script "Complete-JkFocusSession -Id '$id'" -WaitUntil $endIso
     $d.active = [pscustomobject]@{
         id      = $id
@@ -117,7 +118,6 @@ function Start-JkFocus {
         spawned = $proc.StartTime.ToString('s', $script:Inv)
     }
     Save-JkFocusData $d
-    $end = $now.AddSeconds($secs)
     $what = ''
     if ($lbl) { $what = " on " + (Paint "bold #$(Get-JkLabelColor $lbl)" (Format-JkFocusLabel $lbl)) }
     Say ''

@@ -752,6 +752,22 @@ Test 'backup mirror: daily snapshot outside the data folder, restore after losin
         Assert-Eq (Get-JkConfig 'backup.mirror') '' 'mirror off'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'timers count real time across a daylight-saving change' {
+    # 00:30 on the night US/Canadian clocks fall back (Nov 1 2026, 07:30 UTC in Pacific time).
+    # In a zone without DST this is plain arithmetic; the CI run in Pacific time crosses the change.
+    $from = [datetime]::SpecifyKind([datetime]'2026-11-01T07:30:00', 'Utc')
+    $at = Get-JkLocalAfter 7200 $from
+    Assert-Eq $at.ToUniversalTime().ToString('s') '2026-11-01T09:30:00' 'two real hours later'
+    # the timer's wait-until string keeps that instant
+    $iso = $at.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+    $back = [datetime]::Parse($iso, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+    Assert-Eq $back.ToUniversalTime().ToString('s') '2026-11-01T09:30:00' "round trip of $iso"
+    # the same night in Eastern time: 05:00 UTC is 01:00 EDT, and the clocks fall back at 06:00 UTC
+    Assert-Eq (Get-JkLocalAfter 7200 ([datetime]::SpecifyKind([datetime]'2026-11-01T05:00:00', 'Utc'))).ToUniversalTime().ToString('s') '2026-11-01T07:00:00'
+    # and across spring forward (Mar 14 2027, 09:30 UTC = 01:30 PST)
+    $spring = Get-JkLocalAfter 3600 ([datetime]::SpecifyKind([datetime]'2027-03-14T09:30:00', 'Utc'))
+    Assert-Eq $spring.ToUniversalTime().ToString('s') '2027-03-14T10:30:00' 'one real hour later'
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

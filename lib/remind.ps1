@@ -228,7 +228,7 @@ function Invoke-JkRemindIn {
     $secs = ConvertTo-JkSeconds $a[0]
     $text = ''
     if ($a.Count -gt 1) { $text = ($a[1..($a.Count - 1)]) -join ' ' }
-    $item = New-JkReminder -At ((Get-Date).AddSeconds($secs)) -Text $text
+    $item = New-JkReminder -At (Get-JkLocalAfter $secs) -Text $text
     Write-JkReminderSet $item
 }
 
