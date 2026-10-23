@@ -28,7 +28,9 @@ jk class week                  Mon-Fri timetable for this week (reading week and
 jk class week -Date nov 2      another week
 jk class add cs350 tue,thu 4pm-5:20pm "MC 1056"        add a weekly meeting (days: tue,thu  TTh  MWF  weekdays)
 jk class add cs341 fri 2:30-3:20pm "MC 4060" -Kind TUT    tutorial / lab: -Kind TUT|LAB
-jk class pick                  every section of your courses (from the outlines); mark yours:
+jk class pick                  every section of your courses (from the outlines), then asks which are yours
+                               (type 3 or 003 per course; Enter skips)
+jk class pick cs350            just that course's sections
 jk class pick cs341 003 cs350 002 cs370 001     adds them with days, times and rooms; warns on clashes
 jk class import                Quest > Class Schedule > List View: select all, copy, run this
 jk class import page.txt       ... or from a saved copy. Midterm (TST) slots fill in deadline times.

@@ -429,9 +429,17 @@ function Get-JkUnpickedCourses {
 }
 
 function Show-JkSectionCatalog {
+    param([string]$Course)
     $cat = @(Get-JkSectionCatalog)
     $mine = @((Get-JkClassData).items)
-    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+    $due = Get-JkDueData -Cached
+    $cmap = Get-JkCourseMap $due
+    if ($Course) {
+        $c = Resolve-JkCourse $due $Course
+        if (-not $c) { throw "unknown course '$Course'" }
+        $cat = @($cat | Where-Object { $_.course -eq $c.key })
+        if (-not $cat) { throw "no sections of $($c.code) in the catalog" }
+    }
     Write-JkHeader 'Sections' "$($cat.Count) in the catalog" -Sub 'pick the ones you are enrolled in'
     if (-not $cat) { Say (Paint 'gray' "  no catalog yet ($(Get-JkPath 'sections.json'))"); return }
     foreach ($g in ($cat | Group-Object course)) {
@@ -451,9 +459,54 @@ function Show-JkSectionCatalog {
     Say (Paint 'gray' "  jk class pick cs341 003 cs350 002 cs370 001   (course and section pairs; labs too: cs341 101)")
 }
 
+# True only in a real terminal someone is typing into: never in CI, tests (JK_NONINTERACTIVE),
+# the background task or a pipe, so a prompt can never hang a script.
+function Test-JkInteractive {
+    if ($env:JK_NONINTERACTIVE) { return $false }
+    try { return [Environment]::UserInteractive -and $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsInputRedirected } catch { return $false }
+}
+
+# Asks for each lecture or lab type not on the timetable yet, one course at a time. Accepts
+# "3" or "003"; Enter skips. Returns course/section pairs for Select-JkSections.
+function Read-JkSectionPicks {
+    $cat = @(Get-JkSectionCatalog)
+    $mine = @((Get-JkClassData).items)
+    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+    $pairs = @()
+    $first = $true
+    foreach ($g in ($cat | Group-Object course)) {
+        foreach ($kg in ($g.Group | Group-Object kind | Sort-Object @{ Expression = { if ($_.Name -eq 'LEC') { 0 } else { 1 } } })) {
+            if (@($mine | Where-Object { $_.course -eq $g.Name -and $_.kind -eq $kg.Name }).Count) { continue }
+            if ($first) {
+                Say ''
+                Say ('  ' + (Paint 'bold white' 'Which sections are you in?') + (Paint 'gray' '  type the number (3 or 003); Enter skips'))
+                $first = $false
+            }
+            $choices = @($kg.Group | ForEach-Object { [string]$_.section } | Sort-Object)
+            $label = "$(Format-JkClassLabel ([pscustomobject]@{ course = $g.Name; kind = '' }) $cmap) $($kg.Name)"
+            while ($true) {
+                $ans = ([string](Read-Host "  $label ($($choices -join '/'))")).Trim()
+                if (-not $ans) { break }
+                $sec = $ans.PadLeft(3, '0')
+                if ($choices -contains $sec) { $pairs += @($g.Name, $sec); break }
+                Say (Paint 'orange' "    no $($kg.Name) $sec; one of $($choices -join ', '), or Enter to skip")
+            }
+        }
+    }
+    $pairs
+}
+
 function Select-JkSections {
     $a = @($args | ForEach-Object { [string]$_ })
-    if ($a.Count -eq 0) { Show-JkSectionCatalog; return }
+    if ($a.Count -eq 0) {
+        Show-JkSectionCatalog
+        if (Test-JkInteractive) {
+            $pairs = @(Read-JkSectionPicks)
+            if ($pairs.Count) { Say ''; Select-JkSections @pairs }
+        }
+        return
+    }
+    if ($a.Count -eq 1) { Show-JkSectionCatalog -Course $a[0]; return }
     if ($a.Count % 2 -ne 0) { throw 'give course and section pairs: jk class pick cs341 003 cs350 002' }
     $cat = @(Get-JkSectionCatalog)
     if (-not $cat) { throw "no section catalog ($(Get-JkPath 'sections.json'))" }
