@@ -133,7 +133,11 @@ function Complete-JkReminder {
     }
     elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm')) $($at.ToString('ddd MMM d', $script:Inv))" }
     else { $lines += "Set $(Format-JkRelTime ([datetime]::Parse([string]$item.created, $script:Inv)))" }
-    $null = Show-JkNotify -Title ([string]$item.text) -Lines $lines -Accent $accent -Seconds 0 -Sound -Wait
+    # reminders stay until dismissed; a class alert closes itself 10 minutes into the class, so a day
+    # away from the PC does not leave a pile of stale "starts in 10m" cards
+    $stay = 0
+    if ($key.StartsWith('class:') -and $m) { $stay = [int][Math]::Max(60, ($m.Start.AddMinutes(10) - (Get-JkNow)).TotalSeconds) }
+    $null = Show-JkNotify -Title ([string]$item.text) -Lines $lines -Accent $accent -Seconds $stay -Sound -Wait
 }
 
 # Same-day alerts: for each item due later today, a reminder alert.before ahead of it

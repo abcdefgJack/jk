@@ -519,7 +519,7 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         Import-JkDueHtml $htmlPath | Out-Null
         function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
         $script:Shown = @()
-        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:Shown += , ($Title + ' | ' + ($Lines -join ' | ')); 'stub' }
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines, $Accent, [int]$Seconds) $script:Shown += , ($Title + ' | ' + ($Lines -join ' | ')); $script:ShownSeconds = $Seconds; 'stub' }
         $mkc = { param($id, $course, $start, $end, $room) [pscustomobject]@{ id = $id; course = $course; kind = 'LEC'; days = @('Thu'); start = $start; end = $end; room = $room; from = ''; to = '' } }
         Save-JkClassData ([pscustomobject]@{ nextId = 3; items = @((& $mkc 1 'cs350' '10:00' '11:20' 'MC 4040'), (& $mkc 2 'health' '13:00' '14:20' 'online')) })
         # an in-class quiz during the 10:00 lecture
@@ -537,6 +537,7 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         Assert-Eq $script:Shown.Count 1
         Assert-True ($script:Shown[0] -match 'Starts in 10m . MC 4040') "popup: $($script:Shown[0])"
         Assert-True ($script:Shown[0] -match 'Quiz 1 \(exam\), 5% in this class') "names the in-class quiz: $($script:Shown[0])"
+        Assert-Eq $script:ShownSeconds 1200 'closes itself 10 minutes into the class (20 minutes after a 9:50 alert)'
         $next = @((Get-JkReminderData).items)
         Assert-Eq "$($next.Count) $($next[0].at)" '1 2026-10-22T12:50:00' 'chained to the 1 pm class'
         # dropped from the timetable before it fires: no popup, nothing left to chain
