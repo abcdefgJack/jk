@@ -64,14 +64,21 @@ function Get-JkEventWindow($e, $Data) {
     if ([string]$e.title -notmatch $rx) { return $null }
     $base = $Matches[1].Trim()
     $isOpen = $Matches[2] -like 'open*'
+    $mine = Get-JkEventDue $e
+    # weekly windows can share a title ("Quiz opens" every Monday): take the nearest other half,
+    # the first closing after an opening or the last opening before a closing
+    $best = $null; $bestGap = [double]::MaxValue
     foreach ($o in @($Data.events)) {
         if ($o.course -ne $e.course -or [int]$o.id -eq [int]$e.id) { continue }
         if ([string]$o.title -notmatch $rx -or $Matches[1].Trim() -ne $base -or ($Matches[2] -like 'open*') -eq $isOpen) { continue }
-        $open = $e; $close = $o
-        if (-not $isOpen) { $open = $o; $close = $e }
-        return [pscustomobject]@{ Title = $base; Open = $open; Close = $close; Opens = (Get-JkEventDue $open); Closes = (Get-JkEventDue $close) }
+        $gap = ((Get-JkEventDue $o) - $mine).TotalMinutes
+        if (-not $isOpen) { $gap = -$gap }
+        if ($gap -ge 0 -and $gap -lt $bestGap) { $best = $o; $bestGap = $gap }
     }
-    $null
+    if (-not $best) { return $null }
+    $open = $e; $close = $best
+    if (-not $isOpen) { $open = $best; $close = $e }
+    [pscustomobject]@{ Title = $base; Open = $open; Close = $close; Opens = (Get-JkEventDue $open); Closes = (Get-JkEventDue $close) }
 }
 
 function Get-JkCourseLabel($e, $cmap) {
@@ -383,7 +390,7 @@ function Show-JkExams {
     $cmap = Get-JkCourseMap $data
     $now = Get-JkNow
     $w = Get-JkWidth
-    $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_) -ge $now.Date } | Sort-Object { Get-JkEventDue $_ })
+    $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkEventDue $_) -ge $now.Date } | Sort-Object { Get-JkEventDue $_ })
     # an online window ("X opens" + "X closes") is one exam: one row
     $rows = New-Object System.Collections.Generic.List[object]
     $merged = @{}
@@ -946,8 +953,7 @@ function Invoke-JkDueRemind {
     $cal = Get-JkPath 'calendar.html'
     if (-not (Test-Path $cal)) { Export-JkDueHtml -NoOpen -Quiet }
     $mode = Show-JkNotify -Title $title -Lines $lines -Accent $accent -Open $cal -OpenLabel 'Open calendar' -Seconds 20 -Sound -Wait:$Quiet
-    Set-JkProp $state 'lastRemind' ($now.ToString('s', $script:Inv))
-    Save-JkJson 'state.json' $state
+    Set-JkState 'lastRemind' ($now.ToString('s', $script:Inv))
     if (-not $Quiet) { Say ((Paint 'green' "  reminder shown ($mode)") + "  $title") }
 }
 

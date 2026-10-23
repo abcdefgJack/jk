@@ -459,15 +459,9 @@ function Show-JkSectionCatalog {
     Say (Paint 'gray' "  jk class pick cs341 003 cs350 002 cs370 001   (course and section pairs; labs too: cs341 101)")
 }
 
-# True only in a real terminal someone is typing into: never in CI, tests (JK_NONINTERACTIVE),
-# the background task or a pipe, so a prompt can never hang a script.
-function Test-JkInteractive {
-    if ($env:JK_NONINTERACTIVE) { return $false }
-    try { return [Environment]::UserInteractive -and $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsInputRedirected } catch { return $false }
-}
-
-# Asks for each lecture or lab type not on the timetable yet, one course at a time. Accepts
-# "3" or "003"; Enter skips. Returns course/section pairs for Select-JkSections.
+# Asks about each course with nothing on the timetable yet: its lecture, then its lab or
+# tutorial if it has one. A course already started is left alone, so a lab skipped once is not
+# asked about again. Accepts "3" or "003"; Enter skips. Returns course/section pairs.
 function Read-JkSectionPicks {
     $cat = @(Get-JkSectionCatalog)
     $mine = @((Get-JkClassData).items)
@@ -475,8 +469,8 @@ function Read-JkSectionPicks {
     $pairs = @()
     $first = $true
     foreach ($g in ($cat | Group-Object course)) {
+        if (@($mine | Where-Object { $_.course -eq $g.Name }).Count) { continue }
         foreach ($kg in ($g.Group | Group-Object kind | Sort-Object @{ Expression = { if ($_.Name -eq 'LEC') { 0 } else { 1 } } })) {
-            if (@($mine | Where-Object { $_.course -eq $g.Name -and $_.kind -eq $kg.Name }).Count) { continue }
             if ($first) {
                 Say ''
                 Say ('  ' + (Paint 'bold white' 'Which sections are you in?') + (Paint 'gray' '  type the number (3 or 003); Enter skips'))
