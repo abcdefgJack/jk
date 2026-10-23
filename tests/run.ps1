@@ -10,6 +10,7 @@ $env:JK_NOW = '2026-10-22T14:00:00'
 $env:JK_COLOR = 'never'
 $env:JK_WIDTH = '100'
 Remove-Item env:JK_DEBUG -ErrorAction SilentlyContinue
+$env:JK_NONINTERACTIVE = '1'   # never wait on a prompt
 Import-Module (Join-Path $root 'jk.psd1') -Force
 $jkm = Get-Module jk
 
@@ -582,8 +583,22 @@ Test 'section catalog: pick adds meetings, skips duplicates, flags clashes' {
         Assert-True (Test-JkClassOverlap $items[0] ([pscustomobject]@{ days = @('Tue'); start = '10:30'; end = '11:00' })) 'overlap detected'
         Assert-True (-not (Test-JkClassOverlap $items[0] ([pscustomobject]@{ days = @('Wed'); start = '10:30'; end = '11:00' }))) 'different day is no clash'
         Assert-Throws { Select-JkSections cs350 009 }
-        Assert-Throws { Select-JkSections cs350 }
+        Assert-Throws { Select-JkSections cs350 health 081 }
+        $one = (Select-JkSections cs350 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($one -match 'LEC 002' -and $one -notmatch 'LEC 081') 'one course shows only its sections'
         Show-JkSectionCatalog
+        # the interactive prompt: answers are read one course and kind at a time
+        Assert-True (-not (Test-JkInteractive)) 'tests never prompt'
+        $script:Answers = New-Object System.Collections.Generic.Queue[string]
+        foreach ($x in @('7', '81')) { $script:Answers.Enqueue($x) }
+        function script:Read-Host { param($Prompt) $script:Prompts += , [string]$Prompt; $script:Answers.Dequeue() }
+        $script:Prompts = @()
+        try {
+            $pairs = @(Read-JkSectionPicks)
+            Assert-Eq ($pairs -join ' ') 'health 081' 'a wrong number is asked again; cs350 is already picked'
+            Assert-Eq $script:Prompts.Count 2
+            Assert-True ($script:Prompts[0] -match 'HEALTH.*LEC \(081\)') "prompt: $($script:Prompts[0])"
+        } finally { Remove-Item function:script:Read-Host }
     } finally { $env:JK_HOME = $saved }
 }
 
@@ -953,7 +968,7 @@ Test 'tab completion engine' {
 
 Remove-Module jk
 Remove-Item $env:JK_HOME -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item env:JK_NOW, env:JK_HOME, env:JK_COLOR, env:JK_WIDTH -ErrorAction SilentlyContinue
+Remove-Item env:JK_NOW, env:JK_HOME, env:JK_COLOR, env:JK_WIDTH, env:JK_NONINTERACTIVE -ErrorAction SilentlyContinue
 
 Write-Host ''
 if ($script:failed.Count) {
