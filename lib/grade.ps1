@@ -41,22 +41,19 @@ function Get-JkGradeItems {
     $scoreMap = @{}
     foreach ($s in @($GradeData.scores)) { $scoreMap[[string]$s.id] = [double]$s.score }
     $items = @()
-    $seen = @{}
     $evs = @($DueData.events | Where-Object { $_.course -eq $CourseKey -and (Get-JkWeightValue $_.weight) -gt 0 } | Sort-Object date, id)
-    # pair "X opens" with "X closes": keep the closing one (that is when it is due)
-    $evs = @($evs | Sort-Object { if ($_.title -match '(?i)\bclos') { 0 } else { 1 } }, date)
     foreach ($e in $evs) {
-        $norm = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim().ToLower()
-        if ($seen.ContainsKey($norm)) { continue }
-        $seen[$norm] = $true
+        # an online window ("X opens" + "X closes") is one assessment, listed at its closing; other
+        # items that merely share a title (weekly "Quiz") are separate assessments
+        $win = $null
+        if ([string]$e.title -match '(?i)\s+(opens?|closes?)$') { $win = Get-JkEventWindow $e $DueData }
+        if ($win -and [int]$win.Close.id -ne [int]$e.id) { continue }
         $key = [string]$e.id
         $score = $null
         if ($scoreMap.ContainsKey($key)) { $score = $scoreMap[$key] }
-        else {
-            # a score may have been recorded against the other half of an opens/closes pair
-            foreach ($o in @($DueData.events | Where-Object { $_.course -eq $CourseKey -and (([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim().ToLower()) -eq $norm })) {
-                if ($scoreMap.ContainsKey([string]$o.id)) { $score = $scoreMap[[string]$o.id]; $key = [string]$o.id }
-            }
+        elseif ($win -and $scoreMap.ContainsKey([string]$win.Open.id)) {
+            # the mark may have been recorded against the opening half
+            $key = [string]$win.Open.id; $score = $scoreMap[$key]
         }
         $items += [pscustomobject]@{ Key = $key; Title = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', ''); Weight = (Get-JkWeightValue $e.weight); Score = $score; Date = [string]$e.date; Extra = $false }
     }

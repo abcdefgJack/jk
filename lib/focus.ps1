@@ -18,9 +18,10 @@ function Test-JkBackgroundAlive {
     $true
 }
 
+# taskkill /T ends the whole tree at once (conhost and the PowerShell inside it); finding the
+# children through CIM instead costs about a second just to load the module.
 function Stop-JkProcessTree([int]$ProcessId) {
-    $kids = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$ProcessId" -ErrorAction SilentlyContinue)
-    foreach ($k in $kids) { Stop-JkProcessTree ([int]$k.ProcessId) }
+    try { $null = & "$env:SystemRoot\System32\taskkill.exe" /PID $ProcessId /T /F 2>&1 } catch { }
     Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
 }
 
@@ -213,11 +214,12 @@ function Show-JkFocusLog {
             Say ('  ' + (Paint "#$(Get-JkLabelColor $b.Label)" (Fit $b.Label 24)) + (Paint 'white' (Fit (Format-JkMinutes $b.Minutes) 9 -Right)) + (Paint 'gray' ("  $($b.Count) session" + $(if ($b.Count -ne 1) { 's' } else { '' }))))
         }
     }
+    # days with any session, parsed once
+    $activeDays = @{}
+    foreach ($s in @($d.sessions)) { $activeDays[([datetime]::Parse([string]$s.start, $script:Inv)).ToString('yyyy-MM-dd')] = $true }
     $streak = 0
     for ($i = 0; $i -lt 365; $i++) {
-        $k = $today.AddDays(-$i).ToString('yyyy-MM-dd')
-        $hit = @($d.sessions | Where-Object { ([datetime]::Parse([string]$_.start, $script:Inv)).Date.ToString('yyyy-MM-dd') -eq $k }).Count
-        if ($hit) { $streak++ } elseif ($i -gt 0) { break }
+        if ($activeDays.ContainsKey($today.AddDays(-$i).ToString('yyyy-MM-dd'))) { $streak++ } elseif ($i -gt 0) { break }
     }
     if ($streak -gt 1) { Say ''; Say ('  ' + (Paint 'orange' "$($script:G.star) $streak-day focus streak")) }
 }
