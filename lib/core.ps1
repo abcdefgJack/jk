@@ -45,6 +45,43 @@ function Get-JkPath([string]$Name) { Join-Path (Get-JkHome) $Name }
 
 function Get-JkRoot { Split-Path -Parent $PSScriptRoot }
 
+# state.json holds small stamps written by different processes (the morning task, the sync,
+# the dashboard). Each change re-reads the file under a machine-wide lock, so one writer never
+# saves an old copy over another's change (the morning popup waits on the user for a while).
+function Set-JkState {
+    param([string]$Name, $Value)
+    $m = New-Object Threading.Mutex($false, 'Local\jk-state')
+    try { $null = $m.WaitOne(10000) } catch { }
+    try {
+        $s = Read-JkJson 'state.json' $null
+        if (-not $s) { $s = [pscustomobject]@{} }
+        Set-JkProp $s $Name $Value
+        Save-JkJson 'state.json' $s
+    } finally {
+        try { $m.ReleaseMutex() } catch { }
+        $m.Dispose()
+    }
+}
+
+function Get-JkState([string]$Name, $Default = $null) { Get-JkProp (Read-JkJson 'state.json' $null) $Name $Default }
+
+# True only in a real terminal someone is typing into: never in CI, tests (JK_NONINTERACTIVE),
+# the background task or a pipe, so a prompt can never hang a script.
+function Test-JkInteractive {
+    if ($env:JK_NONINTERACTIVE) { return $false }
+    try { return [Environment]::UserInteractive -and $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsInputRedirected } catch { return $false }
+}
+
+# background.log only grows (windowless timers and the morning task append to it): keep the
+# newest lines.
+function Limit-JkBackgroundLog([int]$Keep = 500) {
+    $log = Get-JkPath 'background.log'
+    if (-not (Test-Path -LiteralPath $log)) { return }
+    $lines = @([IO.File]::ReadAllLines($log))
+    if ($lines.Count -le $Keep) { return }
+    [IO.File]::WriteAllLines($log, @($lines | Select-Object -Last $Keep))
+}
+
 function Read-JkJson {
     param([string]$Name, $Default = $null)
     $p = Get-JkPath $Name

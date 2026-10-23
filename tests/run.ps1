@@ -571,6 +571,43 @@ Test 'review fixes: ics unescape, course codes, drive roots, exact role match' {
     $rows = @(Get-JkJobs -Path $md)
     Assert-True (-not $rows[0].Resolved) 'a different role does not resolve the blocked one'
 }
+Test 'review fixes 2: weekly windows, done exams, state writes, log trim, doctor' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'review2-home'
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        # two weekly windows with identical titles pair with their own halves
+        $o1 = New-JkEvent $d -Course 'health' -Date ([datetime]'2026-11-02') -Time '06:00' -Title 'Quiz opens' -Kind 'exam'
+        $c1 = New-JkEvent $d -Course 'health' -Date ([datetime]'2026-11-03') -Time '23:59' -Title 'Quiz closes' -Kind 'exam'
+        $o2 = New-JkEvent $d -Course 'health' -Date ([datetime]'2026-11-09') -Time '06:00' -Title 'Quiz opens' -Kind 'exam'
+        $c2 = New-JkEvent $d -Course 'health' -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Quiz closes' -Kind 'exam'
+        Save-JkDueData $d
+        Assert-Eq (Get-JkEventWindow $o2 $d).Close.id $c2.id 'second opening pairs with the second closing'
+        Assert-Eq (Get-JkEventWindow $c1 $d).Open.id $o1.id 'first closing pairs with the first opening'
+        # a finished exam is not listed
+        $before = (Show-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Set-JkDueDone ([string]@($d.events | Where-Object { $_.title -eq 'Midterm' -and $_.course -eq 'cs350' })[0].id)
+        $after = (Show-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($before -match 'CS 350\s+Midterm' -and $after -notmatch 'CS 350\s+Midterm') 'done exam dropped from jk exams'
+        # state writes keep each other's keys
+        Set-JkState 'lastRemind' '2026-10-22T07:45:00'
+        $null = Pop-JkNews
+        Assert-Eq (Get-JkState 'lastRemind') '2026-10-22T07:45:00' 'news did not overwrite lastRemind'
+        Assert-True (@(Get-JkState 'newsSeen').Count -gt 0) 'news recorded'
+        # background.log is trimmed to the newest lines
+        [IO.File]::WriteAllLines((Get-JkPath 'background.log'), @(1..600 | ForEach-Object { "2026-10-01T00:00:00 line $_" }))
+        Limit-JkBackgroundLog
+        $kept = @([IO.File]::ReadAllLines((Get-JkPath 'background.log')))
+        Assert-Eq "$($kept.Count) $($kept[-1])" '500 2026-10-01T00:00:00 line 600'
+        # a malformed sync stamp does not stop doctor
+        Set-JkConfig 'sync.url' 'https://example.test/feed.ics'
+        Set-JkState 'lastSync' 'not a date'
+        $doc = (Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($doc -match 'LEARN feed\s+connected, no sync recorded' -and $doc -match 'data read') 'doctor runs to the end'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

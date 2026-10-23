@@ -255,12 +255,13 @@ function Invoke-JkDoctor {
     if ($ev.Count) { & $ok 'deadlines' "$($ev.Count) events $($script:G.dot) $(@((Get-JkDueData).courses).Count) courses" } else { & $meh 'deadlines' 'none yet - jk due import <calendar.html> or jk due add' }
     # the LEARN feed: the morning task syncs daily, so a stale stamp means it has been failing
     if (Get-JkConfig 'sync.url') {
-        $last = Get-JkProp (Read-JkJson 'state.json' $null) 'lastSync'
-        if (-not $last) { & $meh 'LEARN feed' 'connected, never synced - jk due sync' }
+        $lastDt = $null
+        try { $lastDt = [datetime]::Parse([string](Get-JkState 'lastSync'), $script:Inv) } catch { }
+        if (-not $lastDt) { & $meh 'LEARN feed' 'connected, no sync recorded yet - jk due sync' }
         else {
-            $ago = (Get-Date) - [datetime]::Parse([string]$last, $script:Inv)
+            $ago = (Get-Date) - $lastDt
             if ($ago.TotalDays -gt 2) { & $meh 'LEARN feed' "last synced $([int]$ago.TotalDays) days ago - jk due sync (errors: background.log)" }
-            else { & $ok 'LEARN feed' "synced $(Format-JkRelTime ([datetime]::Parse([string]$last, $script:Inv)))" }
+            else { & $ok 'LEARN feed' "synced $(Format-JkRelTime $lastDt)" }
         }
     } else { & $meh 'LEARN feed' 'not connected - LEARN > Calendar > Subscribe, then jk due sync "<link>"' }
     try {

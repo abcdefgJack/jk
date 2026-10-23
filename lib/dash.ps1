@@ -38,16 +38,14 @@ $script:JkNews = @(
 # Unseen news, marked seen as it is returned. A brand-new setup (no deadlines yet) has nothing
 # to catch up on: everything is marked seen silently.
 function Pop-JkNews([int]$Take = 3) {
-    $state = Read-JkJson 'state.json' $null
-    if (-not $state) { $state = [pscustomobject]@{} }
-    $seen = @(Get-JkProp $state 'newsSeen' @())
+    $stored = Get-JkState 'newsSeen'
+    $seen = @($stored)
     $unseen = @($script:JkNews | Where-Object { $seen -notcontains $_.Id })
     if (-not $unseen.Count) { return @() }
     $show = @($unseen | Select-Object -First $Take)
-    if ($null -eq (Get-JkProp $state 'newsSeen') -and -not @((Get-JkDueData -Cached).events).Count) { $show = @(); $mark = $unseen }
+    if ($null -eq $stored -and -not @((Get-JkDueData -Cached).events).Count) { $show = @(); $mark = $unseen }
     else { $mark = $show }
-    Set-JkProp $state 'newsSeen' @($seen + @($mark | ForEach-Object { $_.Id }))
-    Save-JkJson 'state.json' $state
+    Set-JkState 'newsSeen' @(@($seen | Where-Object { $_ }) + @($mark | ForEach-Object { $_.Id }))
     $show
 }
 

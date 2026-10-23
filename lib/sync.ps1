@@ -205,10 +205,7 @@ function Invoke-JkDueSync {
     }
     Save-JkDueData $data
     if ($isUrl -and $Source -ne $saved) { Set-JkConfig 'sync.url' $Source }
-    $state = Read-JkJson 'state.json' $null
-    if (-not $state) { $state = [pscustomobject]@{} }
-    Set-JkProp $state 'lastSync' ((Get-Date).ToString('s', $script:Inv))
-    Save-JkJson 'state.json' $state
+    Set-JkState 'lastSync' ((Get-Date).ToString('s', $script:Inv))
     if ($Quiet) { return }
     $origin = 'file'; if ($isUrl) { $origin = ([Uri]($Source -replace '^(?i)webcal://', 'https://')).Host }
     Say ((Paint 'green' "  synced $($script:G.check)") + "  $($added.Count) new, $updated updated, $same unchanged" + (Paint 'gray' "  $($script:G.dot) $($feed.Count) events in the feed from $origin"))
