@@ -649,6 +649,50 @@ Test 'review fixes 3: same-title items, todo keywords, focus credit, process tre
         Assert-Eq "$total $($sched[0].Alloc['a'])" '25 25' '45 minutes left: one block, to the biggest share'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'data safety: cp clean spares the data folder, tidy recycles only loose downloads, temp keeps fresh folders' {
+    $root = Join-Path $env:JK_HOME ('safety-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+    # cp clean: the build cache goes; a .jk that is the data folder, or holds data, stays
+    $savedHome = $env:JK_HOME
+    $dataDir = Join-Path $root '.jk'
+    New-Item -ItemType Directory -Force -Path (Join-Path $root '.jkcp'), $dataDir | Out-Null
+    Set-Content -LiteralPath (Join-Path $root '.jkcp\a.exe.stamp') -Value 'x'
+    Push-Location $root
+    try {
+        $env:JK_HOME = $dataDir
+        Save-JkJson 'deadlines.json' ([pscustomobject]@{ events = @() })
+        Clear-JkCp
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $root '.jkcp'))) 'build cache removed'
+        Assert-True (Test-Path -LiteralPath (Join-Path $dataDir 'deadlines.json')) 'the data folder survives jk cp clean'
+        # an old-style build cache named .jk, holding only compiled files, is cleaned
+        $env:JK_HOME = $savedHome
+        Remove-Item -LiteralPath $dataDir -Recurse -Force
+        New-Item -ItemType Directory -Path $dataDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $dataDir 'a.exe') -Value 'x'
+        Set-Content -LiteralPath (Join-Path $dataDir 'a.exe.stamp') -Value 'x'
+        Clear-JkCp
+        Assert-True (-not (Test-Path -LiteralPath $dataDir)) 'legacy build-only .jk removed'
+    } finally { Pop-Location; $env:JK_HOME = $savedHome }
+    # tidy: loose files and jk's category folders count; the inside of other folders never does
+    $dl = Join-Path $root 'Downloads'
+    New-Item -ItemType Directory -Force -Path (Join-Path $dl 'Installers'), (Join-Path $dl 'tool\bin') | Out-Null
+    foreach ($f in 'setup.exe', 'setup (1).exe', 'Installers\old.msi', 'tool\bin\tool.exe', 'tool\bin\tool-copy.exe') { Set-Content -LiteralPath (Join-Path $dl $f) -Value 'same bytes' }
+    $dl = Resolve-JkLongPath $dl   # as the tidy commands do (TEMP may be an 8.3 path)
+    $loose = @(Get-JkLooseDownloads $dl | ForEach-Object { $_.FullName.Substring($dl.Length + 1) } | Sort-Object)
+    Assert-Eq ($loose -join ',') 'Installers\old.msi,setup (1).exe,setup.exe' 'no files from inside tool\'
+    # space clean temp: an old empty folder goes, a fresh one stays
+    $savedTemp = $env:TEMP
+    $tmp = Join-Path $root 'temp'
+    $oldDir = Join-Path $tmp 'old-empty'; $newDir = Join-Path $tmp 'new-empty'
+    New-Item -ItemType Directory -Force -Path $oldDir, $newDir | Out-Null
+    (Get-Item -LiteralPath $oldDir).CreationTime = (Get-Date).AddDays(-30)
+    (Get-Item -LiteralPath $oldDir).LastWriteTime = (Get-Date).AddDays(-30)
+    try {
+        $env:TEMP = $tmp
+        Invoke-JkSpaceClean temp
+        Assert-True ((-not (Test-Path -LiteralPath $oldDir)) -and (Test-Path -LiteralPath $newDir)) 'only the old empty folder is removed'
+    } finally { $env:TEMP = $savedTemp }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

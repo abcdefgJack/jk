@@ -5,6 +5,7 @@
 #   jk cp stress                 main vs brute on inputs from gen, stops at the first mismatch
 
 $script:CpExts = @('.cpp', '.cc', '.cxx', '.c', '.py', '.java')
+$script:JkCpBuildDir = '.jkcp'   # compiled binaries, next to the source (hidden)
 
 # Windows NTSTATUS exit codes worth naming
 $script:CpExitNames = @{
@@ -51,7 +52,8 @@ function Join-JkArgs([string[]]$List) {
 function Build-JkCp {
     param([IO.FileInfo]$Src, [switch]$DebugBuild, [switch]$Quiet)
     $ext = $Src.Extension.ToLower()
-    $buildDir = Join-Path $Src.DirectoryName '.jk'
+    # not ".jk": that is the data folder's name, and a solution saved in ~ would build into it
+    $buildDir = Join-Path $Src.DirectoryName $script:JkCpBuildDir
     if (-not (Test-Path -LiteralPath $buildDir)) { (New-Item -ItemType Directory -Path $buildDir).Attributes = 'Hidden,Directory' }
     switch -Regex ($ext) {
         '^\.(cpp|cc|cxx|c)$' {
@@ -518,8 +520,20 @@ function Invoke-JkCpStress {
 }
 
 function Clear-JkCp {
-    $dir = Join-Path (Get-Location).ProviderPath '.jk'
-    if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force; Say (Paint 'green' '  removed build cache (.jk)') }
+    $here = (Get-Location).ProviderPath
+    $removed = @()
+    $dir = Join-Path $here $script:JkCpBuildDir
+    if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force; $removed += $script:JkCpBuildDir }
+    # older versions built into ".jk". Only remove one that is plainly a build cache: never the jk
+    # data folder (~\.jk by default) and never a folder holding data files.
+    $legacy = Join-Path $here '.jk'
+    if (Test-Path -LiteralPath $legacy) {
+        $isHome = (Resolve-JkLongPath $legacy) -eq (Resolve-JkLongPath (Get-JkHome))
+        $hasData = @(Get-ChildItem -LiteralPath $legacy -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Extension -notmatch '^\.(exe|stamp|class|jar|o|obj|pdb|ilk)$' }).Count -gt 0
+        if ($isHome -or $hasData) { Say (Paint 'gray' "  left .jk alone: it is $(if ($isHome) { 'your jk data folder' } else { 'not just compiled files' })") }
+        else { Remove-Item -LiteralPath $legacy -Recurse -Force; $removed += '.jk' }
+    }
+    if ($removed) { Say (Paint 'green' "  removed build cache ($($removed -join ', '))") }
     else { Say (Paint 'gray' '  no build cache here') }
 }
 
