@@ -175,9 +175,9 @@ $script:JkHelpTopics['at'] = $script:JkHelpTopics['remind']
 $script:JkHelpTopics['port'] = $script:JkHelpTopics['sys']
 $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
 $script:JkHelpTopics['doctor'] = $script:JkHelpTopics['setup']
-$script:JkHelpTopics['update'] = "jk update                      git pull --ff-only in the jk folder, list what changed, reload the module`n                               (refuses if the folder has uncommitted changes)"
+$script:JkHelpTopics['update'] = "jk update                      git pull --ff-only in the jk folder, list what changed, reload the module`n                               (refuses if tracked files have uncommitted changes)"
 $script:JkHelpTopics['plan'] = "jk plan                        today's study blocks per course, and the next 7 days if you follow the plan`njk plan start                  start a 25-minute focus block on the most urgent item`n                               Work per item = weight x 15 min (exams) or x 30 min (assignments), minus focus`n                               already logged on that course, spread over the days left.`njk config set plan.hours 4     daily budget (default 3)   plan.examMin / plan.dueMin tune the estimates"
-$script:JkHelpTopics['backup'] = "jk backup                      days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file"
+$script:JkHelpTopics['backup'] = "jk backup                      days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file`njk backup mirror D:\jk-backup   also keep a daily snapshot outside the data folder (another drive, USB, synced folder);`n                               restore reads it when the local backups are gone.  jk backup mirror off"
 
 function Write-JkHelpBlock([string]$Text) {
     foreach ($l in ($Text -split "`r?`n")) {

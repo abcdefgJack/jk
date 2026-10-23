@@ -55,8 +55,54 @@ function Invoke-JkConfig {
 
 # jk backup                 list the daily snapshots
 # jk backup restore <day>   put that day's files back (current ones are set aside first)
+# The daily backups live inside the data folder, so deleting that folder (or losing its drive)
+# takes them too. A mirror keeps one snapshot of the data files per day somewhere else - another
+# drive, a USB stick, a synced folder - written by the morning task; 30 days are kept there.
+function Sync-JkBackupMirror([datetime]$Now = (Get-Date)) {
+    $mirror = Get-JkConfig 'backup.mirror'
+    if (-not $mirror) { return $null }
+    if (-not (Test-Path -LiteralPath $mirror)) { New-Item -ItemType Directory -Path $mirror -Force | Out-Null }
+    $day = $Now.ToString('yyyy-MM-dd', $script:Inv)
+    $dir = Join-Path $mirror $day
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $n = 0
+    foreach ($name in $script:JkBackupFiles) {
+        $src = Get-JkPath $name
+        if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $dir $name) -Force; $n++ }
+    }
+    $cut = $Now.AddDays(-30).ToString('yyyy-MM-dd', $script:Inv)
+    Get-ChildItem -LiteralPath $mirror -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -lt $cut } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    [pscustomobject]@{ Dir = $dir; Files = $n }
+}
+
+function Invoke-JkBackupMirror([string[]]$A) {
+    if ($A.Count -lt 2) {
+        $m = Get-JkConfig 'backup.mirror'
+        if (-not $m) { Say (Paint 'gray' '  no mirror. jk backup mirror <folder on another drive, a USB stick or a synced folder>'); return }
+        $days = @(Get-ChildItem -LiteralPath $m -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' } | Sort-Object Name -Descending)
+        Say ('  ' + (Paint 'green' "$($script:G.check) mirror") + "  $m" + (Paint 'gray' "  $($script:G.dot) $($days.Count) day$(if ($days.Count -ne 1) {'s'}), latest $(if ($days) { $days[0].Name } else { 'none yet' })"))
+        return
+    }
+    if ($A[1] -match '^(off|none|stop)$') {
+        Invoke-JkConfig reset backup.mirror
+        Say (Paint 'yellow' '  mirror off (snapshots already there are kept)')
+        return
+    }
+    $path = ($A[1..($A.Count - 1)] -join ' ').Trim('"')
+    if (-not [IO.Path]::IsPathRooted($path)) { throw 'give a full path, for example D:\jk-backup' }
+    $full = [IO.Path]::GetFullPath($path).TrimEnd('\')
+    $homeFull = [IO.Path]::GetFullPath((Get-JkHome)).TrimEnd('\')
+    if ($full -eq $homeFull -or $full.StartsWith($homeFull + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'the mirror must be outside the data folder, or it is lost along with it' }
+    Set-JkConfig 'backup.mirror' $full
+    $r = Sync-JkBackupMirror
+    Say ((Paint 'green' "  mirror on $($script:G.check)") + "  $full" + (Paint 'gray' "  $($script:G.dot) today's snapshot: $($r.Files) files; the morning task adds one each day (30 kept)"))
+}
+
 function Invoke-JkBackup {
     $a = @($args | ForEach-Object { [string]$_ })
+    if ($a.Count -and $a[0] -match '^(mirror|copy)$') { Invoke-JkBackupMirror $a; return }
     $root = Join-Path (Get-JkHome) 'backups'
     $days = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' } | Sort-Object Name -Descending)
     if ($a.Count -eq 0 -or $a[0] -match '^(list|ls)$') {
@@ -69,10 +115,15 @@ function Invoke-JkBackup {
         if ($days) { Say ''; Say (Paint 'gray' "  jk backup restore $($days[0].Name)   (or one file: jk backup restore $($days[0].Name) deadlines)") }
         return
     }
-    if ($a[0] -notmatch '^(restore|undo)$') { throw 'usage: jk backup  |  jk backup restore <yyyy-mm-dd> [deadlines|grades|todo|classes|...]' }
+    if ($a[0] -notmatch '^(restore|undo)$') { throw 'usage: jk backup  |  jk backup restore <yyyy-mm-dd> [deadlines|grades|todo|classes|...]  |  jk backup mirror <folder>' }
     if ($a.Count -lt 2) { throw 'which day? see: jk backup' }
     $dir = Join-Path $root $a[1]
-    if (-not (Test-Path -LiteralPath $dir)) { throw "no backup for '$($a[1])' (see: jk backup)" }
+    if (-not (Test-Path -LiteralPath $dir)) {
+        # the local backups go with the data folder; the mirror is what survives that
+        $m = Get-JkConfig 'backup.mirror'
+        if ($m -and (Test-Path -LiteralPath (Join-Path $m $a[1]))) { $dir = Join-Path $m $a[1]; Say (Paint 'gray' "  restoring from the mirror ($m)") }
+        else { throw "no backup for '$($a[1])' (see: jk backup)" }
+    }
     $pick = @(Get-ChildItem -LiteralPath $dir -File -Filter '*.json')
     if ($a.Count -ge 3) {
         $want = $a[2].ToLower() -replace '\.json$', ''
@@ -270,6 +321,11 @@ function Invoke-JkDoctor {
             else { & $ok 'LEARN feed' "synced $(Format-JkRelTime $lastDt)" }
         }
     } else { & $meh 'LEARN feed' 'not connected - LEARN > Calendar > Subscribe, then jk due sync "<link>"' }
+    $mirror = Get-JkConfig 'backup.mirror'
+    if ($mirror) {
+        $latest = @(Get-ChildItem -LiteralPath $mirror -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' } | Sort-Object Name -Descending | Select-Object -First 1)
+        if ($latest) { & $ok 'backup mirror' "$mirror $($script:G.dot) latest $($latest[0].Name)" } else { & $meh 'backup mirror' "$mirror has no snapshot yet - jk backup mirror $mirror" }
+    } else { & $meh 'backup mirror' 'off (optional): backups live inside the data folder - jk backup mirror <folder elsewhere>' }
     try {
         $jf = Find-JkJobsFile
         if ($jf) { & $ok 'job tracker' "$(@(Get-JkJobs $jf).Count) rows $($script:G.dot) $jf" }

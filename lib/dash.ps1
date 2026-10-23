@@ -27,6 +27,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'backup-mirror'; Cmd = 'jk backup mirror'; Text = 'keep a daily copy of your jk data outside ~\.jk (another drive, USB, a synced folder)' },
     @{ Id = 'class-alerts'; Cmd = 'class alerts'; Text = 'a popup 10 minutes before each class, with the room (jk config set alert.class 5m, or off)' },
     @{ Id = 'jobs'; Cmd = 'jk jobs'; Text = 'your job tracker: applied, waiting on you, and "did I already apply to X?" (jk jobs stripe)' },
     @{ Id = 'alerts'; Cmd = 'same-day alerts'; Text = 'a popup 2h before anything due today, interviews included (jk config set alert.before 90m)' },

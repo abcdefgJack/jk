@@ -122,6 +122,9 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
   - Errors from background timers go to `~\.jk\background.log` (trimmed to the newest 500 lines).
   - Before the first change each day, the previous version of every data file is copied to
     `~\.jk\backups\<date>\`. 30 days are kept, and `jk backup restore <date>` brings a day back.
+  - Those backups are inside the data folder. `jk backup mirror <folder>` also keeps a daily
+    snapshot somewhere else (another drive, a USB stick, a synced folder). Restore reads it when the
+    local backups are gone.
   - `jk tidy apply` logs every move in `~\.jk\tidy\`, which is what `jk tidy undo` reads.
   - `jk cp` builds into a hidden `.jkcp` folder next to each solution, never into `.jk`.
 
