@@ -59,6 +59,21 @@ function Show-JkReview {
         }
     }
 
+    # job search: applications this week against the week before, and what is still on you
+    try {
+        $jobs = @(Get-JkJobs -Cached)
+        if ($jobs.Count) {
+            $sent = @($jobs | Where-Object { $_.State -eq 'applied' })
+            $thisWk = @($sent | Where-Object { $_.Date -ge $from -and $_.Date -le $now.Date }).Count
+            $prevWk = @($sent | Where-Object { $_.Date -ge $from.AddDays(-$Days) -and $_.Date -lt $from }).Count
+            $waiting = @(Get-JkJobsWaiting $now).Count
+            $txt = "$thisWk application$(if ($thisWk -ne 1) {'s'}) sent" + (Paint 'gray' " (week before: $prevWk)")
+            if ($waiting) { $txt += (Paint 'gray' "  $($script:G.dot)  ") + (Paint 'amber' "$waiting waiting on you") }
+            Say ''
+            Say ('  ' + (Paint 'purple' "$($script:G.circle) job search  ") + $txt + (Paint 'gray' "   $($script:G.arrow) jk jobs"))
+        }
+    } catch { }
+
     # ---- looking ahead
     $ahead = @($data.events | Where-Object { -not $_.done -and ($due = Get-JkEventDue $_) -ge $now -and $due -lt $to.AddDays(1) } | Sort-Object { Get-JkEventDue $_ })
     Say ''

@@ -378,6 +378,9 @@ Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled o
         Assert-True ($hit -match '1 row . 1 applied' -and $hit -match 'https://x.test/1') 'found, with its link'
         $none = (Find-JkJobs 'stripe' 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($none -match 'Not in the tracker') 'no match says so'
+        # weekly review on Oct 22: nothing sent Oct 16-22 or Oct 9-15 (latest is Oct 6); Tesla still waiting
+        $rev = (Show-JkReview 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($rev -match 'job search\s+0 applications sent \(week before: 0\)\s+.\s+1 waiting on you') "review line: $(@($rev -split "`n" | Where-Object { $_ -match 'job search' })[0])"
         # the dashboard shows only the recent blocker (Tesla), not the stale one (Semgrep)
         $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($dash -match 'JOBS\s+1 application waiting on you' -and $dash -match 'Tesla' -and $dash -notmatch 'Semgrep') 'dashboard jobs section'
