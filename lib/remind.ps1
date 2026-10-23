@@ -97,7 +97,15 @@ function Complete-JkReminder {
         $now = Get-JkNow
         if (-not $m -or $m.Start -le $now) { return }
         $lines += "Starts in $(Format-JkDuration ($m.Start - $now))$(if ($m.Class.room) { " $($script:G.dot) $($m.Class.room)" })"
-        $accent = Get-JkCourseColor $m.Class.course (Get-JkCourseMap (Get-JkDueData))
+        $data = Get-JkDueData
+        # a quiz, exam or deadline during this class (an in-class quiz is too early for its own alert)
+        foreach ($e in @($data.events | Where-Object { $_.course -eq $m.Class.course -and -not $_.done -and $_.time -and $_.date -eq $m.Start.ToString('yyyy-MM-dd', $script:Inv) })) {
+            $due = Get-JkEventDue $e
+            if ($due -ge $m.Start -and $due -lt $m.End) {
+                $lines += "$($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' })$(if ($e.weight) { ', ' + $e.weight }) in this class"
+            }
+        }
+        $accent = Get-JkCourseColor $m.Class.course (Get-JkCourseMap $data)
     }
     elseif ($dueId) {
         # a same-day deadline alert: stay quiet if it was finished in the meantime
@@ -108,8 +116,19 @@ function Complete-JkReminder {
         # moved to another day or already past since the alert was set: nothing useful to say
         $now = Get-JkNow
         if ($due -le $now -or $due.Date -ne $at.Date) { return }
-        $lines += "Due $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
-        $lines += "Finished? jk due done $dueId"
+        if ([string]$e.title -match '(?i)\s+closes?$') {
+            # the end of an online window: the last chance to write it
+            $lines += "Closes $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+            if ($e.note) { $lines += [string]$e.note }
+            $lines += "Written it? jk due done $dueId"
+        } elseif ($e.kind -eq 'exam' -or $e.kind -eq 'appt') {
+            # an exam or an interview is something to get to, not to hand in: when, and where
+            $lines += "Starts $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+            if ($e.note) { $lines += [string]$e.note }
+        } else {
+            $lines += "Due $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+            $lines += "Finished? jk due done $dueId"
+        }
         $accent = Get-JkCourseColor $e.course (Get-JkCourseMap $data)
     }
     elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm')) $($at.ToString('ddd MMM d', $script:Inv))" }
