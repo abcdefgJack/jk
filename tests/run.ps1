@@ -786,6 +786,31 @@ Test 'timers count real time across a daylight-saving change' {
     $spring = Get-JkLocalAfter 3600 ([datetime]::SpecifyKind([datetime]'2027-03-14T09:30:00', 'Utc'))
     Assert-Eq $spring.ToUniversalTime().ToString('s') '2027-03-14T10:30:00' 'one real hour later'
 }
+Test 'mornings: afternoon exams get study time that day; windows read "closes today" / "open until"' {
+    $mk = { param($k, $due) [pscustomobject]@{ Key = $k; Course = 'x'; Title = $k; Due = [datetime]$due; Weight = 25; Kind = 'exam'; Id = 0; Effort = 300; Done = 0.0 } }
+    $s = @(Get-JkPlanSchedule -Items @((& $mk 'pm-midterm' '2026-10-29T16:30'), (& $mk 'am-quiz' '2026-10-29T08:30')) -Now ([datetime]'2026-10-29T08:05') -Days 1 -BudgetMin 180)
+    Assert-True ($s[0].Alloc['pm-midterm'] -gt 0) 'the morning before a 4:30 pm exam is used'
+    Assert-True (-not $s[0].Alloc.ContainsKey('am-quiz')) 'no study block for something 25 minutes away'
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'mornings-home'
+    $script:JkConfigCache = $null
+    $origNotify = ${function:Show-JkNotify}
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $env:JK_NOW = '2026-10-27T08:05:00'
+        $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($dash -match 'OPEN NOW . closes today 11:59 pm') 'closes today'
+        $env:JK_NOW = '2026-10-25T08:05:00'
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:BriefLines = $Lines; 'stub' }
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True (@($script:BriefLines | Where-Object { $_ -match 'Midterm opens \(exam\), open until Tue 11:59 pm' }).Count -eq 1) "popup: $($script:BriefLines -join ' / ')"
+    } finally {
+        Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_NOW = '2026-10-22T14:00:00'
+        $env:JK_HOME = $saved
+        $script:JkConfigCache = $null
+    }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

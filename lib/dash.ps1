@@ -89,7 +89,13 @@ function Show-JkDashboard {
         $win = Get-JkEventWindow $e $data
         if ($win) {
             $title = $win.Title
-            if ($win.Opens -le $now) { $cd = 'OPEN NOW'; $when = 'closes ' + (& $stamp $win.Close 'ddd MMM d') }
+            if ($win.Opens -le $now) {
+                $cd = 'OPEN NOW'
+                $closeDay = & $stamp $win.Close 'ddd MMM d'
+                $rel = Format-JkRelDay $win.Closes $now
+                if ($rel -eq 'today' -or $rel -eq 'tomorrow') { $closeDay = "$rel $(Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv))" }
+                $when = "closes $closeDay"
+            }
             else {
                 $closeWhen = & $stamp $win.Close 'ddd'
                 if ($win.Closes.Date -eq $win.Opens.Date) { $closeWhen = Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv) }

@@ -77,9 +77,13 @@ function Get-JkPlanSchedule {
         $asks = @{}
         foreach ($it in $Items) {
             if ($it.Due.Date -lt $day -or $remaining[$it.Key] -le 0) { continue }
-            # days available counts today and stops the day before the due date (the due day only if due late)
-            $daysLeft = [Math]::Max(1, ($it.Due.Date - $day).TotalDays + $(if ($it.Due.Hour -ge 18) { 1 } else { 0 }))
-            if ($it.Due.Date -eq $day -and $it.Due.Hour -lt 18) { continue }
+            # days available count today and stop the day before the due date, plus the due day itself
+            # when the item is at noon or later (a 4:30 pm midterm leaves its morning for review),
+            # and today only while more than an hour is left
+            $usableDueDay = $it.Due.Hour -ge 12
+            $daysLeft = [Math]::Max(1, ($it.Due.Date - $day).TotalDays + $(if ($usableDueDay) { 1 } else { 0 }))
+            if ($it.Due.Date -eq $day -and -not $usableDueDay) { continue }
+            if ($d -eq 0 -and ($it.Due - $Now).TotalMinutes -lt 60) { continue }
             $asks[$it.Key] = $remaining[$it.Key] / $daysLeft
         }
         $sum = 0.0; foreach ($v in $asks.Values) { $sum += $v }
