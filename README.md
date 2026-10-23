@@ -38,7 +38,8 @@ brief popup: today's remaining classes plus anything due within 48 hours. It run
 and again at sign-in. The same task sets a popup 2 hours before each deadline or appointment later
 that day. Interviews and OAs count too; work marked 0% and quiz-window openings don't. The popup is
 skipped if you mark the item done first. `jk config set alert.before 90m`
-changes the lead time, and `off` turns it off. To undo the profile line, task and link, run
+changes the lead time, and `off` turns it off. It also pops up 10 minutes before each class
+(`alert.class`); only one class timer waits at a time, and each one sets the next as it fires. To undo the profile line, task and link, run
 `jk setup uninstall`; your data stays in `~\.jk`.
 
 ## Commands

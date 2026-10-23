@@ -126,6 +126,7 @@ $script:JkConfigDefaults = [ordered]@{
     'remind.time'   = '08:30'
     'remind.hours'  = '48'
     'alert.before'  = '2h'        # popup this long before items due today (off to disable)
+    'alert.class'   = '10m'       # popup this long before each class (off to disable)
     'cp.root'       = (Join-Path $HOME 'Desktop\cp')
     'cp.lang'       = 'cpp'
     'cp.std'        = 'c++20'

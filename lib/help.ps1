@@ -68,6 +68,8 @@ jk remind uninstall | jk remind test | jk remind now
 Same-day alerts: the morning task also sets a popup 2 hours before each deadline or appointment
 that day (not 0% work or quiz openings; skipped if you mark it done first).
 jk config set alert.before 90m   or   off
+Class alerts: a popup 10 minutes before each class on your timetable (skips breaks and holidays).
+jk config set alert.class 5m   or   off
 '@
     'grade'  = @'
 jk grade                       every course: graded so far, average, and what you need on the rest

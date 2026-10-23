@@ -490,6 +490,47 @@ Test 'what''s new: each item once, three per run; a fresh setup sees none' {
         Assert-Eq @((Read-JkJson 'state.json' $null).newsSeen).Count $n 'all marked seen'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dropped' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'class-alerts-home'
+    $orig = ${function:Start-JkBackground}
+    $origNotify = ${function:Show-JkNotify}
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        $script:Shown = @()
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:Shown += , ($Title + ' | ' + ($Lines -join ' | ')); 'stub' }
+        $mkc = { param($id, $course, $start, $end, $room) [pscustomobject]@{ id = $id; course = $course; kind = 'LEC'; days = @('Thu'); start = $start; end = $end; room = $room; from = ''; to = '' } }
+        Save-JkClassData ([pscustomobject]@{ nextId = 3; items = @((& $mkc 1 'cs350' '10:00' '11:20' 'MC 4040'), (& $mkc 2 'health' '13:00' '14:20' 'online')) })
+        $now = [datetime]'2026-10-22T08:00'
+        $r = Register-JkClassAlert -Now $now
+        Assert-Eq $r.at '2026-10-22T09:50:00' '10 minutes before the first class'
+        Assert-True ($r.text -like 'CS 350 LEC at 10:00 am') "text: $($r.text)"
+        Assert-True ($null -eq (Register-JkClassAlert -Now $now)) 'one pending at a time'
+        # it fires: "starts in", and the next class is set before the popup shows
+        $env:JK_NOW = '2026-10-22T09:50:00'
+        Complete-JkReminder -Id ([int]$r.id)
+        Assert-Eq $script:Shown.Count 1
+        Assert-True ($script:Shown[0] -match 'Starts in 10m . MC 4040') "popup: $($script:Shown[0])"
+        $next = @((Get-JkReminderData).items)
+        Assert-Eq "$($next.Count) $($next[0].at)" '1 2026-10-22T12:50:00' 'chained to the 1 pm class'
+        # dropped from the timetable before it fires: no popup, nothing left to chain
+        $cd = Get-JkClassData; $cd.items = @($cd.items | Where-Object { $_.course -ne 'health' }); Save-JkClassData $cd
+        Complete-JkReminder -Id ([int]$next[0].id)
+        Assert-Eq $script:Shown.Count 1 'no popup for a dropped class'
+        Assert-Eq @((Get-JkReminderData).items).Count 0
+        # a later sign-in the same morning does not re-arm an alert that already fired
+        Assert-True ($null -eq (Register-JkClassAlert -Now ([datetime]'2026-10-22T09:00'))) 'remembered for the day'
+        Set-JkConfig 'alert.class' 'off'
+        Assert-True ($null -eq (Register-JkClassAlert -Now ([datetime]'2026-10-29T08:00'))) 'turned off'
+    } finally {
+        $env:JK_NOW = '2026-10-22T14:00:00'
+        Set-Item function:script:Start-JkBackground $orig
+        Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_HOME = $saved
+        $script:JkConfigCache = $null
+    }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

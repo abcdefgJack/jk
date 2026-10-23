@@ -60,7 +60,19 @@ function Complete-JkReminder {
     $lines = @()
     $accent = $script:JkPalette.amber
     $dueId = [int](Get-JkProp $item 'dueId' 0)
-    if ($dueId) {
+    $key = [string](Get-JkProp $item 'key' '')
+    if ($key.StartsWith('class:')) {
+        # set up the next class first: this popup can stay up until it is dismissed
+        try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
+        # class:<date>:<HH>:<mm>:<course>:<kind>; quiet if it was dropped or the day became a break
+        $p = $key.Split(':')
+        $m = @(Get-JkClassesOn $at.Date | Where-Object { $_.Class.course -eq $p[4] -and [string]$_.Class.kind -eq $p[5] -and $_.Start.ToString('HH:mm', $script:Inv) -eq "$($p[2]):$($p[3])" })[0]
+        $now = Get-JkNow
+        if (-not $m -or $m.Start -le $now) { return }
+        $lines += "Starts in $(Format-JkDuration ($m.Start - $now))$(if ($m.Class.room) { " $($script:G.dot) $($m.Class.room)" })"
+        $accent = Get-JkCourseColor $m.Class.course (Get-JkCourseMap (Get-JkDueData))
+    }
+    elseif ($dueId) {
         # a same-day deadline alert: stay quiet if it was finished in the meantime
         $data = Get-JkDueData
         $e = @($data.events | Where-Object { [int]$_.id -eq $dueId })[0]
@@ -90,7 +102,7 @@ function Register-JkTodayAlerts {
     $cmap = Get-JkCourseMap $data
     $today = $Now.ToString('yyyy-MM-dd', $script:Inv)
     $rd = Get-JkReminderData
-    $seen = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).EndsWith(":$today") })
+    $seen = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
     $known = @($seen) + @($rd.items | ForEach-Object { [string](Get-JkProp $_ 'key') })
     $added = @()
     $n = 0
@@ -118,6 +130,35 @@ function Register-JkTodayAlerts {
         Save-JkReminderData $rd
     }
     $n
+}
+
+# Class alerts: a popup alert.class (default 10m) before each class today. Only one waits at a
+# time (each timer is a ~60 MB process): the morning task sets the first, and every alert sets
+# the next as it fires. Keys go into the same per-day "alerted" list, so a cancelled one stays
+# cancelled and a later sign-in moves on to the following class.
+function Register-JkClassAlert {
+    param([datetime]$Now = (Get-JkNow))
+    $lead = Get-JkConfig 'alert.class'
+    if (-not $lead -or $lead -match '^(0|off|none)$') { return $null }
+    $secs = ConvertTo-JkSeconds $lead
+    $today = $Now.ToString('yyyy-MM-dd', $script:Inv)
+    $rd = Get-JkReminderData
+    if (@($rd.items | Where-Object { ([string](Get-JkProp $_ 'key' '')).StartsWith("class:$today") }).Count) { return $null }
+    $alerted = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
+    $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
+    foreach ($m in @(Get-JkClassesOn $Now.Date)) {
+        $at = $m.Start.AddSeconds(-$secs)
+        if ($at -le $Now) { continue }
+        $key = "class:${today}:$($m.Start.ToString('HH:mm', $script:Inv)):$($m.Class.course):$($m.Class.kind)"
+        if ($alerted -contains $key) { continue }
+        $text = "$(Format-JkClassLabel $m.Class $cmap) at $(Format-JkTime $m.Start.ToString('HH:mm'))"
+        $r = New-JkReminder -At $at -Text $text -Key $key
+        $rd = Get-JkReminderData
+        Set-JkProp $rd 'alerted' @($alerted + $key)
+        Save-JkReminderData $rd
+        return $r
+    }
+    $null
 }
 
 function Format-JkRelTime([datetime]$When) {
@@ -308,6 +349,7 @@ function Invoke-JkRemind {
             # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
             if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
             try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
+            try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
             Invoke-JkDueRemind -Quiet
             return
         }
