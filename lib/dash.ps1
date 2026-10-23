@@ -232,7 +232,7 @@ function Show-JkDashboard {
     if ($unpicked.Count) {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) add your class sections") + (Paint 'gray' " ($($unpicked -join ', ') not on your timetable yet)  $($script:G.arrow) ") + (Paint 'cyan' 'jk class pick'))
     } elseif (-not (Get-JkConfig 'sync.url') -and @($data.events).Count) {
-        Say ('  ' + (Paint 'cyan' "$($script:G.star) keep deadlines current") + (Paint 'gray' ": LEARN > Calendar > Subscribe, copy the link $($script:G.arrow) ") + (Paint 'cyan' 'jk due sync "<link>"'))
+        Say ('  ' + (Paint 'cyan' "$($script:G.star) keep deadlines current") + (Paint 'gray' ": in LEARN, Calendar > Subscribe, copy the link, then $($script:G.arrow) ") + (Paint 'cyan' 'jk due sync'))
     } elseif ($now.DayOfWeek -eq 'Sunday') {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) Sunday: ") + (Paint 'white' 'look back at the week and plan the next one') + (Paint 'gray' "  $($script:G.arrow) jk review"))
     } else {
