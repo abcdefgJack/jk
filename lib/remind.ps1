@@ -392,6 +392,7 @@ function Invoke-JkRemind {
         '^(uninstall|disable|remove)$' { Uninstall-JkRemindTask; return }
         '^(tick)$' {
             try { Limit-JkBackgroundLog } catch { }
+            try { $null = Sync-JkBackupMirror } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' backup mirror: ' + $_.Exception.Message) }
             Restore-JkReminders
             # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
             if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }

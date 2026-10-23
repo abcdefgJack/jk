@@ -478,8 +478,15 @@ Test 'what''s new: each item once, three per run; a fresh setup sees none' {
     $first = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-Eq ([regex]::Matches($first, '(?m)^\s+new\s{2}').Count) ([Math]::Min(3, $n)) 'first run: three'
     Assert-True ($first -match 'new\s+jk jobs') 'newest first'
-    $second = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
-    Assert-Eq ([regex]::Matches($second, '(?m)^\s+new\s{2}').Count) ([Math]::Max(0, $n - 3)) 'second run: the rest'
+    # the rest, three at a time, each exactly once
+    $shown = [Math]::Min(3, $n)
+    for ($run = 2; $run -le 10 -and $shown -lt $n; $run++) {
+        $next = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        $k = [regex]::Matches($next, '(?m)^\s+new\s{2}').Count
+        Assert-Eq $k ([Math]::Min(3, $n - $shown)) "run $run"
+        $shown += $k
+    }
+    Assert-Eq $shown $n 'every item announced'
     Assert-Eq @(Pop-JkNews).Count 0 'then nothing'
     # a fresh setup: no newsSeen yet and no deadlines
     $saved = $env:JK_HOME
@@ -718,6 +725,32 @@ Test 'profile safety: speed undo swaps only the conda block; hook backup is the 
     Set-Content -LiteralPath (Join-Path $jd 'job_application_tracker.md') -Value '| Date | Company | Role | Location | Status | Link |'
     Set-JkConfig 'jobs.file' (Join-Path $jd 'job_application_tracker.md')
     try { Assert-Eq (Find-JkGo 'jobs').Path $jd } finally { Invoke-JkConfig reset jobs.file }
+}
+Test 'backup mirror: daily snapshot outside the data folder, restore after losing it' {
+    $saved = $env:JK_HOME
+    $base = Join-Path $saved ('mirror-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    $env:JK_HOME = Join-Path $base 'data'
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $count = @((Get-JkDueData).events).Count
+        Assert-Throws { Invoke-JkBackup mirror (Join-Path $env:JK_HOME 'inside') } 'a mirror inside the data folder is refused'
+        $m = Join-Path $base 'mirror'
+        Invoke-JkBackup mirror $m
+        $day = (Get-Date).ToString('yyyy-MM-dd')
+        Assert-True (Test-Path -LiteralPath (Join-Path $m "$day\deadlines.json")) "today's snapshot"
+        New-Item -ItemType Directory -Path (Join-Path $m '2000-01-01') | Out-Null
+        $null = Sync-JkBackupMirror
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $m '2000-01-01'))) 'snapshots older than 30 days are pruned'
+        # the whole data folder is lost (local backups with it): the mirror brings it back
+        Remove-Item -LiteralPath $env:JK_HOME -Recurse -Force
+        $script:JkConfigCache = $null
+        Set-JkConfig 'backup.mirror' $m
+        Invoke-JkBackup restore $day
+        Assert-Eq @((Get-JkDueData).events).Count $count 'deadlines restored from the mirror'
+        Invoke-JkBackup mirror off
+        Assert-Eq (Get-JkConfig 'backup.mirror') '' 'mirror off'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'

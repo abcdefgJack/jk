@@ -177,6 +177,7 @@ $script:JkConfigDefaults = [ordered]@{
     'repos.roots'   = (Join-Path $HOME 'Desktop')
     'sync.url'      = ''          # calendar feed for jk due sync (LEARN > Calendar > Subscribe)
     'jobs.file'     = ''          # job tracker table; empty = job_application_tracker.md in a Desktop folder
+    'backup.mirror' = ''          # a folder outside ~\.jk for a daily snapshot (jk backup mirror <folder>)
 }
 
 # Config is read once per `jk` call (the dispatcher clears the cache); Set-JkConfig refreshes it.
