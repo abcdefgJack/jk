@@ -312,6 +312,19 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
             Assert-Eq $script:PopupCalls 1 'popup for an open item'
             Assert-True ($script:PopupLines[0] -like 'Due 8:00 pm*') "first line: $($script:PopupLines[0])"
             Assert-Eq $script:PopupLines[1] "Finished? jk due done $($r.dueId)"
+            # an exam alert says when it starts and where, not "due" / "finished?"
+            $mid = @((Get-JkDueData).events | Where-Object { $_.course -eq 'cs350' -and $_.title -eq 'Midterm' })[0]
+            $a = New-JkReminder -At ([datetime]'2026-10-29T14:30') -Text 'x' -DueId ([int]$mid.id)
+            Complete-JkReminder -Id ([int]$a.id)
+            Assert-True ($script:PopupLines[0] -like 'Starts 4:30 pm*') "exam line: $($script:PopupLines[0])"
+            Assert-True (-not ($script:PopupLines -match 'Finished\?')) 'no "finished?" for an exam'
+            $script:PopupCalls--
+            # the end of an online window says it closes, and asks whether it was written
+            $cl = @((Get-JkDueData).events | Where-Object { $_.course -eq 'health' -and $_.title -eq 'Midterm closes' })[0]
+            $a = New-JkReminder -At ([datetime]'2026-10-27T21:59') -Text 'x' -DueId ([int]$cl.id)
+            Complete-JkReminder -Id ([int]$a.id)
+            Assert-True ($script:PopupLines[0] -like 'Closes 11:59 pm*' -and $script:PopupLines[-1] -eq "Written it? jk due done $($cl.id)") "closes: $($script:PopupLines -join ' / ')"
+            $script:PopupCalls--
             # moved to another day after the alert was set: stay quiet
             $d = Get-JkDueData
             @($d.events | Where-Object { [int]$_.id -eq [int]$r.dueId })[0].date = '2026-10-29'
@@ -509,6 +522,10 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:Shown += , ($Title + ' | ' + ($Lines -join ' | ')); 'stub' }
         $mkc = { param($id, $course, $start, $end, $room) [pscustomobject]@{ id = $id; course = $course; kind = 'LEC'; days = @('Thu'); start = $start; end = $end; room = $room; from = ''; to = '' } }
         Save-JkClassData ([pscustomobject]@{ nextId = 3; items = @((& $mkc 1 'cs350' '10:00' '11:20' 'MC 4040'), (& $mkc 2 'health' '13:00' '14:20' 'online')) })
+        # an in-class quiz during the 10:00 lecture
+        $dq = Get-JkDueData
+        $null = New-JkEvent $dq -Course 'cs350' -Date ([datetime]'2026-10-22') -Time '10:00' -Title 'Quiz 1' -Kind 'exam' -Weight '5%'
+        Save-JkDueData $dq
         $now = [datetime]'2026-10-22T08:00'
         $r = Register-JkClassAlert -Now $now
         Assert-Eq $r.at '2026-10-22T09:50:00' '10 minutes before the first class'
@@ -519,6 +536,7 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         Complete-JkReminder -Id ([int]$r.id)
         Assert-Eq $script:Shown.Count 1
         Assert-True ($script:Shown[0] -match 'Starts in 10m . MC 4040') "popup: $($script:Shown[0])"
+        Assert-True ($script:Shown[0] -match 'Quiz 1 \(exam\), 5% in this class') "names the in-class quiz: $($script:Shown[0])"
         $next = @((Get-JkReminderData).items)
         Assert-Eq "$($next.Count) $($next[0].at)" '1 2026-10-22T12:50:00' 'chained to the 1 pm class'
         # dropped from the timetable before it fires: no popup, nothing left to chain
