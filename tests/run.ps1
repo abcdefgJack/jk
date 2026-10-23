@@ -531,6 +531,46 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         $script:JkConfigCache = $null
     }
 }
+Test 'cancelling a class alert moves on to the next class' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'class-cancel-home'
+    $orig = ${function:Start-JkBackground}
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        $mkc = { param($id, $course, $start, $end) [pscustomobject]@{ id = $id; course = $course; kind = 'LEC'; days = @('Thu'); start = $start; end = $end; room = ''; from = ''; to = '' } }
+        Save-JkClassData ([pscustomobject]@{ nextId = 3; items = @((& $mkc 1 'cs350' '10:00' '11:20'), (& $mkc 2 'health' '13:00' '14:20')) })
+        $env:JK_NOW = '2026-10-29T08:00:00'
+        $r = Register-JkClassAlert
+        Assert-Eq $r.at '2026-10-29T09:50:00'
+        Cancel-JkReminder ([string]$r.id)
+        $items = @((Get-JkReminderData).items)
+        Assert-Eq "$($items.Count) $($items[0].at)" '1 2026-10-29T12:50:00' 'the 1 pm class still gets its alert'
+    } finally {
+        $env:JK_NOW = '2026-10-22T14:00:00'
+        Set-Item function:script:Start-JkBackground $orig
+        $env:JK_HOME = $saved
+        $script:JkConfigCache = $null
+    }
+}
+Test 'review fixes: ics unescape, course codes, drive roots, exact role match' {
+    Assert-Eq (ConvertFrom-JkIcsText 'C:\\new\, a\nb\;c') "C:\new, a`nb;c" 'one pass, left to right'
+    $d = Get-JkDueData
+    $ev = [pscustomobject]@{ Summary = 'Quiz 1'; Categories = ''; Location = ''; Description = 'LEC 001 only; AFM 425 students write at 4:30' }
+    Assert-True ($null -eq (Find-JkIcsCourse $ev $d)) 'codes in the description do not invent a course'
+    $ev2 = [pscustomobject]@{ Summary = 'Quiz 1'; Categories = ''; Location = ''; Description = 'for CS 350 students' }
+    Assert-Eq (Find-JkIcsCourse $ev2 $d).key 'cs350' 'a known course in the description still matches'
+    Assert-Eq (Get-JkGitDirArg 'D:\') 'D:\.'
+    Assert-Eq (Get-JkGitDirArg 'C:\x') 'C:\x'
+    $md = Join-Path $env:JK_HOME 'tracker-roles.md'
+    $dash = [string][char]0x2014
+    [IO.File]::WriteAllLines($md, @(
+            '| Date | Company | Role | Location | Status | Link |', '|---|---|---|---|---|---|',
+            "| 2026-10-01 | Robinhood | Software Developer Intern (gh 1) | Toronto | NOT SUBMITTED $dash sign-in pending | |",
+            '| 2026-10-06 | Robinhood | Software Developer Intern, Web (gh 2) | Toronto | Submitted via Greenhouse | |'), (New-Object Text.UTF8Encoding $false))
+    $rows = @(Get-JkJobs -Path $md)
+    Assert-True (-not $rows[0].Resolved) 'a different role does not resolve the blocked one'
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
