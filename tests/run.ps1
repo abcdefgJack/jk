@@ -432,6 +432,14 @@ Test 'listening ports from netstat: IPv4 and IPv6, only foreign port 0, any lang
     # and the real table parses (every Windows box listens on something, e.g. 135)
     Assert-True (@(Get-JkListeners).Count -gt 0) 'real netstat'
 }
+Test 'jk sys: CPU load from GetSystemTimes, addresses from .NET' {
+    $l = Get-JkCpuLoad 100
+    Assert-True ($null -ne $l -and $l -ge 0 -and $l -le 100) "load: $l"
+    $null = @(Get-JkIPv4)
+    $out = (Invoke-JkSys 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($out -match 'CPU\s+\S+\s+\d+%') 'CPU row'
+    Assert-True ($out -match 'Memory\s+\S+\s+\d+%') 'memory row'
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
