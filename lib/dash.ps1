@@ -20,7 +20,8 @@ $script:JkTips = @(
     'jk review              last week done/slipped, next week load, where the marks are',
     'jk class week          this week''s timetable; jk class import reads Quest''s list view',
     'jk space               what is filling the disk, with the right cleanup for each',
-    'jk exams               every remaining exam with a countdown'
+    'jk exams               every remaining exam with a countdown',
+    'jk jobs stripe         did I already apply? every application to a company, with links'
 )
 
 function Get-JkGreeting([datetime]$Now) {

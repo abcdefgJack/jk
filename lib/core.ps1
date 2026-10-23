@@ -125,7 +125,7 @@ $script:JkConfigDefaults = [ordered]@{
     'theme'         = 'dark'      # dark | light (terminal background)
     'remind.time'   = '08:30'
     'remind.hours'  = '48'
-    'alert.before'  = '2h'        # popup this long before graded items due today (off to disable)
+    'alert.before'  = '2h'        # popup this long before items due today (off to disable)
     'cp.root'       = (Join-Path $HOME 'Desktop\cp')
     'cp.lang'       = 'cpp'
     'cp.std'        = 'c++20'
@@ -138,6 +138,7 @@ $script:JkConfigDefaults = [ordered]@{
     'plan.dueMin'   = '30'        # work minutes per percent of grade, assignments
     'repos.roots'   = (Join-Path $HOME 'Desktop')
     'sync.url'      = ''          # calendar feed for jk due sync (LEARN > Calendar > Subscribe)
+    'jobs.file'     = ''          # job tracker table; empty = job_application_tracker.md in a Desktop folder
 }
 
 # Config is read once per `jk` call (the dispatcher clears the cache); Set-JkConfig refreshes it.

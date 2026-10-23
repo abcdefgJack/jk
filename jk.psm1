@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -14,6 +14,7 @@ $script:JkCommands = [ordered]@{
     'plan'   = @{ Fn = 'Invoke-JkPlan'; Aliases = @('study'); Desc = 'split today''s study time across upcoming exams and assignments; jk plan start' }
     'review' = @{ Fn = 'Show-JkReview'; Aliases = @('weekly', 'retro'); Desc = 'last 7 days done and slipped, next 7 days load, where the marks are' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }
+    'jobs'   = @{ Fn = 'Invoke-JkJobs'; Aliases = @('job', 'apps', 'applications'); Desc = 'job applications: did I apply to X?, what is waiting on me, weekly pace (read-only)' }
     'focus'  = @{ Fn = 'Invoke-JkFocus'; Aliases = @('f', 'pomo', 'pomodoro'); Desc = 'focus timer with a popup when time is up, plus weekly stats' }
     'in'     = @{ Fn = 'Invoke-JkRemindIn'; Aliases = @(); Desc = 'remind me in a while:  jk in 20m "take laundry out"' }
     'at'     = @{ Fn = 'Invoke-JkRemindAt'; Aliases = @(); Desc = 'remind me at a time:   jk at 3:30pm "call home"' }
@@ -133,6 +134,7 @@ $script:JkActions = @{
     'speed'  = @('fix', 'undo')
     'backup' = @('list', 'restore')
     'plan'   = @('start')
+    'jobs'   = @('todo', 'skipped', 'edit', 'path', 'help')
     'space'  = @('clean')
     'port'   = @()
     'go'     = @()
