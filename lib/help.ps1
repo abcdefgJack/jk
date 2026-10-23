@@ -86,6 +86,7 @@ jk tidy apply                  move loose files into Installers\, PDFs\, Images\
 jk tidy undo                   put the last batch back exactly where it was
 jk tidy dupes [-Recycle]       find identical files (by content hash); -Recycle bins the extra copies
 jk tidy old [-Days 90] [-Recycle]   installers/archives you probably do not need any more
+  (both look at loose downloads and jk's category folders only, never inside unzipped programs or repos)
 jk tidy "C:\some\folder"       any other folder
 Nothing is ever deleted permanently: -Recycle uses the Recycle Bin.
 '@
@@ -157,7 +158,7 @@ jk speed                       time a new PowerShell with and without your profi
 jk speed fix                   replace the conda init hook (about 2 s per terminal) with an instant equivalent:
                                same PATH entries and CONDA_* variables, conda loads on first use.
                                Verifies python and the active env are unchanged, else rolls back.
-jk speed undo                  restore the original conda block from the backup
+jk speed undo                  put the original conda block back (only that block; later profile edits stay)
 '@
     'setup'  = @'
 jk setup install               profile banner + daily reminder task + calendar page (safe to re-run)

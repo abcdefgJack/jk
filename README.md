@@ -31,25 +31,41 @@ powershell -ExecutionPolicy Bypass -File "$HOME\Desktop\jk\install.ps1"
 Your data (deadlines, classes, grades and the rest) lives in `~\.jk` and is not in the repo. Copy that
 folder over to bring it along.
 
-Install links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk` autoloads in
-every new shell. It also adds a one-line summary to your profile and registers a morning
-brief popup: today's remaining classes plus anything due within 48 hours. It runs at 7:45 am
-(`jk config set remind.time 8am` changes that), or as soon as the PC wakes if it was asleep,
-and again at sign-in. The same task sets a popup 2 hours before each deadline or appointment later
-that day. Interviews and OAs count too; work marked 0% and quiz-window openings don't. The popup is
-skipped if you mark the item done first. `jk config set alert.before 90m`
-changes the lead time, and `off` turns it off. It also pops up 10 minutes before each class
-(`alert.class`); only one class timer waits at a time, and each one sets the next as it fires. To undo the profile line, task and link, run
-`jk setup uninstall`; your data stays in `~\.jk`.
+Install does three things:
+
+- **Module link.** It links the module into `Documents\WindowsPowerShell\Modules\jk`, so `jk`
+  autoloads in every new shell.
+- **Profile hook.** It adds a one-line summary to your profile. Your profile as it was before is
+  kept as `<profile>.jk-hook-backup`.
+- **Morning task.** It registers `jk-remind`, which runs at 7:45 am (`jk config set remind.time 8am`),
+  as soon as the PC wakes if it was asleep, and again at sign-in. Each run:
+  - shows the morning popup: today's remaining classes, anything due within 48 hours, and today's
+    study plan;
+  - syncs your LEARN feed, once it is connected;
+  - sets a popup 2 hours before each deadline or appointment later that day (`alert.before`).
+    Interviews and OAs count too; work marked 0% and quiz-window openings don't, and an item you
+    mark done first stays quiet;
+  - sets a popup 10 minutes before each class, with the room (`alert.class`). Only one class timer
+    waits at a time; each sets the next as it fires.
+
+`jk config set alert.before 90m` or `alert.class 5m` change the lead times, and `off` turns either
+off. `jk setup uninstall` removes the hook, the task and the link; your data stays in `~\.jk`.
+
+### First-time setup
+
+```powershell
+jk class pick      # lists every section of your courses, then asks which ones you are in
+jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link from the clipboard
+```
 
 ## Commands
 
 | Area | Command | What it does |
 |---|---|---|
-| School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick cs341 003` adds a section from the catalog; `jk class import` reads Quest's List View |
+| School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick` asks for your sections (or `jk class pick cs341 003`); `jk class import` reads Quest's List View |
 | | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
-| | `jk due sync "<LEARN feed link>"` | Pulls deadlines from LEARN's calendar feed (or any `.ics`); re-syncs update moved dates, and the morning task syncs daily |
+| | `jk due sync` | Pulls deadlines from LEARN's calendar feed (or any `.ics` link or file). The first time, it offers the link on your clipboard or asks you to paste it. Re-syncs update moved dates and keep your own edits, and the morning task syncs daily |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
 | | `jk plan` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight and days left; starts the next 25-minute block |
@@ -61,10 +77,10 @@ changes the lead time, and `off` turns it off. It also pops up 10 minutes before
 | | `jk in 20m "laundry"` / `jk at 5pm "leave"` | One-off reminders (re-armed after a restart) |
 | Code | `jk cp new A` / `jk cp add` / `jk cp` | Scaffold, paste samples from the clipboard, compile + test with diffs |
 | | `jk cp stress` | `main` vs `brute` on `gen <seed>` inputs; a counterexample becomes a sample |
-| | `jk repos` | Every git repo under the Desktop: uncommitted, unpushed, behind |
+| | `jk repos` / `jk repos -Fetch` | Every git repo under the Desktop: uncommitted, unpushed, behind (git runs for 8 repos at a time; a hung fetch is stopped after a minute) |
 | | `jk port 8080 -Kill` | Who holds a port, and free it |
-| Machine | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable); `dupes`, `old` |
-| | `j co250`, `j co250/final`, `j -` | Fuzzy jump; `jk mark` bookmarks the current folder |
+| Machine | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable). `jk tidy dupes` and `jk tidy old` report duplicates and stale installers; `-Recycle` sends them to the Recycle Bin, looking only at loose downloads and jk's category folders, never inside unzipped programs or repos |
+| | `j co250`, `j co250/final`, `j jobs`, `j -` | Fuzzy jump (Chinese folder names work too); `jk mark` bookmarks the current folder |
 | | `jk sys` | CPU, memory, disks, battery, Wi-Fi, apps using the most RAM |
 | | `jk space` / `jk space clean conda` | What fills the disk (caches, temp, Docker, `node_modules`), with the right cleanup for each |
 | | `jk speed` / `jk speed fix` | Times shell startup per profile file; makes the `conda init` hook instant (about 2.4 s to 0.3 s) |
@@ -85,15 +101,29 @@ changes the lead time, and `off` turns it off. It also pops up 10 minutes before
   - Exit codes such as `0xC0000005` are explained, and peak memory is measured exactly.
   - Floats compare with a 1e-6 tolerance.
 - **Grades** reuse the weights stored with your deadlines. A quiz window's opens/closes pair counts
-  once, and a note such as "best 6 of 8" turns into a drop-lowest rule automatically.
+  once, items that merely share a title (a weekly "Quiz") stay separate, and a note such as
+  "best 6 of 8" turns into a drop-lowest rule automatically.
 - **Fast startup.** The profile hook prints a cached one-line brief without loading the module,
-  and tab completion loads it on first use. `jk speed fix` replaces conda's hook, which runs
-  `conda.exe` on every launch, with the same activation applied directly: the same PATH entries
-  and `CONDA_*` variables. Conda's module then loads the first time you type `conda`. The fix is
-  dry-run in throwaway shells first and rolled back if `python`, the env or PATH would change.
-- **Data** is plain JSON in `~\.jk`: `deadlines.json`, `classes.json`, `grades.json`, `todo.json`,
-  `focus.json`, `reminders.json`, `bookmarks.json`, `config.json`. Errors from background
-  timers go to `~\.jk\background.log`. Before the first change each day, the previous version of every data file is copied to `~\.jk\backups\<date>\`; 30 days are kept, and `jk backup restore <date>` brings a day back.
+  and tab completion loads it on first use.
+- **`jk speed fix`** replaces conda's hook, which runs `conda.exe` on every launch, with the same
+  activation applied directly: the same PATH entries and `CONDA_*` variables. Conda's module then
+  loads the first time you type `conda`.
+  - It is dry-run in throwaway shells first and rolled back if `python`, the env or PATH would change.
+  - The original is kept as `<profile>.jk-speed-backup` (or `.jk-backup` from older versions).
+  - `jk speed undo` swaps back only the conda block; anything you added to the profile since stays.
+- **Background timers** (reminders, alerts, focus blocks) are headless PowerShell processes that
+  sleep before loading the module (about 60 MB each). A machine-wide lock keeps two firing at once
+  from overwriting each other's changes.
+- **The dashboard** announces new features once each, three per run (`$script:JkNews` in
+  `lib\dash.ps1`).
+- **Data** is plain JSON in `~\.jk`: `deadlines.json`, `classes.json`, `sections.json` (the section
+  catalog), `grades.json`, `todo.json`, `focus.json`, `reminders.json`, `bookmarks.json`,
+  `config.json` and `state.json`.
+  - Errors from background timers go to `~\.jk\background.log` (trimmed to the newest 500 lines).
+  - Before the first change each day, the previous version of every data file is copied to
+    `~\.jk\backups\<date>\`. 30 days are kept, and `jk backup restore <date>` brings a day back.
+  - `jk tidy apply` logs every move in `~\.jk\tidy\`, which is what `jk tidy undo` reads.
+  - `jk cp` builds into a hidden `.jkcp` folder next to each solution, never into `.jk`.
 
 ## Development
 
@@ -102,7 +132,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
 ```
 
 The tests use a throwaway data folder and a pinned clock. CI runs them twice on GitHub's Windows runners,
-in UTC and in Pacific time, so nothing can quietly depend on the machine's time zone. Source files must stay pure ASCII,
+in UTC and in Pacific time, so nothing can quietly depend on the machine's time zone. A second CI job
+(`tests\smoke.ps1`, CI only) installs jk on a clean runner, uses it from a new shell and uninstalls
+it again. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build
 non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`). The suite also lints for
 two PowerShell traps: `'a', 'b' + $c` (comma binds tighter than `+`) and helper calls that get
