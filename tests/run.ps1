@@ -693,6 +693,32 @@ Test 'data safety: cp clean spares the data folder, tidy recycles only loose dow
         Assert-True ((-not (Test-Path -LiteralPath $oldDir)) -and (Test-Path -LiteralPath $newDir)) 'only the old empty folder is removed'
     } finally { $env:TEMP = $savedTemp }
 }
+Test 'profile safety: speed undo swaps only the conda block; hook backup is the pre-jk original' {
+    $dir = Join-Path $env:JK_HOME ('prof-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $p = Join-Path $dir 'profile.ps1'
+    $orig = "#region conda initialize`r`n# !! Contents within this block are managed by 'conda init' !!`r`n(& `"C:\x\conda.exe`" `"shell.powershell`" `"hook`") | Out-String | Invoke-Expression`r`n#endregion"
+    $fast = "#region conda initialize`r`n# jk speed: fast conda.`r`n`$Env:PATH = `"C:\x;`" + `$Env:PATH`r`n#endregion"
+    [IO.File]::WriteAllText("$p.jk-backup", "Set-Alias ll ls`r`n$orig`r`n")
+    [IO.File]::WriteAllText($p, "Set-Alias ll ls`r`n$fast`r`nfunction added-later { 'kept' }`r`n")
+    Undo-JkSpeedFix -Files @([pscustomobject]@{ Kind = 'test'; Path = $p })
+    $after = [IO.File]::ReadAllText($p)
+    Assert-True ($after.Contains('shell.powershell') -and $after -notmatch 'jk speed: fast conda') 'original conda block is back'
+    Assert-True ($after.Contains('function added-later')) 'lines added after the fix survive'
+    # profile hook: the first install keeps the pre-jk profile; a second install does not replace it
+    $hp = Join-Path $dir 'Microsoft.PowerShell_profile.ps1'
+    [IO.File]::WriteAllText($hp, "Write-Host 'mine'`r`n")
+    Install-JkProfileHook -Path $hp
+    Install-JkProfileHook -Path $hp
+    Assert-Eq ([IO.File]::ReadAllText("$hp.jk-hook-backup")).Trim() "Write-Host 'mine'" 'backup is the original'
+    Assert-Eq ([regex]::Matches([IO.File]::ReadAllText($hp), [regex]::Escape($script:ProfileStart)).Count) 1 'one hook block'
+    # "j jobs" reaches the job tracker's folder
+    $jd = Join-Path $dir 'job hunt'
+    New-Item -ItemType Directory -Force -Path $jd | Out-Null
+    Set-Content -LiteralPath (Join-Path $jd 'job_application_tracker.md') -Value '| Date | Company | Role | Location | Status | Link |'
+    Set-JkConfig 'jobs.file' (Join-Path $jd 'job_application_tracker.md')
+    try { Assert-Eq (Find-JkGo 'jobs').Path $jd } finally { Invoke-JkConfig reset jobs.file }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

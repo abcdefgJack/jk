@@ -97,7 +97,8 @@ function Invoke-JkBackup {
 function Update-Jk {
     $root = Get-JkRoot
     if (-not (Test-Path -LiteralPath (Join-Path $root '.git'))) { throw "$root is not a git checkout" }
-    if (@(& git -C $root status --porcelain 2>$null).Count) { throw "the jk folder has uncommitted changes; commit or stash them first ($root)" }
+    # untracked files (a preview.html from tools\ansi2html) never block a fast-forward
+    if (@(& git -C $root status --porcelain --untracked-files=no 2>$null).Count) { throw "the jk folder has uncommitted changes; commit or stash them first ($root)" }
     $before = (& git -C $root rev-parse HEAD 2>$null)
     $branch = (& git -C $root branch --show-current 2>$null)
     Say (Paint 'gray' "  pulling $branch$($script:G.ell)")
@@ -143,19 +144,24 @@ function Test-JkProfileHook {
 }
 
 function Install-JkProfileHook {
-    $p = Get-JkProfilePath
+    param([string]$Path = (Get-JkProfilePath))
+    $p = $Path
     $dir = Split-Path $p -Parent
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $text = ''
+    $bak = "$p.jk-hook-backup"
     if (Test-Path -LiteralPath $p) {
         $text = [IO.File]::ReadAllText($p)
-        Copy-Item -LiteralPath $p -Destination "$p.jk-backup" -Force
+        # the profile as it was before jk ever touched it: written once, never replaced by a later
+        # install (which would back up the already-hooked file), and not shared with jk speed
+        if (-not (Test-Path -LiteralPath $bak) -and -not $text.Contains($script:ProfileStart)) { Copy-Item -LiteralPath $p -Destination $bak }
     }
     $text = Remove-JkProfileBlock $text
     $text = $text.TrimEnd() + "`r`n`r`n" + (Get-JkProfileBlock) + "`r`n"
     # keep the profile's encoding PowerShell-5.1-friendly (UTF-8 with BOM handles any non-ASCII already there)
     [IO.File]::WriteAllText($p, $text.TrimStart(), (New-Object Text.UTF8Encoding $true))
-    Say ((Paint 'green' "  $($script:G.check) profile hook added") + (Paint 'gray' " $($script:G.dot) $p (backup: .jk-backup)"))
+    $bakNote = ''; if (Test-Path -LiteralPath $bak) { $bakNote = ' (original: .jk-hook-backup)' }
+    Say ((Paint 'green' "  $($script:G.check) profile hook added") + (Paint 'gray' " $($script:G.dot) $p$bakNote"))
 }
 
 function Remove-JkProfileBlock([string]$Text) {
