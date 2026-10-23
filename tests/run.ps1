@@ -608,6 +608,47 @@ Test 'review fixes 2: weekly windows, done exams, state writes, log trim, doctor
         Assert-True ($doc -match 'LEARN feed\s+connected, no sync recorded' -and $doc -match 'data read') 'doctor runs to the end'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'review fixes 3: same-title items, todo keywords, focus credit, process tree' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'review3-home'
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        # two separate weekly quizzes with the same title stay separate in grades and the plan
+        $q1 = New-JkEvent $d -Course 'cs350' -Date ([datetime]'2026-10-27') -Time '23:59' -Title 'Quiz' -Weight '3%'
+        $q2 = New-JkEvent $d -Course 'cs350' -Date ([datetime]'2026-11-03') -Time '23:59' -Title 'Quiz' -Weight '3%'
+        Save-JkDueData $d
+        $items = @(Get-JkGradeItems $d (Get-JkGradeData) 'cs350' | Where-Object { $_.Title -eq 'Quiz' })
+        Assert-Eq $items.Count 2 'both quizzes graded'
+        # the health midterm window still counts once, at its closing
+        $mid = @(Get-JkGradeItems $d (Get-JkGradeData) 'health' | Where-Object { $_.Title -eq 'Midterm' })
+        Assert-Eq $mid.Count 1 'window counted once'
+        $plan = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00') | Where-Object { $_.Title -eq 'Quiz' })
+        Assert-Eq $plan.Count 2 'both quizzes planned'
+        # focus spent before a finished item does not count toward the next one
+        $fd = Get-JkFocusData
+        $fd.sessions = @([pscustomobject]@{ label = 'cs350 a2a'; start = '2026-10-21T10:00:00'; planned = 300; actual = 300; completed = $true })
+        Save-JkFocusData $fd
+        $a2a = @($d.events | Where-Object { $_.title -eq 'A2A Synchronization' })[0]
+        $before = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00') | Where-Object { $_.Title -eq 'Midterm' -and $_.Course -eq 'cs350' })[0].Done
+        $d2 = Get-JkDueData; $x = @($d2.events | Where-Object { $_.id -eq $a2a.id })[0]; $x.done = $true; Set-JkProp $x 'doneAt' '2026-10-22T09:00:00'; Save-JkDueData $d2
+        $after = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00') | Where-Object { $_.Title -eq 'Midterm' -and $_.Course -eq 'cs350' })[0].Done
+        Assert-True ($before -gt 0 -and $after -eq 0) "credit before/after finishing A2A: $before / $after"
+        # "jk todo clear the desk" adds a to-do instead of purging finished ones
+        Add-JkTodo 'old' ; Set-JkTodoDone 1
+        Invoke-JkTodo clear the desk
+        $t = @((Get-JkTodoData).items)
+        Assert-Eq (($t | ForEach-Object { $_.text }) -join ',') 'old,clear the desk' 'nothing purged'
+        # the process tree helper copes with a pid that is gone
+        Stop-JkProcessTree 999999
+        # a squeezed evening still gets whole blocks, biggest share first
+        $mk = { param($k, $eff) [pscustomobject]@{ Key = $k; Course = 'x'; Title = $k; Due = [datetime]'2026-11-20T23:59'; Weight = 5; Kind = 'due'; Id = 0; Effort = $eff; Done = 0.0 } }
+        $sched = @(Get-JkPlanSchedule -Items @((& $mk 'a' 400), (& $mk 'b' 300), (& $mk 'c' 300)) -Now ([datetime]'2026-10-22T20:00') -Days 1 -BudgetMin 180 -TodayLeftFraction 0.25)
+        $total = 0; foreach ($v in $sched[0].Alloc.Values) { $total += $v }
+        Assert-Eq "$total $($sched[0].Alloc['a'])" '25 25' '45 minutes left: one block, to the biggest share'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

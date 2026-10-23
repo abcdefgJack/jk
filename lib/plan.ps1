@@ -20,9 +20,14 @@ function Get-JkPlanItems {
         if ($w -le 0) { continue }
         $due = Get-JkEventDue $e
         if ($due -le $Now -or $due -gt $Now.AddDays($HorizonDays)) { continue }
-        # an exam window (opens + closes) is one thing to prepare for: target the opening
+        # an exam window (opens + closes) is one thing to prepare for: target the opening.
+        # Other items sharing a title (weekly "Quiz") stay separate.
         $norm = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()
-        $key = "$($e.course)|$norm"
+        $key = "$($e.course)|#$($e.id)"
+        if ($norm -ne [string]$e.title) {
+            $win = Get-JkEventWindow $e $data
+            if ($win) { $key = "$($e.course)|#$($win.Close.id)" }
+        }
         if (-not $groups.ContainsKey($key) -or $due -lt $groups[$key].Due) {
             $per = $duePer; if ($e.kind -eq 'exam') { $per = $examPer }
             $groups[$key] = [pscustomobject]@{ Key = $key; Course = [string]$e.course; Title = $norm; Due = $due; Weight = $w; Kind = [string]$e.kind; Id = $e.id; Effort = $w * $per; Done = 0.0 }
@@ -37,10 +42,15 @@ function Get-JkPlanItems {
         if ($c) { [pscustomobject]@{ Course = $c.key; Start = [datetime]::Parse([string]$s.start, $script:Inv); Minutes = [double]$s.actual } }
     }
     # focus already logged on a course since two weeks before an item counts toward it,
-    # shared between that course's items in proportion to their effort
+    # shared between that course's items in proportion to their effort. Time before the course's
+    # last finished item was spent on that item, so it does not count.
     foreach ($course in ($items | Group-Object Course)) {
         $courseItems = @($course.Group)
         $since = ($courseItems | ForEach-Object { $_.Due.AddDays(-14) } | Measure-Object -Minimum).Minimum
+        foreach ($f in @($data.events | Where-Object { $_.course -eq $course.Name -and $_.done })) {
+            $at = Get-JkDoneAt $f
+            if ($at -and $at -gt $since -and $at -le $Now) { $since = $at }
+        }
         $logged = 0.0
         foreach ($s in @($sessions)) {
             if ($s.Course -eq $course.Name -and $s.Start -ge $since -and $s.Start -le $Now) { $logged += $s.Minutes }
@@ -75,10 +85,23 @@ function Get-JkPlanSchedule {
         $sum = 0.0; foreach ($v in $asks.Values) { $sum += $v }
         $scale = 1.0
         if ($sum -gt $budget -and $sum -gt 0) { $scale = $budget / $sum }
+        # when squeezed, hand out the whole blocks that fit by largest share first; rounding each
+        # share on its own can leave every item at zero (three 15-minute shares of a 45-minute evening)
+        $blocksFor = @{}
+        if ($scale -lt 1) {
+            $free = [int][Math]::Floor($budget / $script:PlanBlock)
+            $exact = @{}
+            foreach ($k in $asks.Keys) { $exact[$k] = $asks[$k] * $scale / $script:PlanBlock; $blocksFor[$k] = [int][Math]::Floor($exact[$k]); $free -= $blocksFor[$k] }
+            foreach ($k in @($asks.Keys | Sort-Object @{ Expression = { $exact[$_] - $blocksFor[$_] }; Descending = $true }, @{ Expression = { $byKey[$_].Due } })) {
+                if ($free -le 0) { break }
+                $blocksFor[$k]++; $free--
+            }
+        }
         $alloc = @{}
         foreach ($k in $asks.Keys) {
             $it = $byKey[$k]
-            $m = [Math]::Round($asks[$k] * $scale / $script:PlanBlock) * $script:PlanBlock
+            if ($scale -lt 1) { $m = $blocksFor[$k] * $script:PlanBlock }
+            else { $m = [Math]::Round($asks[$k] / $script:PlanBlock) * $script:PlanBlock }
             if ($m -lt $script:PlanBlock -and ($it.Due.Date - $day).TotalDays -le 2) { $m = $script:PlanBlock }
             $m = [Math]::Min($m, [Math]::Ceiling($remaining[$k] / $script:PlanBlock) * $script:PlanBlock)
             if ($m -gt 0) { $alloc[$k] = $m; $remaining[$k] = [Math]::Max(0, $remaining[$k] - $m) }

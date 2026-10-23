@@ -166,9 +166,10 @@ function Invoke-JkTodo {
         '^(done|x|check|finish)$' { Set-JkTodoDone @rest; return }
         '^(undo|undone|reopen)$' { Set-JkTodoDone -Undo @rest; return }
         '^(rm|remove|del|delete)$' { Remove-JkTodo @rest; return }
-        '^(clear|clean|purge)$' { Clear-JkTodo; return }
+        # with more words it is a to-do ("clear the desk"), not the destructive cleanup
+        '^(clear|clean|purge)$' { if ($rest.Count) { Add-JkTodo @a } else { Clear-JkTodo }; return }
         '^(edit|set)$' { Edit-JkTodo @rest; return }
-        '^(all|ls|list)$' { Show-JkTodo -All; return }
+        '^(all|ls|list)$' { if ($rest.Count) { Add-JkTodo @a } else { Show-JkTodo -All }; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'todo'; return }
     }
     # anything else is the text of a new item:  jk todo buy milk -Due tomorrow
