@@ -931,6 +931,11 @@ function Invoke-JkDueRemind {
         if ($e.time) { $when += ' ' + (Format-JkTime $e.time) }
         $txt = "$when $($script:G.dash) $(Get-JkCourseLabel $e $cmap) $($e.title)"
         if ($e.kind -eq 'exam') { $txt += ' (exam)' }
+        # an opening is not a deadline: say until when the window runs
+        if ([string]$e.title -match '(?i)\s+opens?$') {
+            $win = Get-JkEventWindow $e $data
+            if ($win) { $txt += ", open until $($win.Closes.ToString('ddd', $script:Inv)) $(Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv))" }
+        }
         $lines += $txt
     }
     if ($soon.Count -gt 6) { $lines += "+$($soon.Count - 6) more" }
