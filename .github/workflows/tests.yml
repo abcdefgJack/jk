@@ -18,3 +18,12 @@ jobs:
         run: |
           tzutil /s "Pacific Standard Time"
           powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
+
+  # install.ps1 on a clean machine, real commands in a new shell, then uninstall
+  install-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fresh install, use, uninstall
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\smoke.ps1
