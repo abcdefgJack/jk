@@ -63,6 +63,13 @@ function Set-JkState {
     }
 }
 
+# The local time $Seconds from now, counted in real time. Local-time arithmetic is wall-clock
+# arithmetic: "jk in 2h" at 00:30 on the night clocks fall back would land at 02:30 by the clock,
+# three real hours later.
+function Get-JkLocalAfter([double]$Seconds, [datetime]$From = [DateTime]::UtcNow) {
+    $From.ToUniversalTime().AddSeconds($Seconds).ToLocalTime()
+}
+
 function Get-JkState([string]$Name, $Default = $null) { Get-JkProp (Read-JkJson 'state.json' $null) $Name $Default }
 
 # True only in a real terminal someone is typing into: never in CI, tests (JK_NONINTERACTIVE),
