@@ -1,7 +1,56 @@
 # sys.ps1 - machine status (jk sys) and port inspection (jk port).
 
+# kernel32!GetSystemTimes, declared at run time with Reflection.Emit: no C# compile (Add-Type
+# costs ~1 s on first use) and no CIM (Win32_Processor costs ~1.2 s).
+function Get-JkKernel32 {
+    if (-not $script:JkKernel32) {
+        $asm = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'JkNative'), [Reflection.Emit.AssemblyBuilderAccess]::Run)
+        $tb = $asm.DefineDynamicModule('JkNative').DefineType('JkNative.Kernel32', 'Public, Class')
+        $byRef = [long].MakeByRefType()
+        $m = $tb.DefinePInvokeMethod('GetSystemTimes', 'kernel32.dll', [Reflection.MethodAttributes]'Public, Static, PinvokeImpl', [Reflection.CallingConventions]::Standard, [bool], [Type[]]@($byRef, $byRef, $byRef), [Runtime.InteropServices.CallingConvention]::Winapi, [Runtime.InteropServices.CharSet]::Auto)
+        $m.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig)
+        $script:JkKernel32 = $tb.CreateType()
+    }
+    $script:JkKernel32
+}
+
+# Whole-machine CPU use (0-100) over a short sample. Kernel time includes idle time.
+function Get-JkCpuLoad([int]$SampleMs = 250) {
+    try {
+        $k = Get-JkKernel32
+        [long]$i1 = 0; [long]$k1 = 0; [long]$u1 = 0
+        if (-not $k::GetSystemTimes([ref]$i1, [ref]$k1, [ref]$u1)) { return $null }
+        Start-Sleep -Milliseconds $SampleMs
+        [long]$i2 = 0; [long]$k2 = 0; [long]$u2 = 0
+        if (-not $k::GetSystemTimes([ref]$i2, [ref]$k2, [ref]$u2)) { return $null }
+        $total = ($k2 - $k1) + ($u2 - $u1)
+        if ($total -le 0) { return 0 }
+        [Math]::Max(0, [Math]::Min(100, [Math]::Round(100 * (1 - ($i2 - $i1) / $total))))
+    } catch { $null }
+}
+
+# IPv4 addresses of interfaces that are up, skipping loopback, link-local and virtual adapters.
+function Get-JkIPv4 {
+    foreach ($nic in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+        if ($nic.OperationalStatus -ne 'Up' -or $nic.NetworkInterfaceType -eq 'Loopback') { continue }
+        if ($nic.Name -match 'vEthernet|Loopback|WSL|Docker') { continue }
+        foreach ($u in $nic.GetIPProperties().UnicastAddresses) {
+            $ip = $u.Address
+            if ($ip.AddressFamily -ne 'InterNetwork' -or "$ip" -match '^(127\.|169\.254\.)') { continue }
+            "$ip ($($nic.Name))"
+        }
+    }
+}
+
 function Get-JkSysSnapshot {
-    $cpus = @(Get-CimInstance Win32_Processor)
+    $cpuName = (Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0' -ErrorAction SilentlyContinue).ProcessorNameString
+    $load = Get-JkCpuLoad
+    if ($null -eq $load) {
+        # fall back to WMI when the native call is unavailable
+        $cpus = @(Get-CimInstance Win32_Processor)
+        $load = ($cpus | Measure-Object -Property LoadPercentage -Average).Average
+        if (-not $cpuName) { $cpuName = $cpus[0].Name }
+    }
     $mem = Get-JkMemory
     $caption = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).ProductName
     $build = [Environment]::OSVersion.Version.Build
@@ -9,8 +58,8 @@ function Get-JkSysSnapshot {
     if ($caption -and $build -ge 22000) { $caption = $caption -replace 'Windows 10', 'Windows 11' }
     [pscustomobject]@{
         Caption  = $caption
-        Cpu      = $cpus[0]
-        Load     = ($cpus | Measure-Object -Property LoadPercentage -Average).Average
+        CpuName  = [string]$cpuName
+        Load     = [double]$load
         TotalMem = $mem.Total
         FreeMem  = $mem.Free
         Uptime   = Get-JkUptime
@@ -35,7 +84,7 @@ function Invoke-JkSys {
     Write-JkHeader 'System' "$($env:COMPUTERNAME) $($script:G.dot) up $up" -Sub ($s.Caption -replace 'Microsoft ', '')
     $barW = [Math]::Max(16, [Math]::Min(36, $w - 48))
     $loadStyle = 'green'; if ($s.Load -ge 85) { $loadStyle = 'red' } elseif ($s.Load -ge 60) { $loadStyle = 'orange' }
-    Say ('  ' + (Paint 'bold white' (Fit 'CPU' 9)) + (Get-JkBar ($s.Load / 100) $barW $loadStyle) + '  ' + (Paint 'white' ("{0,3}%" -f [int]$s.Load)) + (Paint 'gray' "  $($s.Cpu.Name.Trim() -replace '\s+', ' ')"))
+    Say ('  ' + (Paint 'bold white' (Fit 'CPU' 9)) + (Get-JkBar ($s.Load / 100) $barW $loadStyle) + '  ' + (Paint 'white' ("{0,3}%" -f [int]$s.Load)) + (Paint 'gray' "  $($s.CpuName.Trim() -replace '\s+', ' ')"))
     $used = $s.TotalMem - $s.FreeMem
     $memFrac = $used / $s.TotalMem
     $memStyle = 'green'; if ($memFrac -ge 0.9) { $memStyle = 'red' } elseif ($memFrac -ge 0.75) { $memStyle = 'orange' }
@@ -53,7 +102,7 @@ function Invoke-JkSys {
         $state = 'on battery'; if ($plugged) { $state = 'plugged in' }
         Say ('  ' + (Paint 'bold white' (Fit 'Battery' 9)) + (Get-JkBar ($pct / 100) $barW $st) + '  ' + (Paint 'white' ("{0,3}%" -f $pct)) + (Paint 'gray' "  $state"))
     }
-    $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|WSL|Docker' } | ForEach-Object { "$($_.IPAddress) ($($_.InterfaceAlias))" })
+    $ips = @(Get-JkIPv4)
     $wifi = Get-JkWifiName
     $net = ($ips -join ', ')
     if ($wifi) { $net = "Wi-Fi '$wifi'  $($script:G.dot)  $net" }
