@@ -10,7 +10,8 @@ A personal command-line toolkit for Windows PowerShell 5.1. It covers:
 It needs nothing beyond what ships with Windows.
 
 ```powershell
-jk            # dashboard: next class, next exam, this week's deadlines, to-dos, focus time, machine health
+jk            # dashboard: next class, next exam, this week's deadlines, to-dos, job applications
+              # blocked on you, focus time, machine health
 jk help       # every command;  jk help <command> for examples
 ```
 

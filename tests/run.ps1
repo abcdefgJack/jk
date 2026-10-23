@@ -378,6 +378,17 @@ Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled o
         Assert-True ($hit -match '1 row . 1 applied' -and $hit -match 'https://x.test/1') 'found, with its link'
         $none = (Find-JkJobs 'stripe' 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($none -match 'Not in the tracker') 'no match says so'
+        # the dashboard shows only the recent blocker (Tesla), not the stale one (Semgrep)
+        $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($dash -match 'JOBS\s+1 application waiting on you' -and $dash -match 'Tesla' -and $dash -notmatch 'Semgrep') 'dashboard jobs section'
+        # cached parse is reused until the file changes
+        $null = Get-JkJobs -Cached
+        $script:JkJobsCache.Rows[0].Company = 'from-cache'
+        Assert-Eq @(Get-JkJobs -Cached)[0].Company 'from-cache' 'same parse while unchanged'
+        Add-Content -LiteralPath $md -Value "| 2026-10-04 | Gamma | Intern | Remote | Submitted via Ashby | |"
+        $again = @(Get-JkJobs -Cached)
+        Assert-Eq $again.Count 9 'a changed file is read again'
+        Assert-Eq $again[0].Company 'Robinhood'
     } finally { Invoke-JkConfig reset jobs.file }
 }
 Test 'background timers sleep before loading the module, then run in its scope' {

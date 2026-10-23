@@ -129,6 +129,17 @@ function Show-JkDashboard {
         if ($open.Count -gt 5) { Say (Paint 'gray' "  +$($open.Count - 5) more $($script:G.arrow) jk todo") }
     }
 
+    # job applications blocked on you (recent ones; older ones stay in jk jobs todo)
+    try {
+        $waiting = @(Get-JkJobsWaiting $now)
+        if ($waiting.Count) {
+            Say ''
+            Say (' ' + (Paint 'bold white' 'JOBS') + (Paint 'gray' "  $($waiting.Count) application$(if ($waiting.Count -ne 1) {'s'}) waiting on you"))
+            foreach ($r in ($waiting | Select-Object -First 2)) { Say (Format-JkJobLine $r $w $now) }
+            if ($waiting.Count -gt 2) { Say (Paint 'gray' "  +$($waiting.Count - 2) more $($script:G.arrow) jk jobs todo") }
+        }
+    } catch { }
+
     # reminders + focus
     $rem = @(Get-JkReminderList | Where-Object { [datetime]::Parse([string]$_.at, [Globalization.CultureInfo]::InvariantCulture) -ge (Get-Date) })
     $fd = Get-JkFocusData

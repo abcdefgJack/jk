@@ -41,10 +41,15 @@ function Get-JkJobKey([string]$Role) {
     (($Role -replace '\([^)]*\)', ' ') -replace '[^A-Za-z0-9]+', ' ').Trim().ToLower()
 }
 
+# -Cached reuses the last parse while the file is unchanged (path, mtime, size): the dashboard
+# reads the tracker on every `jk`.
 function Get-JkJobs {
-    param([string]$Path)
+    param([string]$Path, [switch]$Cached)
     if (-not $Path) { $Path = Find-JkJobsFile }
     if (-not $Path) { return @() }
+    $fi = Get-Item -LiteralPath $Path
+    $stamp = "$Path|$($fi.LastWriteTimeUtc.Ticks)|$($fi.Length)"
+    if ($Cached -and $script:JkJobsCache -and $script:JkJobsCache.Stamp -eq $stamp) { return $script:JkJobsCache.Rows }
     $cols = @{ date = 0; company = 1; role = 2; where = 3; status = 4; link = 5 }
     $rows = New-Object System.Collections.Generic.List[object]
     $n = 0
@@ -94,7 +99,13 @@ function Get-JkJobs {
             if ($ak -eq $k -or ($k -and $ak.StartsWith($k)) -or ($ak -and $k.StartsWith($ak))) { $r.Resolved = $true; break }
         }
     }
+    $script:JkJobsCache = @{ Stamp = $stamp; Rows = $rows.ToArray() }
     $rows.ToArray()
+}
+
+# Applications blocked on you in the last JkJobStaleDays, newest first (for the dashboard).
+function Get-JkJobsWaiting([datetime]$Now = (Get-JkNow)) {
+    @(Get-JkJobs -Cached | Where-Object { $_.State -eq 'todo' -and -not $_.Resolved -and -not (Test-JkJobStale $_ $Now) } | Sort-Object Date, N -Descending)
 }
 
 # The useful part of a status: "via Greenhouse" for applications, the reason for the rest.
