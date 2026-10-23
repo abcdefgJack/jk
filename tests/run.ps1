@@ -465,6 +465,27 @@ Test 'repos: git status of every repo in parallel, counts and UTF-8 subjects' {
     Assert-Eq $st[1].Name 'beta'
     Assert-Eq "$($st[1].Msg)|$($st[1].Remote)" '|' 'no commits, no remote'
 }
+Test 'what''s new: each item once, three per run; a fresh setup sees none' {
+    $state = Read-JkJson 'state.json' $null
+    if (-not $state) { $state = [pscustomobject]@{} }
+    Set-JkProp $state 'newsSeen' @()
+    Save-JkJson 'state.json' $state
+    $n = $script:JkNews.Count
+    $first = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-Eq ([regex]::Matches($first, '(?m)^\s+new\s{2}').Count) ([Math]::Min(3, $n)) 'first run: three'
+    Assert-True ($first -match 'new\s+jk jobs') 'newest first'
+    $second = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-Eq ([regex]::Matches($second, '(?m)^\s+new\s{2}').Count) ([Math]::Max(0, $n - 3)) 'second run: the rest'
+    Assert-Eq @(Pop-JkNews).Count 0 'then nothing'
+    # a fresh setup: no newsSeen yet and no deadlines
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'news-fresh'
+    try {
+        New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+        Assert-Eq @(Pop-JkNews).Count 0 'fresh setup: nothing to catch up on'
+        Assert-Eq @((Read-JkJson 'state.json' $null).newsSeen).Count $n 'all marked seen'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

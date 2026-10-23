@@ -24,6 +24,32 @@ $script:JkTips = @(
     'jk jobs stripe         did I already apply? every application to a company, with links'
 )
 
+# What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
+# once (three per run) and remembers the ids in state.json.
+$script:JkNews = @(
+    @{ Id = 'jobs'; Cmd = 'jk jobs'; Text = 'your job tracker: applied, waiting on you, and "did I already apply to X?" (jk jobs stripe)' },
+    @{ Id = 'alerts'; Cmd = 'same-day alerts'; Text = 'a popup 2h before anything due today, interviews included (jk config set alert.before 90m)' },
+    @{ Id = 'plan'; Cmd = 'jk plan'; Text = 'today''s study time split by weight and days left; jk plan start runs the next 25-minute block' },
+    @{ Id = 'sync'; Cmd = 'jk due sync'; Text = 'pulls deadlines from your LEARN calendar feed; the morning task keeps them current' },
+    @{ Id = 'review'; Cmd = 'jk review'; Text = 'the last 7 days (done, slipped, focus) and the next 7 (load, where the marks are)' }
+)
+
+# Unseen news, marked seen as it is returned. A brand-new setup (no deadlines yet) has nothing
+# to catch up on: everything is marked seen silently.
+function Pop-JkNews([int]$Take = 3) {
+    $state = Read-JkJson 'state.json' $null
+    if (-not $state) { $state = [pscustomobject]@{} }
+    $seen = @(Get-JkProp $state 'newsSeen' @())
+    $unseen = @($script:JkNews | Where-Object { $seen -notcontains $_.Id })
+    if (-not $unseen.Count) { return @() }
+    $show = @($unseen | Select-Object -First $Take)
+    if ($null -eq (Get-JkProp $state 'newsSeen') -and -not @((Get-JkDueData -Cached).events).Count) { $show = @(); $mark = $unseen }
+    else { $mark = $show }
+    Set-JkProp $state 'newsSeen' @($seen + @($mark | ForEach-Object { $_.Id }))
+    Save-JkJson 'state.json' $state
+    $show
+}
+
 function Get-JkGreeting([datetime]$Now) {
     $h = $Now.Hour
     if ($h -lt 5) { return 'Up late' }
@@ -196,6 +222,10 @@ function Show-JkDashboard {
     Say ('  ' + ($sysBits -join (Paint 'gray' "  $($script:G.dot)  ")))
 
     Say ''
+    # features added since you last looked, each announced once
+    try {
+        foreach ($n in @(Pop-JkNews)) { Say ('  ' + (Paint 'bold purple' 'new') + '  ' + (Paint 'white' $n.Cmd) + '  ' + (Paint 'gray' (Fit $n.Text ([Math]::Max(10, $w - $n.Cmd.Length - 10))).TrimEnd())) }
+    } catch { }
     $unpicked = @()
     try { $unpicked = @(Get-JkUnpickedCourses) } catch { }
     # one setup nudge at a time: sections first, then the LEARN feed
