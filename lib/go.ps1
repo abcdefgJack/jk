@@ -35,6 +35,8 @@ function Get-JkGoCandidates {
     & $add 'home' $HOME 'auto'
     & $add 'jk' (Get-JkRoot) 'auto'
     & $add 'jkdata' (Get-JkHome) 'auto'
+    # "j jobs": the job-search folder, whatever it is called
+    try { $jf = Find-JkJobsFile; if ($jf) { & $add 'jobs' (Split-Path $jf -Parent) 'auto' } } catch { }
     $cpRoot = [Environment]::ExpandEnvironmentVariables((Get-JkConfig 'cp.root'))
     if (Test-Path -LiteralPath $cpRoot) { & $add 'cp' $cpRoot 'auto' }
     $roots = @($desk)

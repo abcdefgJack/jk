@@ -77,7 +77,7 @@ function New-JkFastCondaBlock([string]$CondaExe) {
         '#region conda initialize',
         "# !! Contents within this block are managed by 'conda init' !!",
         '# jk speed: fast conda. Activates base from a cached recipe instead of running conda.exe on every start;',
-        "# conda's module loads the first time you run conda. Original block: profile.ps1.jk-backup (jk speed undo).",
+        "# conda's module loads the first time you run conda. Original block: <profile>.jk-speed-backup (jk speed undo).",
         "If (Test-Path `"$CondaExe`") {",
         ('    $Env:PATH = "' + ($prefix -join ';') + ';" + $Env:PATH')
     ) + $vars + $sources + @(
@@ -132,30 +132,42 @@ function Invoke-JkSpeedFix {
         $dryNew = Get-JkShellFingerprint $tmpNew
     } finally { Remove-Item -LiteralPath $tmpOld, $tmpNew -ErrorAction SilentlyContinue }
     if ($dryOld -ne $dryNew) { throw "the fast block would change new shells (old: $dryOld / new: $dryNew); profile left untouched" }
-    Copy-Item -LiteralPath $path -Destination "$path.jk-backup" -Force
+    # its own backup name: the profile hook keeps a separate .jk-hook-backup of the same folder's files
+    Copy-Item -LiteralPath $path -Destination "$path.jk-speed-backup" -Force
     [IO.File]::WriteAllText($path, $new, (New-Object Text.UTF8Encoding $true))
     $after = Get-JkShellFingerprint
     if ($after -ne $before) {
-        Copy-Item -LiteralPath "$path.jk-backup" -Destination $path -Force
+        Copy-Item -LiteralPath "$path.jk-speed-backup" -Destination $path -Force
         throw "new shells would differ (before: $before / after: $after) - restored the original profile"
     }
     $parts = $after.Split('|')
-    Say ((Paint 'green' "  $($script:G.check) fast conda block installed") + (Paint 'gray' " $($script:G.dot) $path (backup: .jk-backup)"))
+    Say ((Paint 'green' "  $($script:G.check) fast conda block installed") + (Paint 'gray' " $($script:G.dot) $path (backup: .jk-speed-backup)"))
     Say (Paint 'gray' "  verified: python = $($parts[0]), env = $($parts[1])")
     $base = Measure-JkShellStart @('-NoProfile')
     $full = Measure-JkShellStart @()
     Say ('  startup now ' + (Paint 'bold green' ('{0:N0} ms' -f $full)) + (Paint 'gray' (' (no-profile baseline {0:N0} ms)' -f $base)))
 }
 
+# Puts the original conda block back, and only that block: everything else added to the
+# profile since `jk speed fix` stays. The backup is <profile>.jk-speed-backup, or the
+# older <profile>.jk-backup when it holds the conda init hook.
 function Undo-JkSpeedFix {
+    param($Files = @(Get-JkProfileFiles))
     $done = $false
-    foreach ($f in Get-JkProfileFiles) {
-        $bak = "$($f.Path).jk-backup"
-        if ((Test-Path -LiteralPath $bak) -and ([IO.File]::ReadAllText($f.Path)) -match 'jk speed: fast conda') {
-            Copy-Item -LiteralPath $bak -Destination $f.Path -Force
-            Say (Paint 'yellow' "  restored the original conda block in $($f.Path)")
-            $done = $true
+    foreach ($f in @($Files)) {
+        $text = [IO.File]::ReadAllText($f.Path)
+        if ($text -notmatch 'jk speed: fast conda') { continue }
+        $orig = $null
+        foreach ($bak in "$($f.Path).jk-speed-backup", "$($f.Path).jk-backup") {
+            if (-not (Test-Path -LiteralPath $bak)) { continue }
+            $m = [regex]::Match([IO.File]::ReadAllText($bak), $script:CondaRegion)
+            if ($m.Success -and $m.Value -match 'shell\.powershell" "hook"') { $orig = $m.Value; break }
         }
+        if (-not $orig) { Say (Paint 'red' "  no backup with the original conda block next to $($f.Path)"); continue }
+        $new = [regex]::Replace($text, $script:CondaRegion, { param($x) $orig })
+        [IO.File]::WriteAllText($f.Path, $new, (New-Object Text.UTF8Encoding $true))
+        Say (Paint 'yellow' "  restored the original conda block in $($f.Path) (the rest of the file is unchanged)")
+        $done = $true
     }
     if (-not $done) { Say (Paint 'gray' '  nothing to undo') }
 }
