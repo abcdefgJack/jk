@@ -233,9 +233,13 @@ function Show-JkDashboard {
         foreach ($n in @(Pop-JkNews)) { Say ('  ' + (Paint 'bold purple' 'new') + '  ' + (Paint 'white' $n.Cmd) + '  ' + (Paint 'gray' (Fit $n.Text ([Math]::Max(10, $w - $n.Cmd.Length - 10))).TrimEnd())) }
     } catch { }
     $unpicked = @()
-    try { $unpicked = @(Get-JkUnpickedCourses) } catch { }
-    # one setup nudge at a time: sections first, then the LEARN feed
-    if ($unpicked.Count) {
+    $phase = ''; if ($info) { $phase = $info.Phase }
+    # sections only matter while there are classes to go to
+    if ($phase -in '', 'before', 'classes') { try { $unpicked = @(Get-JkUnpickedCourses) } catch { } }
+    # one setup nudge at a time: sections first, then the LEARN feed, then next term
+    if ($phase -eq 'after') {
+        Say ('  ' + (Paint 'cyan' "$($script:G.star) $($info.Name) is over.") + (Paint 'gray' ' Next term: ') + (Paint 'cyan' 'jk due sync') + (Paint 'gray' ' (LEARN) and ') + (Paint 'cyan' 'jk class import') + (Paint 'gray' ' (Quest)'))
+    } elseif ($unpicked.Count) {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) add your class sections") + (Paint 'gray' " ($($unpicked -join ', ') not on your timetable yet)  $($script:G.arrow) ") + (Paint 'cyan' 'jk class pick'))
     } elseif (-not (Get-JkConfig 'sync.url') -and @($data.events).Count) {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) keep deadlines current") + (Paint 'gray' ": in LEARN, Calendar > Subscribe, copy the link, then $($script:G.arrow) ") + (Paint 'cyan' 'jk due sync'))
