@@ -95,10 +95,34 @@ function Get-JkIcsTitle([string]$Summary, [string]$CourseCode) {
     [pscustomobject]@{ Title = $t; Weight = $weight }
 }
 
+# A calendar-feed link in some text (the clipboard, a paste): webcal://, or http(s) to an .ics or
+# a calendar/feed path such as LEARN's /d2l/le/calendar/feed/... Returns the link or $null.
+function Find-JkFeedLink([string]$Text) {
+    $t = ([string]$Text).Trim().Trim('"', "'", '<', '>')
+    if ($t -notmatch '^(?i)(https?|webcal)://\S+$') { return $null }
+    if ($t -match '^(?i)webcal://' -or $t -match '(?i)\.ics(\?|$)|/calendar|/ical|/feed') { return $t }
+    $null
+}
+
 function Invoke-JkDueSync {
     param([Parameter(Position = 0)][string]$Source, [switch]$Quiet, [int]$PastDays = 7, [int]$AheadDays = 200)
     $saved = Get-JkConfig 'sync.url'
     if (-not $Source) { $Source = $saved }
+    if (-not $Source -and -not $Quiet -and -not $env:JK_NONINTERACTIVE) {
+        # first time: the link was most likely just copied from LEARN, so look on the clipboard,
+        # then (in a terminal) ask for it to be pasted
+        $clip = $null
+        try { $clip = Find-JkFeedLink ([string](Get-Clipboard -Raw -ErrorAction Stop)) } catch { }
+        if ($clip) { Say (Paint 'gray' '  using the calendar link on your clipboard'); $Source = $clip }
+        elseif (Test-JkInteractive) {
+            Say (Paint 'gray' '  In LEARN open Calendar > Subscribe and copy the link.')
+            $pasted = [string](Read-Host '  Paste it here (Enter to cancel)')
+            if ($pasted.Trim()) {
+                $Source = Find-JkFeedLink $pasted
+                if (-not $Source) { throw "that is not a calendar link (expected webcal:// or an https link to the feed)" }
+            }
+        }
+    }
     if (-not $Source) {
         throw 'no calendar feed yet. In LEARN open Calendar > Subscribe, copy the link, then run: jk due sync "<link>"'
     }
