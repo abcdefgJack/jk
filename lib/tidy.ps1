@@ -215,11 +215,21 @@ function Undo-JkTidy {
     Say ((Paint 'green' "  restored $back items $($script:G.check)") + $(if ($miss) { Paint 'yellow' "  ($miss had moved or been renamed since and were left alone)" } else { '' }))
 }
 
+# Loose downloads: files directly in the folder plus those jk tidy sorted into its own category
+# folders. Never the inside of other folders (unzipped programs, cloned repos, projects), where a
+# "duplicate" or an old .exe is part of something that works.
+function Get-JkLooseDownloads([string]$Path) {
+    $dirs = @($Path) + @(@($script:TidyCategories.Keys) + @('Other') | ForEach-Object { Join-Path $Path $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+    foreach ($d in $dirs) {
+        Get-ChildItem -LiteralPath $d -File -Force -ErrorAction SilentlyContinue | Where-Object { $script:TidySkip -notcontains $_.Name.ToLower() -and $script:TidySkipExt -notcontains $_.Extension.ToLower() }
+    }
+}
+
 function Invoke-JkTidyDupes {
     param([Parameter(Position = 0)][string]$Path, [switch]$Recycle)
     if (-not $Path) { $Path = Get-JkDownloadsPath }
     $Path = Resolve-JkLongPath $Path
-    $files = @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $script:TidySkip -notcontains $_.Name.ToLower() })
+    $files = @(Get-JkLooseDownloads $Path)
     Say (Paint 'gray' "  hashing same-size files among $($files.Count)$($script:G.ell)")
     $groups = @(Get-JkDuplicateGroups $files | Sort-Object { $_.Size * $_.Extras.Count } -Descending)
     $extraCount = @($groups | ForEach-Object { $_.Extras }).Count
@@ -248,7 +258,7 @@ function Invoke-JkTidyOld {
     $Path = Resolve-JkLongPath $Path
     $now = Get-Date
     $exts = @($script:TidyCategories['Installers']) + @($script:TidyCategories['Archives'])
-    $files = @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $exts -contains $_.Extension.ToLower() -and ($now - $_.LastWriteTime).TotalDays -ge $Days } | Sort-Object Length -Descending)
+    $files = @(Get-JkLooseDownloads $Path | Where-Object { $exts -contains $_.Extension.ToLower() -and ($now - $_.LastWriteTime).TotalDays -ge $Days } | Sort-Object Length -Descending)
     $size = ($files | Measure-Object -Property Length -Sum).Sum
     Write-JkHeader 'Old installers & archives' "$($files.Count) files $($script:G.dot) $(Format-JkSize $size)" -Sub "older than $Days days"
     $w = Get-JkWidth

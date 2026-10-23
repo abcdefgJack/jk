@@ -116,8 +116,9 @@ function Invoke-JkSpaceClean {
             foreach ($f in $files) {
                 try { $len = $f.Length; Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $freed += $len; $n++ } catch { $skipped++ }
             }
-            # then empty folders, deepest first
-            Get-ChildItem -LiteralPath $env:TEMP -Recurse -Directory -Force -ErrorAction SilentlyContinue | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
+            # then empty folders past the same cut-off, deepest first (a fresh empty folder may be
+            # one a running installer or build is about to fill)
+            Get-ChildItem -LiteralPath $env:TEMP -Recurse -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $cut -and $_.CreationTime -lt $cut } | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
                 if (-not (Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue | Select-Object -First 1)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
             }
             Say ((Paint 'green' "  freed $(Format-JkSize $freed) $($script:G.check)") + (Paint 'gray' "  $n temp files older than $Days days removed$(if ($skipped) { ", $skipped in use were skipped" })"))
