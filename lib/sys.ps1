@@ -74,9 +74,24 @@ function Invoke-JkSys {
 
 $script:DevPorts = @(80, 443, 1433, 3000, 3001, 4200, 5000, 5173, 5432, 5500, 6379, 8000, 8080, 8081, 8443, 8888, 9000, 9229, 27017, 3306)
 
+# Listening TCP sockets, shaped like Get-NetTCPConnection's objects. netstat answers in about
+# 60 ms where the NetTCPIP CIM module needs about 1.2 s just to load (and it misses some).
+function Get-JkListeners {
+    param([string[]]$Lines)
+    if (-not $Lines) { $Lines = @(netstat -ano -p TCP 2>$null) + @(netstat -ano -p TCPv6 2>$null) }
+    $rows = @(foreach ($l in $Lines) {
+            # a listening socket has foreign port 0, whatever language the state column is in
+            if ($l -match '^\s*TCP\s+\[?([^\s\]]+?)\]?:(\d+)\s+\S+:0\s+\S+\s+(\d+)\s*$') {
+                [pscustomobject]@{ LocalAddress = $Matches[1]; LocalPort = [int]$Matches[2]; OwningProcess = [int]$Matches[3] }
+            }
+        })
+    if (-not $rows.Count) { $rows = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue) }
+    $rows
+}
+
 function Invoke-JkPort {
     param([Parameter(Position = 0)][int]$Port, [switch]$Kill, [switch]$All)
-    $conns = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
+    $conns = @(Get-JkListeners)
     $procs = @{}
     foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) { $procs[$p.Id] = $p }
     if ($Port) {

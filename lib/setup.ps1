@@ -35,7 +35,7 @@ function Invoke-JkConfig {
             $echo = $val
             if ($key -like '*url*' -and $echo.Length -gt 36) { $echo = $echo.Substring(0, 36) + $script:G.ell }
             Say ((Paint 'green' "  $key = $echo") + " $($script:G.check)")
-            if ($key -eq 'remind.time' -and (Get-ScheduledTask -TaskName $script:JkTaskName -ErrorAction SilentlyContinue)) { $null = Install-JkRemindTask }
+            if ($key -eq 'remind.time' -and (Get-JkTaskInfo)) { $null = Install-JkRemindTask }
             return
         }
         '^(reset|unset)$' {
@@ -236,13 +236,13 @@ function Invoke-JkDoctor {
     $link = Get-JkModuleLink
     if ((Test-Path -LiteralPath $link) -or (Get-JkRoot) -eq $link) { & $ok 'module on PSModulePath' $link } else { & $bad 'module on PSModulePath' 'not linked - jk setup install' }
     if (Test-JkProfileHook) { & $ok 'profile hook' (Get-JkProfilePath) } else { & $meh 'profile hook' 'not installed (optional) - jk setup install' }
-    $task = Get-ScheduledTask -TaskName $script:JkTaskName -ErrorAction SilentlyContinue
-    if ($task) {
-        $info = $task | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
-        $d = "$($task.State)"
-        if ($info.NextRunTime) { $d += " $($script:G.dot) next $($info.NextRunTime.ToString('ddd h:mm tt'))" }
-        if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $d += " $($script:G.dot) last result $($info.LastTaskResult)" }
-        & $ok 'daily reminder task' $d
+    $info = Get-JkTaskInfo
+    if ($info) {
+        $d = "$($info.State)"
+        if ($info.NextRunTime) { $d += " $($script:G.dot) next $($info.NextRunTime.ToString('ddd h:mm tt', $script:Inv))" }
+        if ($info.LastRunTime) { $d += " $($script:G.dot) last result $($info.LastTaskResult)" }
+        if ($info.LastRunTime -and $info.LastTaskResult -ne 0 -and $info.State -ne 'Running') { & $meh 'daily reminder task' "$d (non-zero: see background.log)" }
+        else { & $ok 'daily reminder task' $d }
     } else { & $meh 'daily reminder task' 'not installed - jk remind install' }
     $slow = @(Get-JkProfileFiles | Where-Object { ([IO.File]::ReadAllText($_.Path)) -match 'shell\.powershell" "hook"' })
     if ($slow) { & $meh 'shell startup' "conda init hook adds ~2 s to every new terminal - jk speed fix" }

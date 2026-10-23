@@ -408,6 +408,30 @@ Test 'doctor flags a stale LEARN feed and this week''s background errors' {
         Assert-True ($out -match 'background errors\s+1 this week, latest: sync: The remote name') 'recent error only'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'task status via COM: a missing task is $null, and the list says how to install it' {
+    $orig = $script:JkTaskName
+    $script:JkTaskName = 'jk-test-no-such-task-' + [guid]::NewGuid().ToString('N').Substring(0, 6)
+    try {
+        Assert-True ($null -eq (Get-JkTaskInfo)) 'missing task'
+        $out = (Show-JkReminders 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match 'morning brief not installed') 'install hint'
+    } finally { $script:JkTaskName = $orig }
+}
+Test 'listening ports from netstat: IPv4 and IPv6, only foreign port 0, any language' {
+    $lines = @(
+        '  Proto  Local Address          Foreign Address        State           PID',
+        '  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1180',
+        '  TCP    127.0.0.1:5173         0.0.0.0:0              ABHOEREN        4242',
+        '  TCP    192.168.2.14:51234     142.250.1.1:443        ESTABLISHED     900',
+        '  TCP    [::]:445               [::]:0                 LISTENING       4',
+        '  TCP    [::1]:8080             [::]:0                 LISTENING       777'
+    )
+    $l = @(Get-JkListeners -Lines $lines)
+    Assert-Eq $l.Count 4 'the established connection is not a listener'
+    Assert-Eq (($l | ForEach-Object { "$($_.LocalAddress)|$($_.LocalPort)|$($_.OwningProcess)" }) -join ' ') '0.0.0.0|135|1180 127.0.0.1|5173|4242 ::|445|4 ::1|8080|777'
+    # and the real table parses (every Windows box listens on something, e.g. 135)
+    Assert-True (@(Get-JkListeners).Count -gt 0) 'real netstat'
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
