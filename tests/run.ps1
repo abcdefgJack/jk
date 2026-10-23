@@ -440,6 +440,31 @@ Test 'jk sys: CPU load from GetSystemTimes, addresses from .NET' {
     Assert-True ($out -match 'CPU\s+\S+\s+\d+%') 'CPU row'
     Assert-True ($out -match 'Memory\s+\S+\s+\d+%') 'memory row'
 }
+Test 'repos: git status of every repo in parallel, counts and UTF-8 subjects' {
+    $root = Join-Path $env:JK_HOME 'repos-root'
+    $a = Join-Path $root 'alpha'
+    $b = Join-Path $root 'nested\beta'
+    New-Item -ItemType Directory -Force -Path $a, $b | Out-Null
+    foreach ($r in $a, $b) {
+        $null = & git -C $r init -q 2>&1
+        $null = & git -C $r config user.email 'test@example.test'
+        $null = & git -C $r config user.name 'test'
+    }
+    Set-Content -LiteralPath (Join-Path $a 'f.txt') -Value 'x'
+    $null = & git -C $a add f.txt 2>&1
+    $subject = 'fix ' + [string][char]0x4E2D + [string][char]0x6587
+    $null = & git -C $a commit -q -m $subject 2>&1
+    Set-Content -LiteralPath (Join-Path $a 'f.txt') -Value 'y'
+    Set-Content -LiteralPath (Join-Path $a 'new.txt') -Value 'n'
+    $found = @(Find-JkRepos @($root) 3)
+    Assert-Eq $found.Count 2 'both repos found, including the nested one'
+    $st = @(Get-JkRepoStatuses $found | Sort-Object Name)
+    Assert-Eq $st[0].Name 'alpha'
+    Assert-Eq "$($st[0].Modified)/$($st[0].Untracked)" '1/1' 'one changed, one new'
+    Assert-Eq $st[0].Msg $subject 'the subject survives as UTF-8'
+    Assert-Eq $st[1].Name 'beta'
+    Assert-Eq "$($st[1].Msg)|$($st[1].Remote)" '|' 'no commits, no remote'
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
