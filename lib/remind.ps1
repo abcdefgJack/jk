@@ -210,12 +210,11 @@ function Show-JkReminders {
         Say ('  ' + (Paint 'gray' ("#$($i.id)".PadLeft(4))) + '  ' + (Paint 'amber' (Fit ($at.ToString('ddd MMM d ', $script:Inv) + (Format-JkTime $at.ToString('HH:mm'))) 20)) + (Paint 'gray' (Fit ("in " + (Format-JkDuration ($at - (Get-Date)))) 12)) + [string]$i.text + $state)
     }
     Say ''
-    $task = Get-ScheduledTask -TaskName $script:JkTaskName -ErrorAction SilentlyContinue
-    if ($task) {
-        $info = $task | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+    $info = Get-JkTaskInfo
+    if ($info) {
         $next = ''
-        if ($info -and $info.NextRunTime) { $next = " $($script:G.dot) next run $($info.NextRunTime.ToString('ddd h:mm tt', $script:Inv))" }
-        Say ('  ' + (Paint 'green' "$($script:G.check) morning brief installed") + (Paint 'gray' " ($($task.State)$next)"))
+        if ($info.NextRunTime) { $next = " $($script:G.dot) next run $($info.NextRunTime.ToString('ddd h:mm tt', $script:Inv))" }
+        Say ('  ' + (Paint 'green' "$($script:G.check) morning brief installed") + (Paint 'gray' " ($($info.State)$next)"))
     } else {
         Say ('  ' + (Paint 'yellow' 'morning brief not installed') + (Paint 'gray' ' - run: jk remind install'))
     }
@@ -237,6 +236,22 @@ function Cancel-JkReminder {
 }
 
 # ---------------------------------------------------------------- daily scheduled task
+
+# The task's state through the Task Scheduler COM API: about 80 ms, where Get-ScheduledTask
+# first loads the ScheduledTasks CIM module (about 1.2 s). $null when it is not installed.
+function Get-JkTaskInfo {
+    try {
+        $svc = New-Object -ComObject Schedule.Service
+        $svc.Connect()
+        $t = $svc.GetFolder('\').GetTask($script:JkTaskName)
+    } catch { return $null }
+    $states = @('Unknown', 'Disabled', 'Queued', 'Ready', 'Running')
+    $state = 'Unknown'; if ([int]$t.State -ge 0 -and [int]$t.State -lt $states.Count) { $state = $states[[int]$t.State] }
+    # "never" comes back as a date in 1899
+    $last = $null; if (([datetime]$t.LastRunTime).Year -gt 2000) { $last = [datetime]$t.LastRunTime }
+    $next = $null; if (([datetime]$t.NextRunTime).Year -gt 2000) { $next = [datetime]$t.NextRunTime }
+    [pscustomobject]@{ State = $state; NextRunTime = $next; LastRunTime = $last; LastTaskResult = [int]$t.LastTaskResult }
+}
 
 function Get-JkTaskCommand {
     $psd1 = Join-Path (Get-JkRoot) 'jk.psd1'
@@ -271,7 +286,7 @@ function Install-JkRemindTask {
 }
 
 function Uninstall-JkRemindTask {
-    if (Get-ScheduledTask -TaskName $script:JkTaskName -ErrorAction SilentlyContinue) {
+    if (Get-JkTaskInfo) {
         Unregister-ScheduledTask -TaskName $script:JkTaskName -Confirm:$false
         Say (Paint 'yellow' "  removed task '$($script:JkTaskName)'")
     } else { Say (Paint 'gray' "  task '$($script:JkTaskName)' was not installed") }
