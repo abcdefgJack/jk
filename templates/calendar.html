@@ -235,7 +235,13 @@ for (let y=first.getFullYear(), m=first.getMonth(); y<last.getFullYear() || (y==
 // stats
 const open = events.filter(e=>!e.done && dueAt(e)>=new Date());
 const week = open.filter(e=>dueAt(e) < new Date(TODAY.getTime()+8*86400000));
-const exams = open.filter(e=>e.kind==="exam");
+// an online window ("X opens" + "X closes") is one exam: skip an opening whose closing follows
+// within two weeks (weekly windows that share a title still count separately)
+const baseTitle = t => String(t).replace(/\s+(opens?|closes?)$/i,"").trim().toLowerCase();
+const isOpening = e => /\s+opens?$/i.test(e.title) && open.some(o => o!==e && o.course===e.course &&
+  /\s+closes?$/i.test(o.title) && baseTitle(o.title)===baseTitle(e.title) &&
+  dueAt(o) >= dueAt(e) && dueAt(o) - dueAt(e) < 14*86400000);
+const exams = open.filter(e=>e.kind==="exam" && !isOpening(e));
 const doneN = events.filter(e=>e.done).length;
 document.getElementById("stats").innerHTML =
   `<div><b>${week.length}</b><span>due this week</span></div><div><b>${exams.length}</b><span>exams left</span></div><div><b>${doneN}</b><span>done</span></div>`;
