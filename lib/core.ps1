@@ -179,6 +179,7 @@ $script:JkConfigDefaults = [ordered]@{
     'tidy.minAge'   = '2'
     'focus.minutes' = '25'
     'plan.hours'    = '3'         # daily study budget for jk plan
+    'plan.examHours' = '6'        # the same during the study break and the exam period (no classes)
     'plan.examMin'  = '15'        # prep minutes per percent of grade, exams
     'plan.dueMin'   = '30'        # work minutes per percent of grade, assignments
     'repos.roots'   = (Join-Path $HOME 'Desktop')

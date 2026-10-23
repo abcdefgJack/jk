@@ -840,6 +840,32 @@ Test 'first LEARN sync links to items typed in by hand instead of duplicating th
         Assert-Eq "$($fp.title)|$($fp.kind)|$($fp.note)" 'Final Project|due|' 'a final project is not an exam; no course-name note'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'term phases: no section nudge after classes; next-term pointer; bigger exam-period budget' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'phases-home'
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        Save-JkJson 'sections.json' ([pscustomobject]@{ items = @([pscustomobject]@{ course = 'cs350'; kind = 'LEC'; section = '001'; days = @('Tue'); start = '10:00'; end = '11:20'; room = 'MC 4040' }) })
+        Set-JkState 'newsSeen' @($script:JkNews | ForEach-Object { $_.Id })
+        $env:JK_NOW = '2026-10-22T09:00:00'
+        $during = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($during -match 'add your class sections') 'during classes: nudge'
+        Assert-Eq (Get-JkPlanBudgetKey) 'plan.hours'
+        $env:JK_NOW = '2026-12-15T09:00:00'
+        $exams = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($exams -notmatch 'add your class sections') 'exam period: no section nudge'
+        Assert-Eq (Get-JkPlanBudgetKey) 'plan.examHours'
+        Assert-Eq (Get-JkPlanToday).Budget 360 'six hours a day during exams'
+        $env:JK_NOW = '2026-12-28T09:00:00'
+        $after = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($after -match 'is over\. Next term: jk due sync' -and $after -notmatch 'add your class sections') 'after the term: next-term pointer'
+    } finally {
+        $env:JK_NOW = '2026-10-22T14:00:00'
+        $env:JK_HOME = $saved
+        $script:JkConfigCache = $null
+    }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

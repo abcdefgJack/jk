@@ -131,7 +131,8 @@ function Get-JkTodayFocusByCourse([datetime]$Now = (Get-JkNow)) {
 
 function Get-JkPlanToday {
     $now = Get-JkNow
-    $budget = [double](Get-JkConfig 'plan.hours') * 60
+    $budgetKey = Get-JkPlanBudgetKey $now
+    $budget = [double](Get-JkConfig $budgetKey) * 60
     $items = @(Get-JkPlanItems -Now $now)
     if (-not $items) { return $null }
     # later in the day there is less of the budget left (counting from 8 am to 11 pm)
@@ -139,7 +140,17 @@ function Get-JkPlanToday {
     $h = $now.Hour + $now.Minute / 60.0
     if ($h -gt 8) { $frac = [Math]::Max(0.25, (23 - $h) / 15) }
     $sched = @(Get-JkPlanSchedule -Items $items -Now $now -Days 7 -BudgetMin $budget -TodayLeftFraction $frac)
-    [pscustomobject]@{ Items = $items; Schedule = $sched; Today = $sched[0]; Budget = $budget }
+    [pscustomobject]@{ Items = $items; Schedule = $sched; Today = $sched[0]; Budget = $budget; BudgetKey = $budgetKey }
+}
+
+# Which daily budget applies: plan.examHours during the study break and the exam period (no
+# classes), plan.hours otherwise.
+function Get-JkPlanBudgetKey([datetime]$Now = (Get-JkNow)) {
+    try {
+        $phase = (Get-JkTermInfo (Get-JkDueData -Cached) $Now).Phase
+        if ($phase -eq 'study' -or $phase -eq 'exams') { return 'plan.examHours' }
+    } catch { }
+    'plan.hours'
 }
 
 function Show-JkPlan {
@@ -148,7 +159,8 @@ function Show-JkPlan {
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
     $w = Get-JkWidth
-    Write-JkHeader 'Study plan' "budget $(Format-JkMinutes $(if ($p) { $p.Budget } else { [double](Get-JkConfig 'plan.hours') * 60 }))/day $($script:G.dot) jk config set plan.hours 4" -Sub ($now.ToString('dddd, MMM d', $script:Inv))
+    $key = Get-JkPlanBudgetKey $now
+    Write-JkHeader 'Study plan' "budget $(Format-JkMinutes ([double](Get-JkConfig $key) * 60))/day $($script:G.dot) jk config set $key $([int](Get-JkConfig $key) + 1)" -Sub ($now.ToString('dddd, MMM d', $script:Inv))
     if (-not $p) { Say (Paint 'green' '  Nothing graded is due in the next two weeks.'); return }
     $logged = Get-JkTodayFocusByCourse $now
     $today = $p.Today
