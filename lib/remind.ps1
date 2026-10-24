@@ -285,7 +285,7 @@ function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
             $p = $t.Split(':')
             $dt = $now.Date.AddHours([int]$p[0]).AddMinutes([int]$p[1])
             # "jk at 5" without am/pm means the next 5 o'clock: 5 pm if it's already past 5 am
-            if ($head -match '^\s*(\d{1,2})(:\d{2})?\s*$' -and [int]$p[0] -ge 1 -and [int]$p[0] -le 11) {
+            if ($head -match '^\s*(\d{1,2})(:\d{2})?\s*$|^\s*[1-9]\d{2}\s*$' -and [int]$p[0] -ge 1 -and [int]$p[0] -le 11) {
                 $pm = $dt.AddHours(12)
                 if ($dt -le $now -and $pm -gt $now) { $dt = $pm }
             }
