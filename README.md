@@ -136,6 +136,8 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
   - `jk cp` builds into a hidden `.jkcp` folder next to each solution, never into `.jk`.
   - `jk find` keeps the paths it last listed in `~\.jk\find.last`, so `jk find -o 2` knows which
     file is number 2.
+  - `~\.jk\cache\` keeps the dashboard's study line (for the hour) and jobs section (for the day),
+    redone as soon as the deadlines, focus log, settings or tracker change. Safe to delete.
   - `~\.jk\battery.cache` holds the battery's design capacity from Windows' battery report, which
     takes a second to generate. It is re-read every 90 days, in case the battery is replaced.
 

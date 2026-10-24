@@ -182,6 +182,32 @@ function Write-JkText {
     [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding $false))
 }
 
+# Text worth keeping between shells: a dashboard section that takes a few hundred ms to work out
+# in a fresh terminal. Recomputed only when $Key changes (build it from Get-JkFileStamp of the
+# files the text comes from, plus the hour or day). Kept in cache\<name>.txt, the key on line 1.
+function Get-JkCached([string]$Name, [string]$Key, [scriptblock]$Compute) {
+    $p = Join-Path (Get-JkHome) "cache\$Name.txt"
+    try {
+        if ([IO.File]::Exists($p)) {
+            $t = [IO.File]::ReadAllText($p)
+            $nl = $t.IndexOf("`n")
+            if ($nl -ge 0 -and $t.Substring(0, $nl) -eq $Key) { return $t.Substring($nl + 1) }
+        }
+    } catch { }
+    $v = [string](& $Compute)
+    try {
+        $dir = Split-Path $p
+        if (-not [IO.Directory]::Exists($dir)) { $null = [IO.Directory]::CreateDirectory($dir) }
+        Write-JkText $p ($Key + "`n" + $v)
+    } catch { }
+    $v
+}
+
+# "<ticks>-<length>" per file (or "-" for a missing one): any save changes it.
+function Get-JkFileStamp([string[]]$Paths) {
+    @(foreach ($p in $Paths) { $fi = New-Object IO.FileInfo $p; if ($fi.Exists) { "$($fi.LastWriteTimeUtc.Ticks)-$($fi.Length)" } else { '-' } }) -join '|'
+}
+
 # Ensures $Obj has a property $Name (PSCustomObject from JSON); returns its value.
 function Set-JkProp {
     param($Obj, [string]$Name, $Value)

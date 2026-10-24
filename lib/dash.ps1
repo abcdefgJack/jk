@@ -58,6 +58,16 @@ function Pop-JkNews([int]$Take = 3) {
     $show
 }
 
+# The dashboard's JOBS lines as one block of text ('' when nothing is waiting on you).
+function Get-JkDashJobsText([datetime]$Now, [int]$Width) {
+    $waiting = @(Get-JkJobsWaiting $Now)
+    if (-not $waiting.Count) { return '' }
+    $lines = @((' ' + (Paint 'bold white' 'JOBS') + (Paint 'gray' "  $(Format-JkCount $waiting.Count 'application') waiting on you")))
+    foreach ($r in ($waiting | Select-Object -First 2)) { $lines += Format-JkJobLine $r $Width $Now }
+    if ($waiting.Count -gt 2) { $lines += Paint 'gray' "  +$($waiting.Count - 2) more $($script:G.arrow) jk jobs todo" }
+    $lines -join "`n"
+}
+
 function Get-JkGreeting([datetime]$Now) {
     $h = $Now.Hour
     if ($h -lt 5) { return 'Up late' }
@@ -153,9 +163,11 @@ function Show-JkDashboard {
     }
     if ($soon.Count -gt $shown) { Say (Paint 'gray' "  +$($soon.Count - $shown) more $($script:G.arrow) jk due") }
 
-    # today's study blocks from jk plan
+    # today's study blocks from jk plan (about 200 ms cold, so kept for the hour until the
+    # deadlines, focus log or settings change)
     try {
-        $planLine = Get-JkPlanLine
+        $planKey = $now.ToString('yyyyMMddHH', $script:Inv) + '|' + (Get-JkFileStamp @((Get-JkPath 'deadlines.json'), (Get-JkPath 'focus.json'), (Get-JkPath 'config.json'))) + "|$script:JkUseColor|$script:JkLightTheme"
+        $planLine = Get-JkCached 'plan-line' $planKey { Get-JkPlanLine }
         if ($planLine) {
             Say ''
             Say (' ' + (Paint 'bold white' 'STUDY TODAY') + '  ' + $planLine + (Paint 'gray' "   $($script:G.arrow) jk plan start"))
@@ -172,14 +184,15 @@ function Show-JkDashboard {
         if ($open.Count -gt 5) { Say (Paint 'gray' "  +$($open.Count - 5) more $($script:G.arrow) jk todo") }
     }
 
-    # job applications blocked on you (recent ones; older ones stay in jk jobs todo)
+    # job applications blocked on you (recent ones; older ones stay in jk jobs todo). Reading the
+    # tracker takes about 250 ms cold, so the section is kept for the day until the tracker changes.
     try {
-        $waiting = @(Get-JkJobsWaiting $now)
-        if ($waiting.Count) {
-            Say ''
-            Say (' ' + (Paint 'bold white' 'JOBS') + (Paint 'gray' "  $($waiting.Count) application$(if ($waiting.Count -ne 1) {'s'}) waiting on you"))
-            foreach ($r in ($waiting | Select-Object -First 2)) { Say (Format-JkJobLine $r $w $now) }
-            if ($waiting.Count -gt 2) { Say (Paint 'gray' "  +$($waiting.Count - 2) more $($script:G.arrow) jk jobs todo") }
+        $jf = Get-JkCached 'jobs-file' ($now.ToString('yyyyMMdd', $script:Inv) + '|' + (Get-JkConfig 'jobs.file')) { Find-JkJobsFile }
+        if ($jf -and -not [IO.File]::Exists($jf)) { $jf = Find-JkJobsFile }
+        if ($jf) {
+            $jobsKey = $now.ToString('yyyyMMdd', $script:Inv) + "|$jf|" + (Get-JkFileStamp @($jf)) + "|$w|$script:JkUseColor|$script:JkLightTheme"
+            $jobsText = Get-JkCached 'dash-jobs' $jobsKey { Get-JkDashJobsText $now $w }
+            if ($jobsText) { Say ''; foreach ($l in ($jobsText -split "`n")) { Say $l } }
         }
     } catch { }
 
