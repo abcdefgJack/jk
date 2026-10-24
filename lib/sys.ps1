@@ -116,6 +116,13 @@ function Format-JkBatteryHealth($H) {
     @($txt, $note)
 }
 
+# The apps holding the most memory, each app's processes added up (chrome's 28 count as one).
+function Get-JkMemoryHogs([int]$Top = 8) {
+    Get-Process | Group-Object ProcessName | ForEach-Object {
+        [pscustomobject]@{ Name = $_.Name; Mem = ($_.Group | Measure-Object WorkingSet64 -Sum).Sum; Count = $_.Count; Cpu = ($_.Group | Measure-Object CPU -Sum).Sum }
+    } | Sort-Object Mem -Descending | Select-Object -First $Top
+}
+
 function Get-JkWifiName {
     try {
         $out = netsh wlan show interfaces 2>$null
@@ -162,9 +169,7 @@ function Invoke-JkSys {
 
     Say ''
     Say (' ' + (Paint 'bold white' 'Top memory') + (Paint 'gray' '  (grouped by app)'))
-    $procs = Get-Process | Group-Object ProcessName | ForEach-Object {
-        [pscustomobject]@{ Name = $_.Name; Mem = ($_.Group | Measure-Object WorkingSet64 -Sum).Sum; Count = $_.Count; Cpu = ($_.Group | Measure-Object CPU -Sum).Sum }
-    } | Sort-Object Mem -Descending | Select-Object -First $Top
+    $procs = @(Get-JkMemoryHogs $Top)
     $maxMem = ($procs | Measure-Object Mem -Maximum).Maximum
     foreach ($p in $procs) {
         $cnt = ''; if ($p.Count -gt 1) { $cnt = "$($p.Count) procs" }
