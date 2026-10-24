@@ -44,6 +44,8 @@ Classes run from the term start to the last day of classes unless -From / -To sa
     'todo'   = @'
 jk todo                        open items (soonest due first) and what you finished today
 jk todo email the TA           add (anything that is not a sub-command becomes the text)
+jk todo pay rent nov 1         a date at the end is the due date (by fri, at 7pm, tomorrow, in 2 weeks);
+                               quote the text to keep it as typed: jk todo "meet on sun"
 jk todo add buy ink -Due fri   add with a due date (fri, tomorrow 5pm, oct 30); the morning popup lists it
                                that day, and keeps listing it as overdue until it is done
 jk todo done 2 | undo 2 | rm 2 | edit 2 new text -Due mon

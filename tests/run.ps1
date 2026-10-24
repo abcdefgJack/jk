@@ -1558,6 +1558,45 @@ Test 'add, due parsing, done, clear renumbers' {
     Assert-Eq (@($t.items | Sort-Object id)[0].id) 1 'renumbered'
     Show-JkTodo
 }
+Test 'a date at the end of a to-do is its due date; plain words and quoted text stay text' {
+    # pinned clock: Thu Oct 22 14:00
+    $cases = [ordered]@{
+        'email prof about the midterm by friday' = 'email prof about the midterm|10-23 00:00'
+        'buy groceries tomorrow'                 = 'buy groceries|10-23 00:00'
+        'call mom at 7pm'                        = 'call mom|10-22 19:00'
+        'submit co-op ranking due oct 28 5pm'    = 'submit co-op ranking|10-28 17:00'
+        'pay rent nov 1'                         = 'pay rent|11-01 00:00'
+        'read chapter 4 before mon'              = 'read chapter 4|10-26 00:00'
+        'renew passport in 2 weeks'              = 'renew passport|11-05 00:00'
+        'watch lecture 5 next mon'               = 'watch lecture 5|11-02 00:00'
+        'read chapter 4'                         = 'read chapter 4|'
+        'dry clothes in the sun'                 = 'dry clothes in the sun|'
+        'print 3d'                               = 'print 3d|'
+        'email Jan'                              = 'email Jan|'
+        'tomorrow'                               = 'tomorrow|'
+    }
+    foreach ($k in $cases.Keys) {
+        $r = Split-JkTrailingWhen @($k -split ' ')
+        $due = ''; if ($r[0]) { $due = ([datetime](ConvertTo-JkTodoDue $r[0])).ToString('MM-dd HH:mm') }
+        Assert-Eq "$(@($r[1]) -join ' ')|$due" $cases[$k] "for '$k'"
+    }
+    Assert-Eq (Split-JkTrailingWhen @('meet on sun'))[0] '' 'one quoted word is left as typed'
+    $file = Join-Path $env:JK_HOME 'todo.json'
+    $saved = $null; if (Test-Path $file) { $saved = [IO.File]::ReadAllText($file) }
+    try {
+        Remove-Item $file -ErrorAction SilentlyContinue
+        $null = @(& { jk todo 'book flight home' -Due dec 18; jk todo finish essay tonight } 6>&1)
+        $items = @((Get-JkTodoData).items | Sort-Object id)
+        Assert-Eq "$($items[0].id) $($items[0].text)" '1 book flight home' '-Due dec 18 keeps the text whole'
+        Assert-Eq (Get-JkTodoDue $items[0]).ToString('MM-dd') '12-18' 'the day number goes back to -Due'
+        Assert-Eq "$($items[1].text) $([bool]$items[1].done)" 'finish essay False' '"finish <words>" adds a to-do'
+        $null = @(& { jk todo edit 1 -Due tomorrow 6pm } 6>&1)
+        $one = @((Get-JkTodoData).items | Where-Object { $_.id -eq 1 })[0]
+        Assert-Eq "$($one.text) $((Get-JkTodoDue $one).ToString('MM-dd HH:mm'))" 'book flight home 10-23 18:00' 'edit -Due tomorrow 6pm leaves the text alone'
+        $null = @(& { jk todo finish 2; jk todo rm essay } 6>&1)
+        Assert-Eq @((Get-JkTodoData).items).Count 1 'finish <n> checks it off; rm finds a finished one by text'
+    } finally { if ($null -ne $saved) { [IO.File]::WriteAllText($file, $saved) } else { Remove-Item $file -ErrorAction SilentlyContinue } }
+}
 
 Write-Host ''
 Write-Host 'competitive programming helpers' -ForegroundColor Cyan
