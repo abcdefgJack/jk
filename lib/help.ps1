@@ -65,7 +65,7 @@ jk at 3:30pm call home              popup at a time today (or tomorrow if alread
 jk at tomorrow 9am submit form      also: fri 17:00, dec 3 10am
 jk remind | jk remind list          pending reminders + daily-task status
 jk remind cancel 3
-jk remind install                   morning brief popup (today's classes + deadlines within 48h) at remind.time
+jk remind install                   morning brief popup (today's classes, deadlines within 48h, exams within 3 days) at remind.time
                                     (jk config set remind.time 7:45am) and on sign-in; re-arms reminders after a restart
 jk remind uninstall | jk remind test | jk remind now
 Same-day alerts: the morning task also sets a popup 2 hours before each deadline or appointment

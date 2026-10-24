@@ -984,6 +984,12 @@ function Invoke-JkDueRemind {
         if ($lastDt -le $now -and ($now - $lastDt).TotalHours -lt 3) { if (-not $Quiet) { Say (Paint 'gray' '  reminded less than 3h ago; use -Force') }; return }
     }
     $soon = @(Get-JkDueSoon -Hours $Hours)
+    # an exam up to three days out is worth a morning's notice too: the weekend before a Monday
+    # midterm is when the studying happens
+    $examsAhead = @()
+    if ($Hours -lt 72) {
+        $examsAhead = @(Get-JkDueSoon -Hours 72 | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_) -gt $now.AddHours($Hours) -and [string]$_.title -notmatch '(?i)\s+closes?$' })
+    }
     # the rest of today's classes ride along, so the morning popup doubles as a day brief
     $classes = @()
     try { $classes = @(Get-JkClassesOn $now.Date | Where-Object { $_.Start -gt $now }) } catch { }
@@ -995,13 +1001,13 @@ function Invoke-JkDueRemind {
     # open to-dos due today (or already overdue) ride along too, and are reason enough on their own
     $todos = @()
     try { $todos = @((Get-JkTodoData).items | Where-Object { -not $_.done -and ($td = Get-JkTodoDue $_) -and $td.Date -le $now.Date } | Sort-Object { Get-JkTodoDue $_ }) } catch { }
-    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $lines = @()
     if ($weekLine) { $lines += $weekLine }
     if ($classes.Count) {
         $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
     }
-    foreach ($e in ($soon | Select-Object -First 6)) {
+    foreach ($e in (@($soon | Select-Object -First 6) + $examsAhead)) {
         $due = Get-JkEventDue $e
         $when = Format-JkRelDay $due $now
         if ($when -like 'in *') { $when = $due.ToString('ddd', $script:Inv) }
@@ -1013,8 +1019,15 @@ function Invoke-JkDueRemind {
             $when += ' ' + $span
         }
         $txt = "$when $($script:G.dash) $(Get-JkCourseLabel $e $cmap) $($e.title)"
+        # the end of a window that has already opened: it can be written now
+        $openNow = $false
+        if ([string]$e.title -match '(?i)\s+closes?$') {
+            $win = Get-JkEventWindow $e $data
+            $openNow = [bool]($win -and $win.Opens -le $now)
+        }
+        if ($openNow -and $e.kind -ne 'exam') { $txt += ' (open now)' }
         if ($e.kind -eq 'exam') {
-            $txt += ' (exam)'
+            $txt += $(if ($openNow) { ' (exam, open now)' } else { ' (exam)' })
             # where and what to bring: "in person, room TBA", "one handwritten sheet, no calculator"
             $note = Get-JkExamNote $e
             if ($note) { $txt += " $($script:G.dot) $note" }
@@ -1057,6 +1070,12 @@ function Invoke-JkDueRemind {
             $first = @($soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $now.Date })[0]
             $accent = Get-JkCourseColor $first.course $cmap
         }
+    } elseif ($examsAhead.Count) {
+        # nothing in the next two days, an exam soon after: "CS 370 Midterm in 2 days (Mon 7:00 pm)"
+        $x = $examsAhead[0]
+        $xd = Get-JkEventDue $x
+        $accent = Get-JkCourseColor $x.course $cmap
+        $title = "$(Get-JkCourseLabel $x $cmap) $(([string]$x.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()) in $([int]($xd.Date - $now.Date).TotalDays) days ($($xd.ToString('ddd', $script:Inv)) $(Format-JkTime $xd.ToString('HH:mm', $script:Inv)))"
     } elseif ($classes.Count) {
         $accent = Get-JkCourseColor $classes[0].Class.course $cmap
         $title = "$($classes.Count) class$(if ($classes.Count -ne 1) {'es'}) today, nothing due soon"
