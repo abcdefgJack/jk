@@ -568,9 +568,21 @@ function Add-JkDue {
     }
 }
 
-# Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time.
+# Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time. Everyday
+# phrasings are rewritten first: "tonight" / "eod" (today 11:59 pm), "in 3 days" / "in a week" (+3,
+# +7); and a time on its own ("8pm") means today, or tomorrow once that time has passed.
 function ConvertFrom-JkWhen([string]$Text) {
-    $tokens = @(($Text -replace '\s+at\s+', ' ').Trim() -split '\s+' | Where-Object { $_ })
+    $w = ($Text -replace '\s+at\s+', ' ').Trim().ToLower()
+    if ($w -match '^(tonight|eod|end of (the )?day)$') { $w = 'today 11:59pm' }
+    elseif ($w -match '^tonight\s+') { $w = $w -replace '^tonight', 'today' }
+    if ($w -match '^in\s+(\d+|a|an|one)\s+(days?|weeks?)\b(.*)$') {
+        # read every group before any other -match: each one replaces $Matches
+        $n = $Matches[1]; $unit = $Matches[2]; $rest = $Matches[3]
+        if ($n -notmatch '^\d+$') { $n = 1 }
+        $mult = 1; if ($unit -like 'week*') { $mult = 7 }
+        $w = ('+' + ([int]$n * $mult) + $rest).Trim()
+    }
+    $tokens = @($w -split '\s+' | Where-Object { $_ })
     for ($k = $tokens.Count; $k -ge 1; $k--) {
         $dTxt = ($tokens[0..($k - 1)]) -join ' '
         $tTxt = ''
@@ -580,7 +592,16 @@ function ConvertFrom-JkWhen([string]$Text) {
         if ($tTxt) { try { $t = ConvertTo-JkTime $tTxt } catch { continue } }
         return [pscustomobject]@{ Date = $d; Time = $t }
     }
-    throw "can't understand when '$Text' (examples: nov 25 8pm, fri 11:59pm, tomorrow, 2026-12-04)"
+    # a time alone
+    try {
+        $t = ConvertTo-JkTime $w
+        $now = Get-JkNow
+        $d = $now.Date
+        $p = $t.Split(':')
+        if ($d.AddHours([int]$p[0]).AddMinutes([int]$p[1]) -le $now) { $d = $d.AddDays(1) }
+        return [pscustomobject]@{ Date = $d; Time = $t }
+    } catch { }
+    throw "can't understand when '$Text' (examples: nov 25 8pm, fri 11:59pm, tomorrow, in 3 days, 8pm, tonight, 2026-12-04)"
 }
 
 function Set-JkDueDone {
