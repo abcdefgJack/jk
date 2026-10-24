@@ -263,19 +263,21 @@ function Show-JkDashboard {
     $phase = ''; if ($info) { $phase = $info.Phase }
     # sections only matter while there are classes to go to
     if ($phase -in '', 'before', 'classes') { try { $unpicked = @(Get-JkUnpickedCourses) } catch { } }
-    # one setup nudge at a time: sections first, then the LEARN feed, then next term
+    # one setup nudge at a time: sections first, then the LEARN feed, then next term. The command
+    # comes first, so a narrow window that cuts the line still shows what to type.
     $upcoming = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
+    $nudge = { param([string]$Cmd, [string]$Why) Say ('  ' + (Paint 'cyan' "$($script:G.star) $Cmd") + '  ' + (Paint 'gray' $Why)) }
     if ($phase -eq 'after') {
-        Say ('  ' + (Paint 'cyan' "$($script:G.star) $($info.Name) is over.") + (Paint 'gray' ' Next term: ') + (Paint 'cyan' 'jk due sync') + (Paint 'gray' ' (LEARN) and ') + (Paint 'cyan' 'jk class import') + (Paint 'gray' ' (Quest)'))
+        & $nudge 'jk due sync  +  jk class import' "$($info.Name) is over: next term's deadlines (LEARN) and classes (Quest)"
     } elseif ($phase -eq 'next' -and -not $upcoming) {
         # a new term with nothing in it yet
-        Say ('  ' + (Paint 'cyan' "$($script:G.star) $($info.Name):") + (Paint 'gray' ' bring in its deadlines with ') + (Paint 'cyan' 'jk due sync') + (Paint 'gray' ' (LEARN) and its classes with ') + (Paint 'cyan' 'jk class import') + (Paint 'gray' ' (Quest)'))
+        & $nudge 'jk due sync  +  jk class import' "bring in $($info.Name)'s deadlines (LEARN) and classes (Quest)"
     } elseif ($unpicked.Count) {
-        Say ('  ' + (Paint 'cyan' "$($script:G.star) add your class sections") + (Paint 'gray' " ($($unpicked -join ', ') not on your timetable yet)  $($script:G.arrow) ") + (Paint 'cyan' 'jk class pick'))
+        & $nudge 'jk class pick' "add your class sections ($($unpicked -join ', ') not on your timetable yet)"
     } elseif (-not (Get-JkConfig 'sync.url') -and @($data.events).Count) {
-        Say ('  ' + (Paint 'cyan' "$($script:G.star) keep deadlines current") + (Paint 'gray' ": in LEARN, Calendar > Subscribe, copy the link, then $($script:G.arrow) ") + (Paint 'cyan' 'jk due sync'))
+        & $nudge 'jk due sync' 'keep deadlines current: in LEARN, Calendar > Subscribe, copy the link, then run it'
     } elseif ($now.DayOfWeek -eq 'Sunday') {
-        Say ('  ' + (Paint 'cyan' "$($script:G.star) Sunday: ") + (Paint 'white' 'look back at the week and plan the next one') + (Paint 'gray' "  $($script:G.arrow) jk review"))
+        & $nudge 'jk review' 'Sunday: look back at the week and plan the next one'
     } else {
         $tip = $script:JkTips[(Get-Random -Maximum $script:JkTips.Count)]
         Say (Paint 'gray' "  tip: $tip")
