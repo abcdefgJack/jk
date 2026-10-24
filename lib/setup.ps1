@@ -158,7 +158,7 @@ function Update-Jk {
     $after = (& git -C $root rev-parse HEAD 2>$null)
     if ($before -eq $after) { Say (Paint 'green' "  already up to date $($script:G.check)"); return }
     Say (Paint 'green' "  updated $($script:G.check)")
-    foreach ($l in @(& git -C $root log --oneline "$before..$after" 2>$null | Select-Object -First 15)) { Say ('    ' + (Paint 'muted' $l)) }
+    foreach ($l in @(& git -C $root log --oneline -n 15 "$before..$after" 2>$null)) { Say ('    ' + (Paint 'muted' $l)) }
     Import-Module (Join-Path $root 'jk.psd1') -Force -Global
     Say (Paint 'gray' '  module reloaded')
 }
@@ -344,7 +344,8 @@ function Invoke-JkDoctor {
         $c = Get-Command $tool[0] -ErrorAction SilentlyContinue
         if ($c) {
             $ver = ''
-            try { $ver = (& $c.Source --version 2>&1 | Select-Object -First 1) -replace '\s+', ' ' } catch { }
+            # read all of it: cutting the pipeline short kills the tool and leaves exit code -1
+            try { $ver = "$(@(& $c.Source --version 2>&1)[0])" -replace '\s+', ' ' } catch { }
             & $ok $tool[0] ("$ver").Trim()
         } else { & $meh $tool[0] "not found ($($tool[1]))" }
     }
