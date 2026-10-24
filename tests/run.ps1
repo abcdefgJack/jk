@@ -1639,6 +1639,14 @@ Test 'jk due files: the course folder''s files named after a deadline' {
         Assert-Eq (@(Get-JkFindLast | ForEach-Object { Split-Path $_ -Leaf }) -join ',') 'draft.md'
         Show-JkDueFiles cs341 midterm
         Assert-True (@(Get-JkFindLast).Count -ge 4) 'nothing named after it: the newest files instead'
+        # jk plan start names the files of the item it starts on
+        $origFocus = ${function:Start-JkFocus}
+        function script:Start-JkFocus { param($Minutes, $Label) }
+        try {
+            $out = (Start-JkPlanBlock 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            Assert-True ($out -match 'files: 1 A2\.tex\s+2 notes\.md') "plan start: $out"
+            Assert-Eq (Split-Path (Invoke-JkFind -p 1) -Leaf) 'A2.tex'
+        } finally { Set-Item function:script:Start-JkFocus $origFocus }
         Add-JkDue cs999 'Essay' nov 20
         Assert-Throws { Show-JkDueFiles cs999 essay }
     } finally { Set-JkConfig 'tidy.courses' ''; $env:JK_HOME = $saved; $script:JkConfigCache = $null }

@@ -262,6 +262,19 @@ function Start-JkPlanBlock {
     $next = Get-JkPlanNext $p (Get-JkTodayFocusByCourse)
     if (-not $next) { Say (Paint 'green' "  Today's plan is covered. $($script:G.check)"); return }
     Start-JkFocus ([string]$script:PlanBlock) @($next.Course, $next.Title)
+    # the files for it, one jk find -o away
+    try {
+        $data = Get-JkDueData
+        $e = @($data.events | Where-Object { [string]$_.id -eq [string]$next.Id })[0]
+        $f = $null; if ($e) { $f = Get-JkDueFileHits $data $e }
+        if ($f -and $f.Hits.Count) {
+            $top = @($f.Hits | Select-Object -First 3)
+            Save-JkFindLast $top
+            $n = 0
+            $names = foreach ($h in $top) { $n++; (Paint 'gray' "$n ") + (Paint 'white' $h.Name) }
+            Say ('  ' + (Paint 'gray' 'files: ') + ($names -join '   ') + (Paint 'gray' "   $($script:G.arrow) jk find -o 1"))
+        }
+    } catch { }
 }
 
 # One line for the dashboard: today's blocks per course.
