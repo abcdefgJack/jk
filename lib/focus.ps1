@@ -54,11 +54,34 @@ $script:JkUnitWord = '^(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)$'
 
 function Read-JkDurationWords([string[]]$Words) {
     $parts = @(); $i = 0
-    while ($i -lt $Words.Count) {
-        $w = ([string]$Words[$i]).ToLower()
-        if ($w -match '^\d+(\.\d+)?$' -and $i + 1 -lt $Words.Count -and ([string]$Words[$i + 1]).ToLower() -match $script:JkUnitWord) { $parts += $w + ([string]$Words[$i + 1]).ToLower(); $i += 2; continue }
+    $lw = @($Words | ForEach-Object { ([string]$_).ToLower() })
+    # "jk focus for 30 minutes"
+    if ($lw.Count -gt 1 -and $lw[0] -eq 'for') { $i = 1 }
+    $start = $i
+    while ($i -lt $lw.Count) {
+        $w = $lw[$i]
+        $next = ''; if ($i + 1 -lt $lw.Count) { $next = $lw[$i + 1] }
+        # "half an hour", "a quarter of an hour"
+        $tail = ($lw[$i..([Math]::Min($i + 4, $lw.Count - 1))]) -join ' '
+        if ($tail -match '^(?:a\s+)?(half|quarter)\s+(?:of\s+)?(?:an\s+)?hour\b') {
+            $parts += $(if ($Matches[1] -eq 'half') { '30m' } else { '15m' })
+            $i += @($Matches[0] -split '\s+').Count
+            continue
+        }
+        # "an hour", "a minute"
+        if ($w -match '^(a|an|one)$' -and $next -match $script:JkUnitWord) { $w = '1' }
+        if ($w -match '^\d+(\.\d+)?$' -and $next -match $script:JkUnitWord) {
+            $parts += $w + $next; $i += 2
+            # "an hour and a half"
+            if (($lw[$i..([Math]::Min($i + 2, $lw.Count - 1))] -join ' ') -eq 'and a half' -and $next -match '^[hm]') {
+                $parts += $(if ($next -like 'h*') { '30m' } else { '30s' }); $i += 3
+            }
+            continue
+        }
         if ($w -match '^(\d+(\.\d+)?(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))+$' -or $w -match '^\d+h\d{1,2}$') { $parts += $w; $i++; continue }
-        if ($i -eq 0 -and $w -match '^\d+(\.\d+)?$|^\d+:\d{2}$') { $parts += $w; $i++; break }
+        # "1 hour and 30 minutes"
+        if ($w -eq 'and' -and $parts.Count -and $next -match '^\d') { $i++; continue }
+        if ($i -eq $start -and $w -match '^\d+(\.\d+)?$|^\d+:\d{2}$') { $parts += $w; $i++; break }
         break
     }
     if (-not $parts.Count) { throw "can't understand the duration '$($Words[0])' (try 25, 25m, 1h30m, 2 hours, 90s)" }
@@ -278,8 +301,8 @@ function Invoke-JkFocus {
         '^(log|stats|history)$' { Show-JkFocusLog @rest; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'focus'; return }
     }
-    # jk focus 50 cs350 a2a   |   jk focus cs350 (default length)
+    # jk focus 50 cs350 a2a   |   jk focus for half an hour   |   jk focus cs350 (default length)
     $isDuration = $true
-    try { $null = ConvertTo-JkSeconds $first } catch { $isDuration = $false }
+    try { $null = Read-JkDurationWords @($a | ForEach-Object { [string]$_ }) } catch { $isDuration = $false }
     if ($isDuration) { Start-JkFocus @a } else { Start-JkFocus '' @a }
 }

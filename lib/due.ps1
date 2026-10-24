@@ -140,9 +140,49 @@ function New-JkEvent {
     $e
 }
 
+# "cs341 midterm 2" / "cs 341 a1": a course named first (one word, or two when the second is the
+# number) and the words after it. Returns the course ($null when none) and the words left.
+function Split-JkCourseWords($Data, [string[]]$Words) {
+    $w = @($Words | Where-Object { $_ })
+    foreach ($n in 2, 1) {
+        if ($w.Count -le $n) { continue }
+        if ($n -eq 2 -and $w[1] -notmatch '^\d') { continue }
+        $c = Resolve-JkCourse $Data (($w[0..($n - 1)]) -join ' ')
+        if ($c) { return , @($c, @($w | Select-Object -Skip $n)) }
+    }
+    , @($null, $w)
+}
+
+# Title words as patterns: "a1" also stands for "Assignment 1" and "q2" for "Quiz 2", and a word
+# ending in a digit never matches a longer number ("a1" is not "A10").
+function Get-JkTitleWordRx([string[]]$Tokens) {
+    foreach ($tok in @($Tokens | Where-Object { $_ })) {
+        $t = [regex]::Escape($tok.ToLower())
+        if ($tok -match '^([a-zA-Z]+)(\d+)$') { "(?:$t(?!\d)|\b$([regex]::Escape($Matches[1].ToLower()))[a-z]*\s*$($Matches[2])(?!\d))" }
+        elseif ($tok -match '\d$') { "$t(?!\d)" }
+        else { $t }
+    }
+}
+
+function Test-JkTitleWords([string]$Title, $Rx) {
+    $t = $Title.ToLower()
+    -not @($Rx | Where-Object { $t -notmatch $_ }).Count
+}
+
 function Find-JkEvents {
     param($Data, [string[]]$Refs, [switch]$DoneOnly, [switch]$Any)
     $out = @()
+    $state = { param($e) $Any -or [bool]$e.done -eq [bool]$DoneOnly }
+    $what = $(if ($Any) { '' } elseif ($DoneOnly) { 'finished ' } else { 'open ' })
+    # several words that are not all ids name one item: "cs341 midterm 2", "quiz 3"
+    $phrase = @($Refs | Where-Object { $_ }).Count -gt 1 -and @($Refs | Where-Object { $_ -notmatch '^#?\d+$' }).Count
+    if ($phrase) {
+        $sp = Split-JkCourseWords $Data $Refs
+        $rx = @(Get-JkTitleWordRx @($sp[1]))
+        $hits = @($Data.events | Where-Object { (& $state $_) -and (-not $sp[0] -or $_.course -eq $sp[0].key) -and $rx.Count -and (Test-JkTitleWords ([string]$_.title) $rx) })
+        $hits = @(Select-JkOneEvent $hits ($sp[1] -join ' ') ($Refs -join ' '))
+        if ($hits.Count -eq 1) { return $hits }
+    }
     foreach ($r in $Refs) {
         if ($r -match '^#?(\d+)$') {
             $id = [int]$Matches[1]
@@ -151,19 +191,29 @@ function Find-JkEvents {
             $out += $e
         } else {
             # text matches look at open items, or at finished ones when reopening
-            $hits = @($Data.events | Where-Object { ($Any -or [bool]$_.done -eq [bool]$DoneOnly) -and ([string]$_.title).ToLower().Contains($r.ToLower()) })
-            if ($hits.Count -eq 0) { throw "no $(if ($DoneOnly) { 'finished' } else { 'open' }) deadline matches '$r'" }
-            if ($hits.Count -gt 1) {
-                # prefer the single upcoming match over ones whose time already passed
-                $now = Get-JkNow
-                $future = @($hits | Where-Object { (Get-JkEventDue $_) -ge $now })
-                if ($future.Count -eq 1) { $hits = $future }
-                else { throw ("'$r' matches several deadlines: " + (($hits | ForEach-Object { "#$($_.id) $($_.title)" }) -join ', ')) }
+            $hits = @($Data.events | Where-Object { (& $state $_) -and ([string]$_.title).ToLower().Contains($r.ToLower()) })
+            if ($hits.Count -eq 0) {
+                if ($phrase) { throw "no $($what)deadline matches '$($Refs -join ' ')'" }
+                throw "no $($what)deadline matches '$r'"
             }
-            $out += $hits
+            $out += @(Select-JkOneEvent $hits $r $r)
         }
     }
     $out
+}
+
+# Several deadlines match: the one titled exactly that ("A3" over "A3 File Systems"), else the
+# single upcoming one over those already past; otherwise the choice is the user's.
+function Select-JkOneEvent($Hits, [string]$Exact, [string]$Label) {
+    $h = @($Hits)
+    if ($h.Count -le 1) { return $h }
+    $same = @($h | Where-Object { ([string]$_.title).Trim() -eq $Exact.Trim() })
+    if ($same.Count -eq 1) { return $same }
+    $now = Get-JkNow
+    $future = @($h | Where-Object { (Get-JkEventDue $_) -ge $now })
+    if ($future.Count -eq 1) { return $future }
+    $map = Get-JkCourseMap (Get-JkDueData -Cached)
+    throw ("'$Label' matches several deadlines: " + (($h | ForEach-Object { "#$($_.id) $(Get-JkCourseLabel $_ $map) $($_.title)" }) -join ', '))
 }
 
 # ---------------------------------------------------------------- term info
@@ -554,7 +604,29 @@ function Add-JkDue {
     }
     $data = Get-JkDueData
     $c = Resolve-JkCourse $data $Course -Create
-    $parsed = ConvertFrom-JkWhen ($When -join ' ')
+    $w = @($When | Where-Object { $_ })
+    # "Midterm 2 nov 19": a number between the title and a month and day belongs to the title
+    if ($w.Count -ge 3 -and $w[0] -match '^\d{1,2}$' -and $w[1] -match "^(?i)$($script:JkMonthRx)" -and $w[2] -match '^\d{1,2}(st|nd|rd|th)?,?$') {
+        $Title = "$Title $($w[0])"; $w = @($w | Select-Object -Skip 1)
+    }
+    # "nov 19 7-8:50pm": an exam's start and end in one go
+    $whenTxt = $w -join ' '
+    if (-not $End -and $whenTxt -match '^(?<pre>.*?)\s*(?<range>\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|\p{Pd})\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)$') {
+        $pre = $Matches['pre']; $rangeTxt = $Matches['range']
+        try { $r = ConvertTo-JkTimeRange $rangeTxt; $End = $r.End; $w = @("$pre $($r.Start)".Trim() -split '\s+') } catch { }
+    }
+    # A4 Paging dec 2 8pm without quotes: the words before the date are the rest of the title;
+    # "due nov 6", "on fri", "by mon" read past the leading word
+    $parsed = $null
+    for ($i = 0; $i -lt $w.Count -and -not $parsed; $i++) {
+        $rest = @($w | Select-Object -Skip $i)
+        if ($rest.Count -gt 1 -and $rest[0] -match '^(?i)(due|on|by|at)$') { $rest = @($rest | Select-Object -Skip 1) }
+        try {
+            $parsed = ConvertFrom-JkWhen ($rest -join ' ')
+            if ($i) { $Title = "$Title $(@($w | Select-Object -First $i) -join ' ')" }
+        } catch { }
+    }
+    if (-not $parsed) { $parsed = ConvertFrom-JkWhen ($When -join ' ') }   # says what it could not read
     if ($Weight -and $Weight -match '^\d+(\.\d+)?$') { $Weight += '%' }
     $kind = 'due'
     if ($Exam) { $kind = 'exam' } elseif ($Appt) { $kind = 'appt' }
@@ -565,6 +637,12 @@ function Add-JkDue {
     Say ((Paint 'green' "  added $($script:G.check)") + '  ' + (Format-JkDueLine $e $cmap ((Get-JkWidth) - 12) -WithDate).TrimStart())
     if ((Get-JkEventDue $e) -lt (Get-JkNow)) {
         Say (Paint 'yellow' "  note: that is in the past ($($parsed.Date.ToString('ddd MMM d yyyy', $script:Inv))) - fix with: jk due edit $($e.id) -Date <date>")
+    }
+    # the same item already there (from LEARN, or typed before): moving that one is usually meant
+    $twin = @($data.events | Where-Object { $_.id -ne $e.id -and $_.course -eq $e.course -and -not $_.done -and ([string]$_.title).Trim() -eq $Title.Trim() })
+    foreach ($t in $twin) {
+        $when = ([datetime]::ParseExact([string]$t.date, 'yyyy-MM-dd', $script:Inv)).ToString('ddd MMM d', $script:Inv)
+        Say (Paint 'yellow' "  note: $($c.code) already has $($t.title) on $when (#$($t.id)) - if this one replaces it: jk due rm $($t.id)")
     }
 }
 
@@ -648,12 +726,23 @@ function Edit-JkDue {
     $Date = Join-JkLooseDate $Date $left
     # "-Time 4:30 pm" leaves "pm" over
     if ($Time -and $left.Count -and $left[0] -match '^(?i)[ap]\.?m\.?$') { $Time = "$Time $($left[0])"; $left.RemoveAt(0) }
+    # "-Date nov 8 5pm" / "-Date nov 8 at 5pm": the time after the date
+    if ($Date -and -not $Time -and $left.Count) {
+        $tw = @($left | Where-Object { $_ -notmatch '^(?i)at$' }) -join ' '
+        $ok = $true; try { $null = ConvertTo-JkTime $tw } catch { $ok = $false }
+        if ($ok) { $Time = $tw; $left.Clear() }
+    }
     if ($left.Count) { throw "unexpected words: $($left -join ' ') (quote values with spaces)" }
     if (-not $Ref) { throw 'usage: jk due edit <id> [-Title ..] [-Date ..] [-Time ..] [-Weight ..] [-Note ..] [-Course ..] [-Exam|-Due|-Appt] [-NoTime]' }
     $data = Get-JkDueData
     $e = @(Find-JkEvents $data @($Ref))[0]
     if ($Title) { $e.title = $Title }
-    if ($Date) { $e.date = (ConvertTo-JkDate $Date).ToString('yyyy-MM-dd', $script:Inv) }
+    if ($Date) {
+        # the same phrases as adding: "in 3 days", "tonight", "nov 8 5pm" in quotes
+        $pw = ConvertFrom-JkWhen $Date
+        $e.date = $pw.Date.ToString('yyyy-MM-dd', $script:Inv)
+        if ($pw.Time -and -not $Time) { $e.time = $pw.Time }
+    }
     if ($Time) { $e.time = ConvertTo-JkTime $Time }
     if ($NoTime) { $e.time = '' }
     if ($End) { Set-JkProp $e 'end' (ConvertTo-JkTime $End) }

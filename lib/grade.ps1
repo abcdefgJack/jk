@@ -125,25 +125,15 @@ $script:JkScoreTailRx = '^(?<ref>.+?)\s+(?<score>\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.
 # course first, then words of the title, where a1 / q2 also stand for "Assignment 1" / "Quiz 2".
 # Returns the item's key (deadline id or extra id); $null when nothing graded matches.
 function Resolve-JkGradeRef($DueData, $GradeData, [string[]]$Words) {
-    $w = @($Words | Where-Object { $_ })
-    $courses = @($DueData.courses)
-    foreach ($n in 2, 1) {
-        if ($w.Count -le $n) { continue }
-        if ($n -eq 2 -and $w[1] -notmatch '^\d') { continue }
-        $c = Resolve-JkCourse $DueData (($w[0..($n - 1)]) -join ' ')
-        if ($c) { $courses = @($c); $w = @($w[$n..($w.Count - 1)]); break }
-    }
+    $sp = Split-JkCourseWords $DueData $Words
+    $courses = @($DueData.courses); if ($sp[0]) { $courses = @($sp[0]) }
+    $w = @($sp[1])
     if (-not $w.Count) { return $null }
     $pool = foreach ($c in $courses) {
         foreach ($it in @(Get-JkGradeItems $DueData $GradeData ([string]$c.key))) { $it | Add-Member -NotePropertyName Code -NotePropertyValue ([string]$c.code) -PassThru -Force }
     }
-    $rx = foreach ($tok in $w) {
-        $t = [regex]::Escape($tok.ToLower())
-        if ($tok -match '^([a-zA-Z]+)(\d+)$') { "(?:$t(?!\d)|\b$([regex]::Escape($Matches[1].ToLower()))[a-z]*\s*$($Matches[2])(?!\d))" }
-        elseif ($tok -match '\d$') { "$t(?!\d)" }
-        else { $t }
-    }
-    $hits = @($pool | Where-Object { $title = ([string]$_.Title).ToLower(); -not @($rx | Where-Object { $title -notmatch $_ }).Count })
+    $rx = @(Get-JkTitleWordRx $w)
+    $hits = @($pool | Where-Object { Test-JkTitleWords ([string]$_.Title) $rx })
     if ($hits.Count -gt 1) {
         # marks come in after the fact: one past, unmarked match beats later ones
         $today = (Get-JkNow).ToString('yyyy-MM-dd', $script:Inv)
