@@ -131,6 +131,12 @@ jk recent                      files you changed in the last 2 days, newest firs
                                the numbers work with jk find -o / -e / -c / -p, like a search's
 Skips hidden folders, links and dependency/build folders (node_modules, venv, bin, obj, build, dist, target).
 '@
+    'clip'   = @'
+jk clip | jk clip count        what is on the clipboard: words (Chinese counted by character), characters, lines
+jk clip unwrap                 text copied from a PDF: wrapped lines become paragraphs, "optimi-" + "zation" is
+                               mended, bullets and blank lines stay; the result goes back on the clipboard
+jk clip plain                  the same text with its formatting dropped, ready to paste anywhere
+'@
     'sys'    = @'
 jk sys                         CPU load, memory, every disk, battery, Wi-Fi/IP, apps using the most RAM
                                battery health: today's full charge against what it held new (from Windows'
@@ -264,7 +270,7 @@ function Show-JkHelp {
         'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
-        'Machine'  = @('find', 'recent', 'go', 'mark', 'tidy', 'space', 'sys', 'speed')
+        'Machine'  = @('find', 'recent', 'go', 'mark', 'clip', 'tidy', 'space', 'sys', 'speed')
         'jk'       = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {

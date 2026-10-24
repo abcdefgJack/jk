@@ -23,12 +23,14 @@ $script:JkTips = @(
     'jk exams               every remaining exam with a countdown',
     'jk jobs stripe         did I already apply? every application to a company, with links',
     'jk find co250 a3       finds a file by words in its name or folders; jk find -o 1 opens it',
-    'jk recent              the files you changed in the last 2 days, newest first'
+    'jk recent              the files you changed in the last 2 days, newest first',
+    'jk clip unwrap         fixes text copied from a PDF (one line per paragraph again)'
 )
 
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'clip'; Cmd = 'jk clip'; Text = 'word count of the clipboard; jk clip unwrap fixes text copied from a PDF' },
     @{ Id = 'grade-fill'; Cmd = 'jk grade fill'; Text = 'type the marks for everything already handed in, one after another (Enter skips)' },
     @{ Id = 'recent'; Cmd = 'jk recent'; Text = 'the files you changed in the last 2 days, newest first (jk find -o 1 opens one)' },
     @{ Id = 'exam-mornings'; Cmd = 'exam days'; Text = 'the morning popup leads with the exam, with its end time, room and what to bring' },
