@@ -463,6 +463,26 @@ Test 'morning brief: to-dos due today or overdue ride along, and are enough on t
         Assert-Eq $script:TodoTitle $null 'nothing to say'
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'morning brief: an exam up to 3 days out still gets a popup; an open window says so' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'exam-ahead'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:AheadTitle = $Title; $script:AheadLines = $Lines; 'stub' }
+    try {
+        # Sat Nov 14, 7:45: nothing in the next 48 hours, a midterm on Monday evening
+        Add-JkDue cs370 'Midterm 2' nov 16 7pm -Exam
+        $env:JK_NOW = '2026-11-14T07:45:00'
+        $script:AheadTitle = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True ($script:AheadTitle -like '* Midterm 2 in 2 days (Mon 7:00 pm)') "title: $($script:AheadTitle)"
+        Assert-True ($script:AheadLines[0] -like 'Mon 7:00 pm * Midterm 2 (exam)') "line: $($script:AheadLines[0])"
+        # an online quiz that opened this morning and closes tonight
+        Add-JkDue health 'Quiz opens' nov 14 6am -Exam
+        Add-JkDue health 'Quiz closes' nov 14 11:59pm -Exam
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True (@($script:AheadLines | Where-Object { $_ -like '* Quiz closes (exam, open now)*' }).Count -eq 1) "lines: $($script:AheadLines -join ' / ')"
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
 Test 'Sunday mornings look at the whole week' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'week-ahead'; $script:JkConfigCache = $null
@@ -479,8 +499,8 @@ Test 'Sunday mornings look at the whole week' {
         Invoke-JkDueRemind -Quiet -Force
         Assert-Eq $script:WeekTitle 'Nothing due in the next two days' 'the week alone is worth the popup'
         Assert-True ($script:WeekLines[0] -like "This week: 1 due, 1 exam $($script:G.dash) * Quiz Wed") "line: $($script:WeekLines[0])"
-        # a weekday morning with nothing close stays quiet
-        $env:JK_NOW = '2026-11-23T07:45:00'
+        # a weekday morning with nothing close (no exam within 3 days either) stays quiet
+        $env:JK_NOW = '2026-11-30T07:45:00'
         $script:WeekTitle = $null
         Invoke-JkDueRemind -Quiet -Force
         Assert-Eq $script:WeekTitle $null 'no popup on a quiet Monday'
