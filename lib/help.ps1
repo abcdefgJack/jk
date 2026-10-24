@@ -11,6 +11,7 @@ jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, fri, to
 jk due add cs341 "Midterm 3" nov 30 7pm -Exam -End 9pm
 jk due done 23 | jk due done a2a                        mark done by id or by part of the title
 jk due undone 23 | jk due rm 23
+jk due files 24                the files in its course folder named after it (A2.tex, A2\..., a2a.pdf)
 jk due edit 24 -Date oct 30 -Time 4:30pm -Note "room MC 2065"
 jk due courses                 courses with open counts; jk due course cs350 -Color F87171 -Final "Dec 17 4pm"
 jk due cal                     open a calendar web page generated from your data

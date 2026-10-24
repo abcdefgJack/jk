@@ -1100,6 +1100,7 @@ function Invoke-JkDue {
         '^(import)$' { Import-JkDueHtml @rest; return }
         '^(sync|pull|feed)$' { Invoke-JkDueSync @rest; return }
         '^(remind|notify|ping)$' { Invoke-JkDueRemind @rest; return }
+        '^(files|work)$' { Show-JkDueFiles @rest; return }
         '^(courses)$' { Show-JkCourses; return }
         '^(course)$' { Set-JkCourse @rest; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'due'; return }

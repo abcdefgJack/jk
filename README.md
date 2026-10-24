@@ -67,6 +67,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
 | | `jk due sync` | Pulls deadlines from LEARN's calendar feed (or any `.ics` link or file). The first time, it offers the link on your clipboard or asks you to paste it. Re-syncs update moved dates and keep your own edits, and the morning task syncs daily |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
+| | `jk due files cs341 a2` | The files in that course's folder named after the deadline (`A2.tex`, `A2\...`, `a2a.pdf`), or its newest files; `jk find -o 1` opens one |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
 | | `jk plan` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight and days left; starts the next 25-minute block |
 | | `jk grade cs350` | Running weighted average and "to finish with 80% you need 77% on the rest" |
