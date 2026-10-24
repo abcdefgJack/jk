@@ -1825,6 +1825,18 @@ Test 'daily backup before the first change, restore round-trip' {
         Assert-Eq $aside.Count 1
         Assert-Eq @((ConvertFrom-Json ([IO.File]::ReadAllText((Join-Path $aside[0].FullName 'todo.json')))).items).Count 3 'current state set aside'
         Assert-Throws { Invoke-JkBackup restore 1999-01-01 }
+        # a day keeps only what changed on it: by name alone, the newest snapshot of the file;
+        # a day without it points at the one that has it
+        $older = Join-Path $env:JK_HOME 'backups\2026-01-02'
+        New-Item -ItemType Directory $older -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $older 'grades.json') -Value '{"scores":[],"extras":[],"targets":[],"nextExtra":1}'
+        Assert-Eq (Get-JkNewestSnapshot 'grades') '2026-01-02'
+        Assert-Eq (Get-JkNewestSnapshot 'todo') $day
+        $msg = ''; try { Invoke-JkBackup restore $day grades } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg -match 'jk backup restore 2026-01-02 grades') "points at the snapshot: $msg"
+        Add-JkTodo fourth item
+        Invoke-JkBackup restore todo
+        Assert-Eq @((Get-JkTodoData).items).Count 1 'restore todo = the newest snapshot of todo.json'
     } finally { $env:JK_HOME = $saved }
 }
 Test 'every view works on a brand-new, empty data folder' {

@@ -100,6 +100,17 @@ function Invoke-JkBackupMirror([string[]]$A) {
     Say ((Paint 'green' "  mirror on $($script:G.check)") + "  $full" + (Paint 'gray' "  $($script:G.dot) today's snapshot: $($r.Files) files; the morning task adds one each day (30 kept)"))
 }
 
+# The newest day (on or before -Before, if given) whose snapshot holds <name>.json, from the local
+# backups or else the mirror. $null when there is none.
+function Get-JkNewestSnapshot([string]$Name, [string]$Before = '9999-12-31') {
+    foreach ($root in @((Join-Path (Get-JkHome) 'backups'), (Get-JkConfig 'backup.mirror'))) {
+        if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
+        $hit = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -le $Before -and (Test-Path -LiteralPath (Join-Path $_.FullName "$Name.json")) } | Sort-Object Name -Descending)
+        if ($hit) { return $hit[0].Name }
+    }
+    $null
+}
+
 function Invoke-JkBackup {
     $a = @($args | ForEach-Object { [string]$_ })
     if ($a.Count -and $a[0] -match '^(mirror|copy)$') { Invoke-JkBackupMirror $a; return }
@@ -112,11 +123,24 @@ function Invoke-JkBackup {
             $files = @(Get-ChildItem -LiteralPath $d.FullName -File | Where-Object { $_.Name -like '*.json' } | ForEach-Object { $_.BaseName })
             Say ('  ' + (Paint 'white' (Fit $d.Name 12)) + (Paint 'muted' ($files -join ', ')))
         }
-        if ($days) { Say ''; Say (Paint 'gray' "  jk backup restore $($days[0].Name)   (or one file: jk backup restore $($days[0].Name) deadlines)") }
+        if ($days) {
+            # a day keeps only the files that changed on it: the example names one that has deadlines
+            $ex = @($days | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'deadlines.json') })[0]
+            Say ''
+            Say (Paint 'gray' "  jk backup restore $($days[0].Name)   (every file that day)")
+            if ($ex) { Say (Paint 'gray' "  jk backup restore deadlines   (the newest snapshot of one file: $($ex.Name))") }
+        }
         return
     }
-    if ($a[0] -notmatch '^(restore|undo)$') { throw 'usage: jk backup  |  jk backup restore <yyyy-mm-dd> [deadlines|grades|todo|classes|...]  |  jk backup mirror <folder>' }
+    if ($a[0] -notmatch '^(restore|undo)$') { throw 'usage: jk backup  |  jk backup restore <yyyy-mm-dd> [deadlines|grades|todo|classes|...]  |  jk backup restore deadlines  |  jk backup mirror <folder>' }
     if ($a.Count -lt 2) { throw 'which day? see: jk backup' }
+    # "jk backup restore deadlines": the newest snapshot of that file, here or in the mirror
+    if ($a[1] -notmatch '^\d{4}-\d{2}-\d{2}$') {
+        $want = $a[1].ToLower() -replace '\.json$', ''
+        $day = Get-JkNewestSnapshot $want
+        if (-not $day) { throw "no snapshot of $want.json yet (see: jk backup)" }
+        $a = @($a[0], $day, $want)
+    }
     $dir = Join-Path $root $a[1]
     if (-not (Test-Path -LiteralPath $dir)) {
         # the local backups go with the data folder; the mirror is what survives that
@@ -128,7 +152,12 @@ function Invoke-JkBackup {
     if ($a.Count -ge 3) {
         $want = $a[2].ToLower() -replace '\.json$', ''
         $pick = @($pick | Where-Object { $_.BaseName -eq $want })
-        if (-not $pick) { throw "that day has no $want.json" }
+        if (-not $pick) {
+            # it did not change that day; point at the snapshot that holds it
+            $older = Get-JkNewestSnapshot $want $a[1]
+            if ($older) { throw "$($a[1]) has no $want.json (it did not change that day); the newest snapshot before it: jk backup restore $older $want" }
+            throw "that day has no $want.json"
+        }
     }
     $stamp = (Get-Date).ToString('HHmmss')
     $aside = Join-Path $root ((Get-Date).ToString('yyyy-MM-dd') + "-before-restore-$stamp")
