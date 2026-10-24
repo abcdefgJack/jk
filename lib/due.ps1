@@ -337,7 +337,8 @@ function Show-JkDue {
     if (@($data.events).Count -eq 0) {
         Say ''
         Say (Paint 'yellow' '  No deadlines yet.')
-        Say ('  Add one:     ' + (Paint 'cyan' 'jk due add cs350 "A3 File Systems" nov 25 8pm -Weight 10%'))
+        Say ('  From LEARN:  ' + (Paint 'cyan' 'jk due sync') + (Paint 'gray' '   (in LEARN: Calendar > Subscribe, copy the link first)'))
+        Say ('  By hand:     ' + (Paint 'cyan' 'jk due add cs350 "A3 File Systems" nov 25 8pm -Weight 10%'))
         Say ('  Or import:   ' + (Paint 'cyan' 'jk due import "<path to calendar.html>"'))
         return
     }
