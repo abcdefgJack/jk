@@ -442,6 +442,27 @@ Test 'grade fill: each past graded item once, marks recorded and checked off at 
         $env:JK_HOME = $saved; $script:JkConfigCache = $null
     }
 }
+Test 'morning brief: to-dos due today or overdue ride along, and are enough on their own' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'todo-brief'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:TodoTitle = $Title; $script:TodoLines = $Lines; 'stub' }
+    try {
+        # the pinned clock is Thu Oct 22 2026, 2 pm
+        Add-JkTodo email the TA -Due 'today 5pm'
+        Add-JkTodo return library book -Due 'oct 20'
+        Add-JkTodo buy ink -Due 'oct 30'
+        $script:TodoTitle = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-Eq $script:TodoTitle '2 to-dos due (1 overdue)'
+        Assert-Eq ($script:TodoLines -join ' / ') 'To-do: return library book (overdue since Tue), email the TA by 5:00 pm'
+        # done ones drop out, and with nothing left the brief stays quiet
+        $d = Get-JkTodoData; foreach ($i in $d.items) { $i.done = $true }; Save-JkTodoData $d
+        $script:TodoTitle = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-Eq $script:TodoTitle $null 'nothing to say'
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'Sunday mornings look at the whole week' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'week-ahead'; $script:JkConfigCache = $null
