@@ -35,6 +35,12 @@ function ConvertTo-JkDays([string]$Text) {
     } elseif ($t -cmatch '^(Th|Su|Sa|M|T|W|R|F|S|U)+$') {
         $map = @{ M = 'Mon'; T = 'Tue'; W = 'Wed'; Th = 'Thu'; R = 'Thu'; F = 'Fri'; S = 'Sat'; Sa = 'Sat'; Su = 'Sun'; U = 'Sun' }
         foreach ($m in [regex]::Matches($t, 'Th|Su|Sa|M|T|W|R|F|S|U')) { $days += $map[$m.Value] }
+    } elseif ($t -cmatch '^[mtwrfsuh]{2,}$' -and -not @(@('sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat') | Where-Object { $_.StartsWith($t) }).Count) {
+        # the same codes typed in lowercase: tth, mwf, mw, tr ("th" is Thursday's R)
+        $u = ($t -replace 'th', 'r').ToUpper()
+        if ($u -notmatch '^[MTWRFSU]+$') { throw "can't read the day '$Text'" }
+        $map = @{ M = 'Mon'; T = 'Tue'; W = 'Wed'; R = 'Thu'; F = 'Fri'; S = 'Sat'; U = 'Sun' }
+        foreach ($ch in $u.ToCharArray()) { $days += $map["$ch"] }
     } else {
         foreach ($p in ($t -split '[\s,/&+]+' | Where-Object { $_ })) {
             $k = $p.ToLower()
@@ -268,6 +274,26 @@ function Add-JkClass {
     )
     $left = New-Object System.Collections.Generic.List[string]
     foreach ($x in @($Extra)) { if ($x) { $left.Add([string]$x) } }
+    # "tue thu 4pm-5:20pm": days written with spaces land in the time (and room) slots; move them
+    # back to the days and let the rest shift along
+    while ($Time -and $Time -notmatch '\d') {
+        $isDay = $true; try { $null = ConvertTo-JkDays $Time } catch { $isDay = $false }
+        if (-not $isDay) { break }
+        $Days = @($Days) + $Time
+        $Time = $Room
+        $Room = ''
+        if ($left.Count) { $Room = $left[0]; $left.RemoveAt(0) }
+    }
+    # MC 1056 typed without quotes: a building code and then its room number
+    if ($Room -match '^[A-Za-z][A-Za-z0-9]{0,3}$' -and $left.Count -and $left[0] -match '^\d{3,4}[A-Za-z]?$') {
+        $Room = "$Room $($left[0])".ToUpper()
+        $left.RemoveAt(0)
+    }
+    # "... MC 1056 LAB": a Quest component word anywhere after the time is the kind
+    foreach ($w in @($left)) {
+        if ($w -match '^(LEC|TUT|LAB|SEM|TST|PRA|DIS|CLN|STU|WRK)$') { $Kind = $w; [void]$left.Remove($w) }
+    }
+    if ($Room -match '^(LEC|TUT|LAB|SEM|TST|PRA|DIS|CLN|STU|WRK)$') { $Kind = $Room; $Room = '' }
     $From = Join-JkLooseDate $From $left
     $To = Join-JkLooseDate $To $left
     if ($left.Count) { throw "unexpected words: $($left -join ' ') (quote a room with spaces: 'MC 1056')" }

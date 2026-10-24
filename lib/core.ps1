@@ -618,7 +618,7 @@ function Join-JkLooseDate([string]$Value, [System.Collections.Generic.List[strin
     $Value
 }
 
-# Accepts: 8pm, 8:30 pm, 20:00, 2359, noon, midnight/eod (23:59). Returns 'HH:mm'.
+# Accepts: 8pm, 8:30 pm, 20:00, 2359, 930, 220pm, noon, midnight/eod (23:59). Returns 'HH:mm'.
 function ConvertTo-JkTime {
     param([string]$Text)
     $t = $Text.Trim().ToLower() -replace '\.', ''
@@ -633,9 +633,17 @@ function ConvertTo-JkTime {
         if ($h -gt 23 -or $mi -gt 59) { throw "invalid time '$Text'" }
         return '{0:00}:{1:00}' -f $h, $mi
     }
-    if ($t -match '^(\d{2})(\d{2})$') {
+    if ($t -match '^(\d{1,2})(\d{2})$') {
         $h = [int]$Matches[1]; $mi = [int]$Matches[2]
         if ($h -gt 23 -or $mi -gt 59) { throw "invalid time '$Text'" }
+        return '{0:00}:{1:00}' -f $h, $mi
+    }
+    # the colon left out: "220pm", "1130am"
+    if ($t -match '^(\d{1,2})(\d{2}) ?(am|pm|a|p)$') {
+        $h = [int]$Matches[1]; $mi = [int]$Matches[2]; $ap = $Matches[3]
+        if ($h -lt 1 -or $h -gt 12 -or $mi -gt 59) { throw "invalid time '$Text'" }
+        if ($ap -like 'p*' -and $h -lt 12) { $h += 12 }
+        if ($ap -like 'a*' -and $h -eq 12) { $h = 0 }
         return '{0:00}:{1:00}' -f $h, $mi
     }
     throw "can't understand the time '$Text' (try 8pm, 20:00, 11:59 pm)"

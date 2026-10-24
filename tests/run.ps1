@@ -97,7 +97,7 @@ Test 'relative and named dates (pinned to Thu Oct 22 2026)' {
     Assert-Throws { ConvertTo-JkDate 'oct' }
 }
 Test 'times' {
-    $cases = [ordered]@{ '8pm' = '20:00'; '8:30 pm' = '20:30'; '8:30PM' = '20:30'; '12am' = '00:00'; '12pm' = '12:00'; '2359' = '23:59'; 'noon' = '12:00'; 'midnight' = '23:59'; '20:00' = '20:00'; '9' = '09:00'; '7a' = '07:00' }
+    $cases = [ordered]@{ '8pm' = '20:00'; '8:30 pm' = '20:30'; '8:30PM' = '20:30'; '12am' = '00:00'; '12pm' = '12:00'; '2359' = '23:59'; 'noon' = '12:00'; 'midnight' = '23:59'; '20:00' = '20:00'; '9' = '09:00'; '7a' = '07:00'; '220pm' = '14:20'; '1130am' = '11:30'; '1130 pm' = '23:30'; '930' = '09:30' }
     foreach ($k in $cases.Keys) { Assert-Eq (ConvertTo-JkTime $k) $cases[$k] "for '$k'" }
     Assert-Throws { ConvertTo-JkTime '25:00' }
     Assert-Throws { ConvertTo-JkTime 'late' }
@@ -1235,6 +1235,32 @@ Test 'day lists and time ranges' {
     $r = ConvertTo-JkTimeRange '10:00AM - 11:20AM'; Assert-Eq "$($r.Start) $($r.End)" '10:00 11:20'
     $r = ConvertTo-JkTimeRange '16:00-17:20'; Assert-Eq "$($r.Start) $($r.End)" '16:00 17:20'
     Assert-Throws { ConvertTo-JkTimeRange '5pm-4pm' }
+    # the same codes typed in lowercase, without "tue"/"thu" turning into codes
+    foreach ($k in @{ 'tth' = 'Tue Thu'; 'mwf' = 'Mon Wed Fri'; 'tr' = 'Tue Thu'; 'mtwthf' = 'Mon Tue Wed Thu Fri'; 'th' = 'Thu'; 'tu' = 'Tue'; 'su' = 'Sun' }.GetEnumerator()) {
+        Assert-Eq ((ConvertTo-JkDays $k.Key) -join ' ') $k.Value "for '$($k.Key)'"
+    }
+    Assert-Throws { ConvertTo-JkDays 'mh' }
+    $r = ConvertTo-JkTimeRange '1-220pm'; Assert-Eq "$($r.Start) $($r.End)" '13:00 14:20' 'colon left out'
+}
+Test 'jk class add: days with spaces, lowercase codes' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'add-home'
+    try {
+        $null = @(& {
+                jk class add cs350 tue thu 4pm-5:20pm 'MC 1056'
+                jk class add cs341 tth 1-220pm DC 1351 -From sep 8
+                jk class add cs370 mon wed fri 930-1020am -Kind TUT
+                jk class add cs370 F 3-4pm e7 4053 LAB
+                jk class add cs370 W 7-8pm MC 1056 extra
+            } 6>&1)
+        $items = @((Get-JkClassData).items)
+        Assert-Eq $items.Count 4 'a stray word is still refused'
+        $got = @($items | ForEach-Object { "$($_.course) $($_.kind) $(@($_.days) -join ',') $($_.start)-$($_.end) $($_.room) $($_.from)".Trim() })
+        Assert-Eq $got[0] 'cs350 LEC Tue,Thu 16:00-17:20 MC 1056'
+        Assert-Eq $got[1] 'cs341 LEC Tue,Thu 13:00-14:20 DC 1351 2026-09-08' 'unquoted room, then a loose -From date'
+        Assert-Eq $got[2] 'cs370 TUT Mon,Wed,Fri 09:30-10:20'
+        Assert-Eq $got[3] 'cs370 LAB Fri 15:00-16:00 E7 4053' 'kind word after the room'
+    } finally { $env:JK_HOME = $saved }
 }
 Test 'Quest list view parsing (continuation rows, tests)' {
     $q = "CS 341 - Algorithms`nClass Nbr`tSection`tComponent`tDays & Times`tRoom`tInstructor`tStart/End Date`n5678`t001`tLEC`tTTh 10:00AM - 11:20AM`tMC 2065`tSome Prof`t09/08/2026 - 12/08/2026`n5680`t051`tTST`tM 7:00PM - 8:50PM`tPAC 1`tTBA`t11/09/2026 - 11/09/2026`nCS 350 - Operating Systems`n6001`t002`tLEC`tMW 4:00PM - 5:20PM`tMC 1056`tProf`t09/08/2026 - 12/08/2026`n`t`t`tF 4:00PM - 4:50PM`tDC 1350`tProf`t09/08/2026 - 12/08/2026"
