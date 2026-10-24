@@ -179,6 +179,7 @@ jk space                       sizes of Downloads, Recycle Bin, temp, conda/pip/
 jk space -NoNodeModules        skip the node_modules search (faster)
 jk space clean temp            delete temp files older than 7 days (-Days 30 to keep more)
 jk space clean conda           conda clean --all   (also: pip, npm)
+jk space clean jetbrains       caches of JetBrains IDE versions no longer installed (CLion2023.1 after 2024.2)
 The report never deletes anything; each row names the right tool to free that space.
 '@
     'speed'  = @'

@@ -1772,6 +1772,17 @@ Test 'Fit counts CJK characters as two columns' {
     Assert-Eq (Get-JkTextWidth (Fit $cjk 4 -Right)) 4
     Assert-Eq (Fit 'plain' 7) 'plain  '
 }
+Test 'space clean jetbrains: only caches of versions no longer installed, never the newest' {
+    Assert-Eq (ConvertTo-JkJetBrainsKey 'CLion 2024.2.1') 'CLion2024.2'
+    Assert-Eq (ConvertTo-JkJetBrainsKey 'IntelliJ IDEA 2025.1.1.1') 'IntelliJIdea2025.1'
+    Assert-Eq (ConvertTo-JkJetBrainsKey 'IntelliJ IDEA Community Edition 2024.3') 'IdeaIC2024.3'
+    Assert-Eq (ConvertTo-JkJetBrainsKey 'PyCharm Community Edition 2023.3.3') 'PyCharmCE2023.3'
+    Assert-Eq (ConvertTo-JkJetBrainsKey 'Google Chrome 130.0') $null
+    $root = Join-Path $env:JK_HOME 'jb'
+    foreach ($n in 'CLion2023.1', 'CLion2024.2', 'IntelliJIdea2025.1', 'PyCharmCE2022.1', 'PyCharmCE2023.3', 'consentOptions') { New-Item -ItemType Directory (Join-Path $root $n) -Force | Out-Null }
+    $stale = @(Get-JkStaleJetBrainsCaches $root @('CLion2024.2', 'IntelliJIdea2025.1') | ForEach-Object { $_.Name } | Sort-Object)
+    Assert-Eq ($stale -join ',') 'CLion2023.1,PyCharmCE2022.1' 'the newest PyCharmCE stays though Windows does not list it'
+}
 Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     $c = { param($a) [pscustomobject]@{ Alias = $a; Path = "C:\x\$a"; Source = 'auto' } }
     $v = @{}
