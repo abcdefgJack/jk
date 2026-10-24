@@ -1409,6 +1409,12 @@ Test 'jk find: every word in the name or folders, best first, skipping deps and 
     # the list remembers its results: -p <n> prints one, a bad number says how many there were
     Set-JkConfig 'find.roots' $top
     $null = Invoke-JkFind co250 a3
+    # jk find -o <Tab> offers those results by number, showing each name
+    $tab = @(Get-JkCompletions -Word '' -Tokens @('jk', 'find', '-o'))
+    Assert-Eq (($tab | ForEach-Object { $_.CompletionText }) -join ',') '1,2,3'
+    Assert-Eq $tab[1].ListItemText '2  a3_notes.txt'
+    Assert-Eq $tab[1].ToolTip "$a3\a3_notes.txt"
+    Assert-Eq (@(Get-JkCompletions -Word '3' -Tokens @('jk', 'find', '-e', '3')) | ForEach-Object { $_.CompletionText }) '3'
     Assert-Eq (Invoke-JkFind -p 2) "$a3\a3_notes.txt"
     Assert-Throws { Invoke-JkFind -p 7 }
     # with words, -p prints the best match and keeps the list for -p <n>

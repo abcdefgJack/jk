@@ -197,6 +197,12 @@ function Get-JkCompletions {
         }
     }
 
+    # jk find -o <Tab>: the numbered results of the last search, each showing its file name
+    if ($cmd -eq 'find' -and $prevTok -match '^-(o|e|c|p|open|explorer|code|print)$') {
+        $n = 0
+        return @(foreach ($p in @(Get-JkFindLast)) { $n++; if ("$n" -like "$Word*") { & $mk "$n" "$n  $(Split-Path $p -Leaf)" $p } })
+    }
+
     $vals = @()
     if ($idx -eq 2) {
         if ($cmd -eq 'help') { $vals = @($script:JkCommands.Keys) }
