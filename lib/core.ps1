@@ -89,21 +89,57 @@ function Limit-JkBackgroundLog([int]$Keep = 500) {
     [IO.File]::WriteAllLines($log, @($lines | Select-Object -Last $Keep))
 }
 
+# A damaged data file (cut short by a crash, emptied, or hand-edited into invalid JSON) is set
+# aside and replaced by the newest backup that still reads. Carrying on with empty data instead
+# would let the next save - the morning sync, a jk due add - make the loss permanent.
 function Read-JkJson {
     param([string]$Name, $Default = $null)
     $p = Get-JkPath $Name
     if (-not (Test-Path -LiteralPath $p)) { return $Default }
     $text = [IO.File]::ReadAllText($p)
-    if (-not $text.Trim()) { return $Default }
-    try {
-        $obj = ConvertFrom-Json -InputObject $text
-    } catch {
-        $bak = $p + '.corrupt-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-        Copy-Item -LiteralPath $p -Destination $bak -Force
-        Write-Warning "jk: $Name could not be parsed; a copy was saved to $bak"
-        return $Default
+    $err = $null
+    if (-not $text.Trim()) {
+        # saves are atomic, so jk never leaves a data file empty: for one it backs up, that is damage
+        if ($script:JkBackupFiles -notcontains $Name) { return $Default }
+        $err = 'the file is empty'
+    } else {
+        try { return , (ConvertFrom-Json -InputObject $text) }
+        catch { $err = (([string]$_.Exception.Message) -split "`r?`n")[0] }
     }
-    , $obj
+    $bak = $p + '.corrupt-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    Copy-Item -LiteralPath $p -Destination $bak -Force
+    $good = $null
+    if ($script:JkBackupFiles -contains $Name) { $good = Find-JkGoodBackup $Name }
+    if ($good) {
+        Copy-Item -LiteralPath $good.Path -Destination $p -Force
+        Write-Warning "jk: $Name was damaged ($err). Restored $($good.From); the damaged file is $bak"
+        return , $good.Object
+    }
+    Write-Warning "jk: $Name could not be read ($err); a copy was saved to $bak"
+    $Default
+}
+
+# The newest copy of a data file that parses: the daily backups first, then the mirror.
+function Find-JkGoodBackup([string]$Name) {
+    $places = @(@{ Root = (Join-Path (Get-JkHome) 'backups'); Label = 'the backup of' })
+    # never ask config.json for the mirror while config.json is the file being repaired
+    if ($Name -ne 'config.json') {
+        $m = $null
+        try { $m = Get-JkConfig 'backup.mirror' } catch { }
+        if ($m) { $places += @{ Root = $m; Label = 'the mirror copy of' } }
+    }
+    foreach ($pl in $places) {
+        $days = @(Get-ChildItem -LiteralPath $pl.Root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' } | Sort-Object Name -Descending)
+        foreach ($d in $days) {
+            $f = Join-Path $d.FullName $Name
+            if (-not (Test-Path -LiteralPath $f)) { continue }
+            $t = [IO.File]::ReadAllText($f)
+            if (-not $t.Trim()) { continue }
+            try { $o = ConvertFrom-Json -InputObject $t } catch { continue }
+            return [pscustomobject]@{ Path = $f; Object = $o; From = "$($pl.Label) $($d.Name)" }
+        }
+    }
+    $null
 }
 
 function Save-JkJson {
