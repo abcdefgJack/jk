@@ -211,7 +211,18 @@ function Get-JkTermInfo {
     }
     $total = $null
     if ($end) { $total = & $weekOf $end }
+    # in the exam period: how many of your own exams are still ahead (an online window counts once)
+    $examsLeft = $null
+    if ($phase -eq 'exams') {
+        $left = @{}
+        foreach ($e in @($Data.events)) {
+            if ($e.kind -ne 'exam' -or $e.done -or (Get-JkEventDue $e) -lt $Now) { continue }
+            $left["$($e.course)|$(([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())"] = $true
+        }
+        $examsLeft = $left.Count
+    }
     [pscustomobject]@{
+        ExamsLeft   = $examsLeft
         Name        = [string]$t.name
         Start       = $start
         ClassesEnd  = $end
@@ -247,7 +258,11 @@ function Format-JkTermLine($Info) {
             if ($null -ne $Info.DaysToExams) { $parts += "exams in $($Info.DaysToExams)d" }
         }
         'study' { $parts += "study break $($script:G.dot) exams in $($Info.DaysToExams)d" }
-        'exams' { $parts += 'exam period' }
+        'exams' {
+            $parts += 'exam period'
+            if ($Info.ExamsLeft -eq 0 -and $null -ne $Info.ExamsLeft) { $parts += "your exams are done $($script:G.check)" }
+            elseif ($Info.ExamsLeft) { $parts += "$(Format-JkCount $Info.ExamsLeft 'exam') left" }
+        }
         'after' { $parts += 'term over' }
         'next' { }
     }
@@ -1001,7 +1016,20 @@ function Invoke-JkDueRemind {
     # open to-dos due today (or already overdue) ride along too, and are reason enough on their own
     $todos = @()
     try { $todos = @((Get-JkTodoData).items | Where-Object { -not $_.done -and ($td = Get-JkTodoDue $_) -and $td.Date -le $now.Date } | Sort-Object { Get-JkTodoDue $_ }) } catch { }
-    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
+    # in the study break and the exam period every day is a study day: planned study time is
+    # reason enough for the brief, which then leads with the next exam
+    $plan = $null; $studyDay = $false; $nextExam = $null
+    try {
+        $info = Get-JkTermInfo $data $now
+        if ($info -and $info.Phase -in 'study', 'exams') {
+            $plan = Get-JkPlanToday
+            if ($plan -and $plan.Today.Alloc.Count) {
+                $studyDay = $true
+                $nextExam = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkEventDue $_) -ge $now } | Sort-Object { Get-JkEventDue $_ })[0]
+            }
+        }
+    } catch { }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count -and -not $studyDay) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $lines = @()
     if ($weekLine) { $lines += $weekLine }
     if ($classes.Count) {
@@ -1053,7 +1081,7 @@ function Invoke-JkDueRemind {
     }
     # today's study blocks ride along (they never trigger a popup on their own)
     try {
-        $plan = Get-JkPlanToday
+        if (-not $plan) { $plan = Get-JkPlanToday }
         if ($plan -and $plan.Today.Alloc.Count) {
             $byCourse = @{}
             foreach ($it in $plan.Items) { if ($plan.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $plan.Today.Alloc[$it.Key] } }
@@ -1079,6 +1107,15 @@ function Invoke-JkDueRemind {
     } elseif ($classes.Count) {
         $accent = Get-JkCourseColor $classes[0].Class.course $cmap
         $title = "$($classes.Count) class$(if ($classes.Count -ne 1) {'es'}) today, nothing due soon"
+    } elseif ($studyDay -and -not $todos.Count) {
+        # "Next exam: CS 350 FINAL Thu 4:00 pm (in 3 days)"
+        $accent = $script:JkPalette.blue
+        $title = 'Study day'
+        if ($nextExam) {
+            $xd = Get-JkEventDue $nextExam
+            $accent = Get-JkCourseColor $nextExam.course $cmap
+            $title = "Next exam: $(Get-JkCourseLabel $nextExam $cmap) $(([string]$nextExam.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()) $($xd.ToString('ddd', $script:Inv)) $(Format-JkTime $xd.ToString('HH:mm', $script:Inv)) (in $(Format-JkCount ([int]($xd.Date - $now.Date).TotalDays) 'day'))"
+        }
     } elseif ($todos.Count) {
         $accent = $script:JkPalette.amber
         $title = "$(Format-JkCount $todos.Count 'to-do') due today"

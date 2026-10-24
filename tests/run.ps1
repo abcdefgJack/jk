@@ -483,6 +483,30 @@ Test 'morning brief: an exam up to 3 days out still gets a popup; an open window
         Assert-True (@($script:AheadLines | Where-Object { $_ -like '* Quiz closes (exam, open now)*' }).Count -eq 1) "lines: $($script:AheadLines -join ' / ')"
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
+Test 'finals season: the term line counts exams left, and a study day gets its brief' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'finals'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:FinTitle = $Title; $script:FinLines = $Lines; 'stub' }
+    try {
+        Add-JkDue cs350 'FINAL' dec 17 4pm -Exam -Weight 40
+        Add-JkDue co367 'FINAL' dec 19 7:30pm -Exam -Weight 50
+        $d = Get-JkDueData
+        Set-JkProp $d 'term' ([pscustomobject]@{ name = 'Fall 2026'; start = '2026-09-08'; classesEnd = '2026-12-08'; examsStart = '2026-12-10'; examsEnd = '2026-12-22' })
+        Save-JkDueData $d
+        $dot = $script:G.dot
+        # Mon Dec 14: three days to the next final, nothing due within 48 hours
+        $env:JK_NOW = '2026-12-14T07:45:00'
+        Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) "Fall 2026 $dot exam period $dot 2 exams left"
+        $script:FinTitle = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True ($script:FinTitle -like 'Next exam: * FINAL Thu 4:00 pm (in 3 days)') "title: $($script:FinTitle)"
+        Assert-True (@($script:FinLines | Where-Object { $_ -like 'Study today: *' }).Count -eq 1) "lines: $($script:FinLines -join ' / ')"
+        # after the last one
+        $env:JK_NOW = '2026-12-20T07:45:00'
+        Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) "Fall 2026 $dot exam period $dot your exams are done $($script:G.check)"
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
 Test 'Sunday mornings look at the whole week' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'week-ahead'; $script:JkConfigCache = $null
