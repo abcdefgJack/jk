@@ -915,6 +915,39 @@ function Get-JkDueSoon {
 
 # Shows a popup/toast for anything due in the next N hours. -Quiet suppresses console
 # output (scheduled runs); repeated runs within 3 hours are skipped unless -Force.
+# An exam's note without the times the popup already shows: "4:30 - 6:20 pm <dot> in person, room
+# TBA" keeps "in person, room TBA", and a window's "6:00 am Oct 26 -> 11:59 pm Oct 27" goes too.
+function Get-JkExamNote($Event) {
+    $note = [string]$Event.note
+    if (-not $note) { return '' }
+    $sep = [regex]::Escape($script:G.dot)
+    $keep = foreach ($seg in ($note -split "\s*$sep\s*")) {
+        $s = $seg.Trim()
+        if (-not $s) { continue }
+        if ($s -match '(?i)\d(:\d{2})?\s*(am|pm)\b') {
+            $rest = $s -replace '(?i)\d{1,2}(:\d{2})?\s*(am|pm)?', '' -replace '(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b', '' -replace "[\s\-$($script:G.dash)$($script:G.arrow)]", ''
+            if (-not $rest) { continue }
+        }
+        $s
+    }
+    @($keep) -join " $($script:G.dot) "
+}
+
+# The morning popup's title on an exam day: "Exam today: CS 350 Midterm 4:30 pm", or for an online
+# window that closes today "Exam today: HEALTH 105 Midterm 1, by 11:59 pm". $null on other days.
+function Get-JkExamDayTitle($Soon, $Cmap, [datetime]$Now) {
+    $today = @($Soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $Now.Date })
+    if (-not $today.Count) { return $null }
+    $names = @(foreach ($e in $today) {
+        $t = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()
+        $at = ''
+        if ($e.time) { $at = ' ' + (Format-JkTime $e.time); if ([string]$e.title -match '(?i)\s+closes?$') { $at = ", by$at" } }
+        "$(Get-JkCourseLabel $e $Cmap) $t$at"
+    })
+    if ($today.Count -eq 1) { return "Exam today: $($names[0])" }
+    "$($today.Count) exams today: " + (@($today | ForEach-Object { "$(Get-JkCourseLabel $_ $Cmap) $(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" }) -join ', ')
+}
+
 function Invoke-JkDueRemind {
     param([double]$Hours = 0, [switch]$Quiet, [switch]$Force)
     if (-not $Hours) { $Hours = [double](Get-JkConfig 'remind.hours') }
@@ -943,9 +976,19 @@ function Invoke-JkDueRemind {
         $when = Format-JkRelDay $due $now
         if ($when -like 'in *') { $when = $due.ToString('ddd', $script:Inv) }
         $when = $when.Substring(0, 1).ToUpper() + $when.Substring(1)
-        if ($e.time) { $when += ' ' + (Format-JkTime $e.time) }
+        if ($e.time) {
+            # an exam runs from its time to its end: "4:30-6:20 pm"
+            $span = Format-JkTime $e.time
+            if ($e.end) { $p = ([string]$e.end).Split(':'); $span = Format-JkTimeSpan $due ($due.Date.AddHours([int]$p[0]).AddMinutes([int]$p[1])) }
+            $when += ' ' + $span
+        }
         $txt = "$when $($script:G.dash) $(Get-JkCourseLabel $e $cmap) $($e.title)"
-        if ($e.kind -eq 'exam') { $txt += ' (exam)' }
+        if ($e.kind -eq 'exam') {
+            $txt += ' (exam)'
+            # where and what to bring: "in person, room TBA", "one handwritten sheet, no calculator"
+            $note = Get-JkExamNote $e
+            if ($note) { $txt += " $($script:G.dot) $note" }
+        }
         # an opening is not a deadline: say until when the window runs
         if ([string]$e.title -match '(?i)\s+opens?$') {
             $win = Get-JkEventWindow $e $data
@@ -966,6 +1009,13 @@ function Invoke-JkDueRemind {
     if ($soon.Count) {
         $accent = Get-JkCourseColor $soon[0].course $cmap
         $title = "$($soon.Count) deadline$(if ($soon.Count -ne 1) {'s'}) in the next $([int]$Hours)h"
+        # an exam today leads, in its course's colour
+        $examTitle = Get-JkExamDayTitle $soon $cmap $now
+        if ($examTitle) {
+            $title = $examTitle
+            $first = @($soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $now.Date })[0]
+            $accent = Get-JkCourseColor $first.course $cmap
+        }
     } else {
         $accent = Get-JkCourseColor $classes[0].Class.course $cmap
         $title = "$($classes.Count) class$(if ($classes.Count -ne 1) {'es'}) today, nothing due soon"
