@@ -95,6 +95,8 @@ function Start-JkFocus {
         [Parameter(Position = 0)][string]$Minutes,
         [Parameter(Position = 1, ValueFromRemainingArguments = $true)][string[]]$Label
     )
+    # a session whose timer a restart took is re-armed (or closed) first, never silently replaced
+    Restore-JkFocusTimer
     $d = Get-JkFocusData
     if ($d.active -and (Test-JkBackgroundAlive ([int]$d.active.pid) ([string]$d.active.spawned))) {
         $null = Show-JkFocusStatus
@@ -158,20 +160,34 @@ function Stop-JkFocus {
     Say ((Paint 'yellow' '  Focus stopped') + " after $(Format-JkMinutes $elapsed)" + $(if ($elapsed -lt 1) { ' (not logged)' } else { ' (logged)' }))
 }
 
+# After a restart (a Windows update in the middle of a block) the timer process is gone. A session
+# with time left gets a new timer for its original end, so the popup still comes; one whose end
+# has passed is logged at its planned length and closed.
+function Restore-JkFocusTimer {
+    $d = Get-JkFocusData
+    $a = $d.active
+    if (-not $a -or (Test-JkBackgroundAlive ([int]$a.pid) ([string]$a.spawned))) { return }
+    $start = [datetime]::Parse([string]$a.start, $script:Inv)
+    $planned = [double]$a.seconds / 60
+    $end = $start.AddSeconds([double]$a.seconds)
+    if ($end -gt (Get-Date).AddSeconds(30)) {
+        $proc = Start-JkBackground -Script "Complete-JkFocusSession -Id '$($a.id)'" -WaitUntil ($end.ToString('o', $script:Inv))
+        $a.pid = $proc.Id
+        $a.spawned = $proc.StartTime.ToString('s', $script:Inv)
+        Save-JkFocusData $d
+        return
+    }
+    $elapsed = [Math]::Min(((Get-Date) - $start).TotalMinutes, $planned)
+    if ($elapsed -ge 1) { $d.sessions = @($d.sessions) + [pscustomobject]@{ label = [string]$a.label; start = [string]$a.start; planned = $planned; actual = [Math]::Round($elapsed, 1); completed = ($elapsed -ge $planned) } }
+    $d.active = $null
+    Save-JkFocusData $d
+}
+
 function Show-JkFocusStatus {
+    Restore-JkFocusTimer
     $d = Get-JkFocusData
     $a = $d.active
     if (-not $a) { return $false }
-    if (-not (Test-JkBackgroundAlive ([int]$a.pid) ([string]$a.spawned))) {
-        # timer process is gone (reboot/logoff): close the session at its planned length if that time passed
-        $start = [datetime]::Parse([string]$a.start, $script:Inv)
-        $planned = [double]$a.seconds / 60
-        $elapsed = [Math]::Min(((Get-Date) - $start).TotalMinutes, $planned)
-        if ($elapsed -ge 1) { $d.sessions = @($d.sessions) + [pscustomobject]@{ label = [string]$a.label; start = [string]$a.start; planned = $planned; actual = [Math]::Round($elapsed, 1); completed = ($elapsed -ge $planned) } }
-        $d.active = $null
-        Save-JkFocusData $d
-        return $false
-    }
     $start = [datetime]::Parse([string]$a.start, $script:Inv)
     $total = [double]$a.seconds
     $elapsed = ((Get-Date) - $start).TotalSeconds

@@ -436,6 +436,7 @@ function Invoke-JkRemind {
             try { Limit-JkBackgroundLog } catch { }
             try { $null = Sync-JkBackupMirror } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' backup mirror: ' + $_.Exception.Message) }
             Restore-JkReminders
+            try { Restore-JkFocusTimer } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' focus timer: ' + $_.Exception.Message) }
             # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
             if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
             try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }

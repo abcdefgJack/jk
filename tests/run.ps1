@@ -355,6 +355,32 @@ Test 'morning task: the daily trigger keeps local time across daylight saving ch
     Assert-True (Test-JkTriggerPinnedToUtc '2026-10-24T11:45:00Z')
     Assert-True (-not (Test-JkTriggerPinnedToUtc '2026-10-24T07:45:00'))
 }
+Test 'focus after a restart: time left gets a new timer, a passed end is logged at its length' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'focus-restart'; $script:JkConfigCache = $null
+    $orig = ${function:Start-JkBackground}
+    function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) $script:Rearmed += , "$WaitUntil|$Script"; [pscustomobject]@{ Id = $PID; StartTime = (Get-Process -Id $PID).StartTime } }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    try {
+        $script:Rearmed = @()
+        # a 50-minute block started 20 minutes ago; a restart took its timer
+        $start = (Get-Date).AddMinutes(-20)
+        Save-JkJson 'focus.json' ([pscustomobject]@{ sessions = @(); active = [pscustomobject]@{ id = 'abc12345'; label = 'cs350 a2a'; start = $start.ToString('s', $inv); seconds = 3000; pid = 999999; spawned = '2000-01-01T00:00:00' } })
+        Restore-JkFocusTimer
+        $a = (Get-JkFocusData).active
+        Assert-True ($a -and [int]$a.pid -eq $PID) 'still running, on a new timer'
+        Assert-Eq $script:Rearmed.Count 1
+        Assert-True ($script:Rearmed[0] -like "*|Complete-JkFocusSession -Id 'abc12345'") "timer: $($script:Rearmed[0])"
+        $fires = [datetime]::Parse(($script:Rearmed[0] -split '\|')[0], $inv, [Globalization.DateTimeStyles]::RoundtripKind)
+        Assert-True ([Math]::Abs(($fires - [datetime]::Parse($start.ToString('s', $inv), $inv).AddMinutes(50)).TotalSeconds) -lt 2) "fires at the original end: $fires"
+        # a 25-minute block whose end passed while the machine was off
+        Save-JkJson 'focus.json' ([pscustomobject]@{ sessions = @(); active = [pscustomobject]@{ id = 'def67890'; label = 'co367'; start = (Get-Date).AddHours(-2).ToString('s', $inv); seconds = 1500; pid = 999999; spawned = '2000-01-01T00:00:00' } })
+        Restore-JkFocusTimer
+        $fd = Get-JkFocusData
+        Assert-True (-not $fd.active) 'closed'
+        Assert-Eq "$($fd.sessions[0].actual) $($fd.sessions[0].completed)" '25 True' 'logged at its planned length'
+    } finally { Set-Item function:script:Start-JkBackground $orig; $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'morning brief: once per 3 hours, and a future stamp never silences it' {
     $orig = ${function:Show-JkNotify}
     $script:BriefCalls = 0
