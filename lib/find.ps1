@@ -43,12 +43,13 @@ function Get-JkFindScore([string[]]$Words, [string]$Name, [string]$Ext, [string]
 }
 
 # Every file under $Roots whose name or folder path (from the root's own name down, e.g.
-# "Desktop\Waterloo course\CO250") holds all the words, best first.
+# "Desktop\Waterloo course\CO250") holds all the words, best first. -Since keeps files changed
+# after it; with no words, that is every such file (jk recent).
 function Find-JkFiles {
-    param([string[]]$Words, [string[]]$Roots)
+    param([string[]]$Words, [string[]]$Roots, [datetime]$Since = [datetime]::MinValue)
     $words = @($Words | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } | Where-Object { $_ })
     $hits = New-Object System.Collections.Generic.List[object]
-    if (-not $words.Count) { return @() }
+    if (-not $words.Count -and $Since -eq [datetime]::MinValue) { return @() }
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $hiddenAttr = [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System
     $now = Get-Date
@@ -81,6 +82,7 @@ function Find-JkFiles {
                         $stack.Push($i)
                         continue
                     }
+                    if ($i.LastWriteTime -lt $Since) { continue }
                     $low = $i.Name.ToLowerInvariant()
                     $ok = $true
                     foreach ($w in $need) { if (-not $low.Contains($w)) { $ok = $false; break } }
@@ -184,18 +186,68 @@ function Invoke-JkFind {
         Say (Paint 'gray' "  searched: $($roots -join '  ')")
         return
     }
+    Write-JkFindRows $show
+    if ($hits.Count -gt $show.Count) { Say (Paint 'gray' "  +$($hits.Count - $show.Count) more: add a word to narrow it, or jk find $query -All") }
+    Write-JkFindFooter
+}
+
+# The numbered result table shared by jk find and jk recent. -Ago shows "3h 10m ago" instead of a date.
+function Write-JkFindRows($Show, [switch]$Ago) {
     $now = Get-Date
     $w = Get-JkWidth
-    $avail = [Math]::Max(30, $w - 29)
-    $longest = ($show | ForEach-Object { Get-JkTextWidth $_.Name } | Measure-Object -Maximum).Maximum
+    $dateW = 9; if ($Ago) { $dateW = 13 }
+    $avail = [Math]::Max(30, $w - 20 - $dateW)
+    $longest = ($Show | ForEach-Object { Get-JkTextWidth $_.Name } | Measure-Object -Maximum).Maximum
     $nameW = [int][Math]::Min($longest, [Math]::Max(16, [Math]::Floor($avail * 0.55)))
     $folderW = $avail - $nameW
     $n = 0
-    foreach ($h in $show) {
+    foreach ($h in $Show) {
         $n++
-        Say ('  ' + (Paint 'gray' (Fit "$n" 3 -Right)) + '  ' + (Paint 'white' (Fit $h.Name $nameW)) + '  ' + (Paint 'muted' (Format-JkFindFolder $h.Folder $folderW)) + (Paint 'gray' (Fit (Format-JkSize $h.Size) 9 -Right)) + '  ' + (Paint 'gray' (Fit (Format-JkFindDate $h.Modified $now) 9)))
+        $when = Format-JkFindDate $h.Modified $now
+        if ($Ago) { $when = Format-JkRelTime $h.Modified }
+        Say ('  ' + (Paint 'gray' (Fit "$n" 3 -Right)) + '  ' + (Paint 'white' (Fit $h.Name $nameW)) + '  ' + (Paint 'muted' (Format-JkFindFolder $h.Folder $folderW)) + (Paint 'gray' (Fit (Format-JkSize $h.Size) 9 -Right)) + '  ' + (Paint 'gray' (Fit $when $dateW)))
     }
     Say ''
-    if ($hits.Count -gt $show.Count) { Say (Paint 'gray' "  +$($hits.Count - $show.Count) more: add a word to narrow it, or jk find $query -All") }
+}
+
+function Write-JkFindFooter {
     Say ((Paint 'gray' '  jk find -o 1 ') + (Paint 'muted' 'open') + (Paint 'gray' "  $($script:G.dot)  -e 1 ") + (Paint 'muted' 'show in Explorer') + (Paint 'gray' "  $($script:G.dot)  -c 1 ") + (Paint 'muted' 'editor') + (Paint 'gray' "  $($script:G.dot)  -p 1 ") + (Paint 'muted' 'path'))
+}
+
+# Office lock files, unfinished downloads and build by-products are not "what you worked on"
+function Test-JkRecentNoise($Hit) {
+    $ext = [IO.Path]::GetExtension($Hit.Name).ToLowerInvariant()
+    $Hit.Name.StartsWith('~$') -or $ext -match $script:JkFindNoise -or $script:TidyPartial -contains $ext
+}
+
+# jk recent [days]: files changed in the last few days under the find roots, newest first.
+function Invoke-JkRecent {
+    param([Parameter(Position = 0)][double]$Days = 2, [switch]$All, [string]$Root)
+    if ($Days -le 0) { throw 'how many days back? jk recent 3' }
+    $roots = @(Get-JkFindRoots)
+    if ($Root) { $roots = @($Root) }
+    $since = (Get-Date).AddDays(-$Days)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $hits = @(Find-JkFiles @() $roots -Since $since | Where-Object { -not (Test-JkRecentNoise $_) } | Sort-Object Modified -Descending)
+    $sw.Stop()
+    $max = 20
+    if ($All) { $max = 200 }
+    $show = @($hits | Select-Object -First $max)
+    Save-JkFindLast $show
+    $span = Format-JkCount ([int][Math]::Ceiling($Days)) 'day'
+    if ($Days -lt 1) { $span = Format-JkCount ([int][Math]::Round($Days * 24)) 'hour' }
+    $right = Format-JkCount $hits.Count 'file'
+    if ($hits.Count -gt $show.Count) { $right += ", newest $($show.Count)" }
+    $right += " $($script:G.dot) $('{0:N1}' -f $sw.Elapsed.TotalSeconds) s"
+    Write-JkHeader 'recent' $right -Sub "changed in the last $span"
+    if (-not $show.Count) { Say (Paint 'gray' "  Nothing changed in the last $span (searched: $($roots -join '  '))"); return }
+    # where the work happened, before the file-by-file list
+    if ($hits.Count -ge 5) {
+        $busy = @($hits | Group-Object Folder | Sort-Object Count -Descending | Select-Object -First 4 | ForEach-Object { (Paint 'muted' $_.Name) + (Paint 'gray' " $($_.Count)") })
+        Say ('  ' + (Paint 'gray' 'busiest: ') + ($busy -join (Paint 'gray' "  $($script:G.dot)  ")))
+        Say ''
+    }
+    Write-JkFindRows $show -Ago
+    if ($hits.Count -gt $show.Count) { Say (Paint 'gray' "  +$($hits.Count - $show.Count) more: jk recent $Days -All") }
+    Write-JkFindFooter
 }

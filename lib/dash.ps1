@@ -22,12 +22,14 @@ $script:JkTips = @(
     'jk space               what is filling the disk, with the right cleanup for each',
     'jk exams               every remaining exam with a countdown',
     'jk jobs stripe         did I already apply? every application to a company, with links',
-    'jk find co250 a3       finds a file by words in its name or folders; jk find -o 1 opens it'
+    'jk find co250 a3       finds a file by words in its name or folders; jk find -o 1 opens it',
+    'jk recent              the files you changed in the last 2 days, newest first'
 )
 
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'recent'; Cmd = 'jk recent'; Text = 'the files you changed in the last 2 days, newest first (jk find -o 1 opens one)' },
     @{ Id = 'exam-mornings'; Cmd = 'exam days'; Text = 'the morning popup leads with the exam, with its end time, room and what to bring' },
     @{ Id = 'battery-health'; Cmd = 'jk sys'; Text = 'now shows battery wear: how much of its original charge your battery still holds' },
     @{ Id = 'tidy-courses'; Cmd = 'jk tidy'; Text = 'course downloads (CS245-F25-A05.pdf, STAT_230_002_27.pdf) now go to their course folders' },

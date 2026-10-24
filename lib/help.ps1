@@ -126,6 +126,8 @@ jk find -o 2                   open result 2 of the last search;  -e 2 shows it 
 jk find a3 sol -o              open the best match straight away;  -p prints its path: cp (jk find a3 -p) .
 jk find notes -All             up to 200 results (15 by default)
 jk find lab -Root D:\school    somewhere else (or: jk config set find.roots "C:\a;D:\b")
+jk recent                      files you changed in the last 2 days, newest first (jk recent 7, jk recent 0.5)
+                               the numbers work with jk find -o / -e / -c / -p, like a search's
 Skips hidden folders, links and dependency/build folders (node_modules, venv, bin, obj, build, dist, target).
 '@
     'sys'    = @'
@@ -191,6 +193,7 @@ $script:JkHelpTopics['exams'] = $script:JkHelpTopics['due']
 $script:JkHelpTopics['at'] = $script:JkHelpTopics['remind']
 $script:JkHelpTopics['port'] = $script:JkHelpTopics['sys']
 $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
+$script:JkHelpTopics['recent'] = $script:JkHelpTopics['find']
 $script:JkHelpTopics['doctor'] = $script:JkHelpTopics['setup']
 $script:JkHelpTopics['update'] = "jk update                      git pull --ff-only in the jk folder, list what changed, reload the module`n                               (refuses if tracked files have uncommitted changes)"
 $script:JkHelpTopics['plan'] = "jk plan                        today's study blocks per course, and the next 7 days if you follow the plan`njk plan start                  start a 25-minute focus block on the most urgent item`n                               Work per item = weight x 15 min (exams) or x 30 min (assignments), minus focus`n                               already logged on that course, spread over the days left.`njk config set plan.hours 4     daily budget (default 3)   plan.examMin / plan.dueMin tune the estimates`njk config set plan.examHours 8 the budget during the study break and exams (default 6, no classes then)"
@@ -260,7 +263,7 @@ function Show-JkHelp {
         'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
-        'Machine'  = @('find', 'go', 'mark', 'tidy', 'space', 'sys', 'speed')
+        'Machine'  = @('find', 'recent', 'go', 'mark', 'tidy', 'space', 'sys', 'speed')
         'jk'       = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {

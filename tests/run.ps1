@@ -1475,6 +1475,24 @@ Test 'jk find: every word in the name or folders, best first, skipping deps and 
     Set-JkConfig 'find.roots' ''
     Remove-Item -LiteralPath (Join-Path $top 'link') -Force -Recurse
 }
+Test 'jk recent: files changed since a cut-off, newest first, without lock files and by-products' {
+    $top = Join-Path $env:JK_HOME 'recentroot'
+    New-Item -ItemType Directory (Join-Path $top 'notes') -Force | Out-Null
+    $now = Get-Date
+    # minutes ago
+    $files = [ordered]@{ 'notes\new.md' = 1; 'notes\older.pdf' = 30; 'notes\~$draft.docx' = 2; 'notes\paper.aux' = 2; 'stale.txt' = 7200 }
+    foreach ($k in $files.Keys) { $p = Join-Path $top $k; Set-Content -LiteralPath $p 'x'; (Get-Item -LiteralPath $p).LastWriteTime = $now.AddMinutes(-$files[$k]) }
+    $hits = @(Find-JkFiles @() @($top) -Since $now.AddDays(-2) | Where-Object { -not (Test-JkRecentNoise $_) } | Sort-Object Modified -Descending)
+    Assert-Eq (($hits | ForEach-Object { $_.Name }) -join ',') 'new.md,older.pdf'
+    Assert-Eq @(Find-JkFiles @() @($top)).Count 0 'no words and no cut-off finds nothing'
+    Set-JkConfig 'find.roots' $top
+    try {
+        $out = (Invoke-JkRecent 2 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match '2 files') "header: $out"
+        Assert-Eq (Split-Path (Invoke-JkFind -p 1) -Leaf) 'new.md' 'jk find -p 1 uses the recent list'
+        Assert-Throws { Invoke-JkRecent 0 }
+    } finally { Set-JkConfig 'find.roots' '' }
+}
 Test 'Fit counts CJK characters as two columns' {
     $cjk = [string][char]0x6295 + [char]0x5DE5 + [char]0x4F5C
     Assert-Eq (Get-JkTextWidth "Desktop\$cjk") 14

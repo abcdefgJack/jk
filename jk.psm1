@@ -25,6 +25,7 @@ $script:JkCommands = [ordered]@{
     'go'     = @{ Fn = 'Invoke-JkGo'; Aliases = @('cd', 'jump'); Desc = 'jump to a folder by fuzzy name (also: j <name>)' }
     'mark'   = @{ Fn = 'Invoke-JkMark'; Aliases = @('bookmark'); Desc = 'bookmark the current folder for jk go' }
     'find'   = @{ Fn = 'Invoke-JkFind'; Aliases = @('search', 'ff'); Desc = 'find a file by words in its name or folders (Desktop, Documents, Downloads); -o opens it' }
+    'recent' = @{ Fn = 'Invoke-JkRecent'; Aliases = @('changed', 'latest'); Desc = 'files you changed in the last 2 days (or N), newest first; jk find -o 1 opens one' }
     'repos'  = @{ Fn = 'Invoke-JkRepos'; Aliases = @('git'); Desc = 'status of every git repo on the Desktop: dirty, ahead, behind' }
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
@@ -114,6 +115,7 @@ $script:JkParamTargets = @{
     'cp add'       = 'Add-JkCpTest'
     'go'           = 'Invoke-JkGo'
     'find'         = 'Invoke-JkFind'
+    'recent'       = 'Invoke-JkRecent'
     'mark'         = 'Invoke-JkMark'
     'sys'          = 'Invoke-JkSys'
     'grade add'    = 'Add-JkGradeExtra'
@@ -149,6 +151,7 @@ $script:JkActions = @{
     'port'   = @()
     'go'     = @()
     'find'   = @()
+    'recent' = @()
     'help'   = @()
 }
 
