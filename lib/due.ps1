@@ -992,7 +992,10 @@ function Invoke-JkDueRemind {
     # Sundays also look at the whole week, and that alone is reason enough for the popup
     $weekLine = $null
     if ($now.DayOfWeek -eq 'Sunday') { $weekLine = Get-JkWeekAheadLine $data $cmap $now }
-    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
+    # open to-dos due today (or already overdue) ride along too, and are reason enough on their own
+    $todos = @()
+    try { $todos = @((Get-JkTodoData).items | Where-Object { -not $_.done -and ($td = Get-JkTodoDue $_) -and $td.Date -le $now.Date } | Sort-Object { Get-JkTodoDue $_ }) } catch { }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $lines = @()
     if ($weekLine) { $lines += $weekLine }
     if ($classes.Count) {
@@ -1024,6 +1027,17 @@ function Invoke-JkDueRemind {
         $lines += $txt
     }
     if ($soon.Count -gt 6) { $lines += "+$($soon.Count - 6) more" }
+    if ($todos.Count) {
+        $names = @($todos | Select-Object -First 3 | ForEach-Object {
+                $td = Get-JkTodoDue $_
+                $t = [string]$_.text
+                if ($td.Date -lt $now.Date) { $t += " (overdue since $($td.ToString('ddd', $script:Inv)))" }
+                elseif ($td.TimeOfDay.TotalMinutes -gt 0) { $t += " by $(Format-JkTime $td.ToString('HH:mm', $script:Inv))" }
+                $t
+            })
+        $more = ''; if ($todos.Count -gt 3) { $more = ", +$($todos.Count - 3) more" }
+        $lines += "To-do: $($names -join ', ')$more"
+    }
     # today's study blocks ride along (they never trigger a popup on their own)
     try {
         $plan = Get-JkPlanToday
@@ -1046,6 +1060,11 @@ function Invoke-JkDueRemind {
     } elseif ($classes.Count) {
         $accent = Get-JkCourseColor $classes[0].Class.course $cmap
         $title = "$($classes.Count) class$(if ($classes.Count -ne 1) {'es'}) today, nothing due soon"
+    } elseif ($todos.Count) {
+        $accent = $script:JkPalette.amber
+        $title = "$(Format-JkCount $todos.Count 'to-do') due today"
+        $late = @($todos | Where-Object { (Get-JkTodoDue $_).Date -lt $now.Date }).Count
+        if ($late) { $title = "$(Format-JkCount $todos.Count 'to-do') due ($late overdue)" }
     } else {
         # a Sunday with nothing in the next two days: the week ahead is the news
         $accent = $script:JkPalette.blue
