@@ -84,7 +84,7 @@ function Show-JkReview {
     $busiest = $byDay | Select-Object -First 1
     $busyTxt = ''
     if ($busiest.Count -gt 1) { $busyTxt = "  $($script:G.dot)  busiest: " + ([datetime]::ParseExact($busiest.Name, 'yyyy-MM-dd', $script:Inv)).ToString('ddd MMM d', $script:Inv) + " ($($busiest.Count) items)" }
-    Say ('  ' + (Paint 'white' "$($ahead.Count) items") + (Paint 'gray' "  $($script:G.dot)  $exams exam$(if ($exams -ne 1) {'s'})$busyTxt"))
+    Say ('  ' + (Paint 'white' (Format-JkCount $ahead.Count 'item')) + (Paint 'gray' "  $($script:G.dot)  $(Format-JkCount $exams 'exam')$busyTxt"))
 
     # day strip: one cell per day with a dot per item (exams solid)
     $strip = '  '

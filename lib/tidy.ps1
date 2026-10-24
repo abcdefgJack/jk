@@ -124,7 +124,7 @@ function Invoke-JkTidyRun {
     $maxSize = ($byCat | Measure-Object -Property Size -Maximum).Maximum
     if (-not $maxSize) { $maxSize = 1 }
     foreach ($c in $byCat) {
-        Say ('  ' + (Paint 'bold white' (Fit $c.Name 12)) + (Paint 'muted' (Fit "$($c.Count) files" 11 -Right)) + (Paint 'white' (Fit (Format-JkSize $c.Size) 10 -Right)) + '  ' + (Get-JkBar ($c.Size / $maxSize) 24 'teal'))
+        Say ('  ' + (Paint 'bold white' (Fit $c.Name 12)) + (Paint 'muted' (Fit (Format-JkCount $c.Count 'file') 11 -Right)) + (Paint 'white' (Fit (Format-JkSize $c.Size) 10 -Right)) + '  ' + (Get-JkBar ($c.Size / $maxSize) 24 'teal'))
     }
 
     Say ''
@@ -144,7 +144,7 @@ function Invoke-JkTidyRun {
         $extra = @($dupes | ForEach-Object { $_.Extras }).Count
         $dupSize = ($dupes | ForEach-Object { $_.Size * $_.Extras.Count } | Measure-Object -Sum).Sum
         if ($extra) {
-            Say ('  ' + (Paint 'orange' "$($script:G.bullet) $extra duplicate copies") + " in $($dupes.Count) groups $($script:G.dot) $(Format-JkSize $dupSize) reclaimable" + (Paint 'gray' "   $($script:G.arrow) jk tidy dupes"))
+            Say ('  ' + (Paint 'orange' "$($script:G.bullet) $(Format-JkCount $extra 'duplicate copy' 'duplicate copies')") + " in $(Format-JkCount $dupes.Count 'group') $($script:G.dot) $(Format-JkSize $dupSize) reclaimable" + (Paint 'gray' "   $($script:G.arrow) jk tidy dupes"))
         }
     }
     $recent = @($plan | Where-Object { $_.Status -eq 'recent' }).Count
@@ -158,7 +158,7 @@ function Invoke-JkTidyRun {
     }
     $cats = @($moving | Group-Object Category).Count
     Say ''
-    Say ('  ' + (Paint 'bold green' 'jk tidy apply') + " moves $($moving.Count) files into $cats folders inside $(Split-Path $Path -Leaf)\" + (Paint 'gray' "  (undo: jk tidy undo)"))
+    Say ('  ' + (Paint 'bold green' 'jk tidy apply') + " moves $(Format-JkCount $moving.Count 'file') into $(Format-JkCount $cats 'folder') inside $(Split-Path $Path -Leaf)\" + (Paint 'gray' "  (undo: jk tidy undo)"))
 }
 
 function Invoke-JkTidyApply([string]$Path, $Plan) {
@@ -188,7 +188,7 @@ function Invoke-JkTidyApply([string]$Path, $Plan) {
     $name = (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json'
     Save-JkJson "tidy\$name" ([pscustomobject]@{ root = $Path; at = (Get-Date).ToString('s'); moves = $log.ToArray() })
     $summary = $moving | Group-Object Category | Sort-Object Count -Descending | ForEach-Object { "$($_.Name) $($_.Count)" }
-    Say ((Paint 'green' "  moved $($log.Count) items $($script:G.check)") + (Paint 'gray' "  $($summary -join ', ')"))
+    Say ((Paint 'green' "  moved $(Format-JkCount $log.Count 'item') $($script:G.check)") + (Paint 'gray' "  $($summary -join ', ')"))
     if ($failed) { Say (Paint 'yellow' "  $failed files could not be moved (probably open in another program)") }
     Say (Paint 'gray' "  undo with: jk tidy undo")
 }
@@ -260,7 +260,7 @@ function Invoke-JkTidyOld {
     $exts = @($script:TidyCategories['Installers']) + @($script:TidyCategories['Archives'])
     $files = @(Get-JkLooseDownloads $Path | Where-Object { $exts -contains $_.Extension.ToLower() -and ($now - $_.LastWriteTime).TotalDays -ge $Days } | Sort-Object Length -Descending)
     $size = ($files | Measure-Object -Property Length -Sum).Sum
-    Write-JkHeader 'Old installers & archives' "$($files.Count) files $($script:G.dot) $(Format-JkSize $size)" -Sub "older than $Days days"
+    Write-JkHeader 'Old installers & archives' "$(Format-JkCount $files.Count 'file') $($script:G.dot) $(Format-JkSize $size)" -Sub "older than $(Format-JkCount $Days 'day')"
     $w = Get-JkWidth
     foreach ($f in ($files | Select-Object -First 30)) {
         Say ('  ' + (Paint 'white' (Fit (Format-JkSize $f.Length) 9 -Right)) + '  ' + (Fit $f.FullName.Substring($Path.Length).TrimStart('\') ([Math]::Max(20, $w - 36))) + (Paint 'gray' (Fit ("$([int]($now - $f.LastWriteTime).TotalDays)d old") 10 -Right)))

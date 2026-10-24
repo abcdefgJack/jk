@@ -109,7 +109,7 @@ function Invoke-JkRepos {
     if ($Root) { $roots = @($Root) } else { $roots = @((Get-JkConfig 'repos.roots') -split ';' | Where-Object { $_ } | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) }) }
     $repos = @(Find-JkRepos $roots $Depth)
     if ($Fetch) {
-        Say (Paint 'gray' "  fetching $($repos.Count) repos$($script:G.ell)")
+        Say (Paint 'gray' "  fetching $(Format-JkCount $repos.Count 'repo')$($script:G.ell)")
         # never sit waiting on a credential prompt for a repo that needs a login
         $oldPrompt = $env:GIT_TERMINAL_PROMPT
         $env:GIT_TERMINAL_PROMPT = '0'
@@ -127,7 +127,7 @@ function Invoke-JkRepos {
     $st = @(Get-JkRepoStatuses $repos | Sort-Object @{ Expression = { if ($_.Modified + $_.Untracked + $_.Ahead + $_.Behind -gt 0) { 0 } else { 1 } } }, Name)
     $dirty = @($st | Where-Object { $_.Modified + $_.Untracked -gt 0 }).Count
     $unpushed = @($st | Where-Object { $_.Ahead -gt 0 }).Count
-    Write-JkHeader 'Repos' "$($st.Count) repos $($script:G.dot) $dirty with changes $($script:G.dot) $unpushed unpushed" -Sub ($roots -join '; ')
+    Write-JkHeader 'Repos' "$(Format-JkCount $st.Count 'repo') $($script:G.dot) $dirty with changes $($script:G.dot) $unpushed unpushed" -Sub ($roots -join '; ')
     $w = Get-JkWidth
     foreach ($r in $st) {
         $state = @()
