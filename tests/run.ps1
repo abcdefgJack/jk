@@ -875,6 +875,42 @@ Test 'term phases: no section nudge after classes; next-term pointer; bigger exa
         $script:JkConfigCache = $null
     }
 }
+Test 'a damaged data file is replaced by the newest backup that reads' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved ('heal-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $good = [IO.File]::ReadAllText((Get-JkPath 'deadlines.json'))
+        $n = @((Get-JkDueData).events).Count
+        # two backup days: the newer one is itself damaged, the older one is good
+        foreach ($day in '2026-10-20', '2026-10-21') { New-Item -ItemType Directory -Force -Path (Join-Path $env:JK_HOME "backups\$day") | Out-Null }
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'backups\2026-10-20\deadlines.json'), $good)
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'backups\2026-10-21\deadlines.json'), '{"events": [')
+        # cut short by a crash
+        [IO.File]::WriteAllText((Get-JkPath 'deadlines.json'), $good.Substring(0, [int]($good.Length / 2)))
+        $all = @(Get-JkDueData 3>&1)
+        $w = @($all | Where-Object { $_ -is [Management.Automation.WarningRecord] }) -join ' '
+        $d = @($all | Where-Object { $_ -isnot [Management.Automation.WarningRecord] })[0]
+        Assert-Eq @($d.events).Count $n 'deadlines are back'
+        Assert-True ("$w" -match 'Restored the backup of 2026-10-20') "warning: $w"
+        Assert-True (@(Get-ChildItem -LiteralPath $env:JK_HOME -Filter 'deadlines.json.corrupt-*').Count -eq 1) 'the damaged file is kept'
+        Assert-Eq @((Get-JkDueData).events).Count $n 'the file on disk is repaired, not just this read'
+        # an emptied file counts as damage too
+        [IO.File]::WriteAllText((Get-JkPath 'deadlines.json'), '')
+        Assert-Eq @((Get-JkDueData 3>$null).events).Count $n 'empty file restored'
+        # a hand edit that breaks config.json falls back to the last good config, not to defaults
+        Set-JkConfig 'remind.time' '07:45'
+        New-Item -ItemType Directory -Force -Path (Join-Path $env:JK_HOME 'backups\2026-10-19') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'backups\2026-10-19\config.json'), '{ "remind.time": "07:45" }')
+        [IO.File]::WriteAllText((Get-JkPath 'config.json'), "{`n  `"remind.time`": `"07:45`",`n}")
+        $script:JkConfigCache = $null
+        Assert-Eq (Get-JkConfig 'remind.time' 3>$null) '07:45' 'the last good config is used'
+        # a file jk does not back up (state) still just falls back
+        [IO.File]::WriteAllText((Get-JkPath 'state.json'), '{"lastRemind": ')
+        Assert-True ($null -eq (Read-JkJson 'state.json' $null 3>$null)) 'state falls back'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'
@@ -1317,11 +1353,16 @@ Test 'config defaults, set and reset' {
     Invoke-JkConfig reset cp.lang
     Assert-Eq (Get-JkConfig 'cp.lang') 'cpp'
 }
-Test 'corrupt data file is backed up, not fatal' {
-    [IO.File]::WriteAllText((Get-JkPath 'todo.json'), '{ not json')
-    $t = Get-JkTodoData 3>$null
-    Assert-Eq @($t.items).Count 0
-    Assert-True (@(Get-ChildItem (Get-JkHome) -Filter 'todo.json.corrupt-*').Count -eq 1)
+Test 'corrupt data file with no backup: set aside, not fatal' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved ('nobackup-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    try {
+        New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+        [IO.File]::WriteAllText((Get-JkPath 'todo.json'), '{ not json')
+        $t = Get-JkTodoData 3>$null
+        Assert-Eq @($t.items).Count 0
+        Assert-True (@(Get-ChildItem (Get-JkHome) -Filter 'todo.json.corrupt-*').Count -eq 1)
+    } finally { $env:JK_HOME = $saved }
 }
 Test 'daily backup before the first change, restore round-trip' {
     $saved = $env:JK_HOME
