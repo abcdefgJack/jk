@@ -189,16 +189,19 @@ function Show-JkGrade {
     if ($m.Remaining -gt 0) {
         Say ''
         $targets = @(50, 60, 70, 80, 90) + @($target) | Sort-Object -Unique
+        # the cells narrow with the window; the explanation gets a line of its own
+        $cellW = [Math]::Max(7, [Math]::Min(13, [int][Math]::Floor(((Get-JkWidth) - 21) / $targets.Count)))
         $row1 = '  to finish with   '
         $row2 = '  you need         '
         foreach ($t in $targets) {
             $n = Get-JkNeededText $t $m
             $hl = 'muted'; if ($t -eq $target) { $hl = 'bold white' }
-            $row1 += Paint $hl (Fit (Format-JkPct $t 0) 13 -Right)
-            $row2 += Paint $n[1] (Fit $n[0] 13 -Right)
+            $row1 += Paint $hl (Fit (Format-JkPct $t 0) $cellW -Right)
+            $row2 += Paint $n[1] (Fit $n[0] $cellW -Right)
         }
         Say $row1
-        Say ($row2 + (Paint 'gray' "   avg on the remaining $(Format-JkPct $m.Remaining 1)"))
+        Say $row2
+        Say (Paint 'gray' "  (the average you need on the remaining $(Format-JkPct $m.Remaining 1) of the course)")
     }
 }
 
