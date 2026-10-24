@@ -255,6 +255,10 @@ Test 'ICS export: valid structure, 75-octet folding, escaping' {
     Assert-Eq ([regex]::Matches($text, 'BEGIN:VEVENT').Count) ([regex]::Matches($text, 'END:VEVENT').Count)
     foreach ($line in ($text -split "`r`n")) { Assert-True ([Text.Encoding]::UTF8.GetByteCount($line) -le 75) "line too long: $line" }
     Assert-Eq (ConvertTo-JkIcsText 'a,b;c\d') 'a\,b\;c\\d'
+    # every summary says what it is: Due:, Exam: (or Appt:)
+    $summaries = @([regex]::Matches(($text -replace "`r`n ", ''), '(?m)^SUMMARY:(.*)$') | ForEach-Object { $_.Groups[1].Value })
+    Assert-True (@($summaries | Where-Object { $_ -like 'Exam: *' }).Count -ge 1) 'exams are labelled'
+    Assert-Eq @($summaries | Where-Object { $_ -notmatch '^(Due|Exam|Appt): ' }).Count 0 'nothing unlabelled'
 }
 
 Test 'jk at: bare hours mean the next such hour, day + time phrases' {

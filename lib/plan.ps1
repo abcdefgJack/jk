@@ -195,6 +195,8 @@ function Show-JkPlan {
     Say (' ' + (Paint 'bold white' 'Today'))
     if ($today.Alloc.Count -eq 0) { Say (Paint 'green' '  nothing scheduled for today') }
     $order = @($p.Items | Where-Object { $today.Alloc.ContainsKey($_.Key) } | Sort-Object @{ Expression = { $today.Alloc[$_.Key] }; Descending = $true }, Due)
+    # the title column gives way in a narrow window so "~4h of work left" still fits
+    $titleW = [Math]::Max(12, [Math]::Min(24, $w - 72))
     foreach ($it in $order) {
         $m = $today.Alloc[$it.Key]
         $color = Get-JkCourseColor $it.Course $cmap
@@ -203,7 +205,7 @@ function Show-JkPlan {
         $when = $it.Due.ToString('ddd', $script:Inv); if ($days -eq 0) { $when = 'today' } elseif ($days -eq 1) { $when = 'tmrw' }
         $blocks = Paint "#$color" ($script:G.full * [int]($m / $script:PlanBlock))
         $left = [Math]::Max(0, $it.Effort - $it.Done)
-        Say ('  ' + (Paint "bold #$color" (Fit $code 11)) + (Paint 'white' (Fit "$($it.Title)" 24)) + (Paint 'muted' (Fit "$when $($script:G.dot) $($it.Weight)%" 13)) + (Paint 'bold white' (Fit (Format-JkMinutes $m) 7 -Right)) + '  ' + $blocks + (Paint 'gray' "   ~$(Format-JkMinutes $left) of work left"))
+        Say ('  ' + (Paint "bold #$color" (Fit $code 11)) + (Paint 'white' (Fit "$($it.Title)" $titleW)) + (Paint 'muted' (Fit "$when $($script:G.dot) $($it.Weight)%" 13)) + (Paint 'bold white' (Fit (Format-JkMinutes $m) 7 -Right)) + '  ' + $blocks + (Paint 'gray' "   ~$(Format-JkMinutes $left) of work left"))
     }
     $planned = 0.0; foreach ($v in $today.Alloc.Values) { $planned += $v }
     $doneToday = 0.0; foreach ($v in $logged.Values) { $doneToday += $v }
