@@ -38,7 +38,7 @@ function Get-JkSpaceTargets {
         @{ Key = 'chrome'; Name = 'Chrome cache'; Path = (Join-Path $la 'Google\Chrome\User Data\Default\Cache'); Fix = 'Chrome > Settings > Privacy > Delete browsing data > Cached images and files' }
         @{ Key = 'vscode'; Name = 'VS Code caches'; Path = (Join-Path $ra 'Code\CachedData'); Fix = 'old CachedData versions can go (VS Code keeps the current one)' }
         @{ Key = 'cursor'; Name = 'Cursor caches'; Path = (Join-Path $ra 'Cursor\CachedData'); Fix = 'old CachedData versions can go' }
-        @{ Key = 'jetbrains'; Name = 'JetBrains caches/logs'; Path = (Join-Path $la 'JetBrains'); Fix = 'folders for IDE versions you no longer run can go' }
+        @{ Key = 'jetbrains'; Name = 'JetBrains caches/logs'; Path = (Join-Path $la 'JetBrains'); Fix = 'jk space clean jetbrains  (caches of IDE versions no longer installed)' }
         @{ Key = 'crashdumps'; Name = 'Crash dumps'; Path = (Join-Path $la 'CrashDumps'); Fix = 'safe to delete' }
     )
     foreach ($t in $list) { if ($t.Path) { [pscustomobject]$t } }
@@ -110,6 +110,37 @@ function Show-JkSpace {
     Say ('  ' + (Paint 'bold white' ('{0} in these places' -f (Format-JkSize $total))) + (Paint 'gray' '  -  nothing was changed; cleanups run only when you name one'))
 }
 
+# JetBrains IDEs keep a cache folder per version (%LOCALAPPDATA%\JetBrains\CLion2023.1) and an
+# upgrade leaves the old one behind. "CLion 2024.2.1" as Windows lists it -> CLion2024.2.
+$script:JkJetBrainsNames = [ordered]@{
+    'IntelliJ IDEA Community Edition' = 'IdeaIC'; 'IntelliJ IDEA' = 'IntelliJIdea'; 'PyCharm Community Edition' = 'PyCharmCE'; 'PyCharm' = 'PyCharm'
+    'CLion' = 'CLion'; 'WebStorm' = 'WebStorm'; 'Rider' = 'Rider'; 'DataGrip' = 'DataGrip'; 'GoLand' = 'GoLand'; 'PhpStorm' = 'PhpStorm'; 'RustRover' = 'RustRover'
+}
+
+function ConvertTo-JkJetBrainsKey([string]$DisplayName) {
+    if ($DisplayName -notmatch '^(?<p>.+?)\s+(?<y>\d{4})\.(?<m>\d+)') { return $null }
+    $p = $Matches['p'].Trim(); $ver = "$($Matches['y']).$($Matches['m'])"
+    if ($script:JkJetBrainsNames.Contains($p)) { return $script:JkJetBrainsNames[$p] + $ver }
+    $null
+}
+
+function Get-JkInstalledJetBrains {
+    $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    @(Get-ItemProperty $keys -ErrorAction SilentlyContinue | ForEach-Object { ConvertTo-JkJetBrainsKey ([string]$_.DisplayName) } | Where-Object { $_ })
+}
+
+# Cache folders no installed IDE uses. The newest of each product always stays, in case that IDE
+# came from somewhere Windows does not list (JetBrains Toolbox).
+function Get-JkStaleJetBrainsCaches([string]$Root = (Join-Path $env:LOCALAPPDATA 'JetBrains'), [string[]]$Installed = @(Get-JkInstalledJetBrains)) {
+    $dirs = @(Get-ChildItem -LiteralPath $Root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[A-Za-z]+\d{4}\.\d+$' } | ForEach-Object {
+            $null = $_.Name -match '^([A-Za-z]+)(\d{4})\.(\d+)$'
+            [pscustomobject]@{ Dir = $_; Product = $Matches[1]; Version = [version]"$($Matches[2]).$($Matches[3])" }
+        })
+    $newest = @{}
+    foreach ($d in $dirs) { if (-not $newest.ContainsKey($d.Product) -or $d.Version -gt $newest[$d.Product]) { $newest[$d.Product] = $d.Version } }
+    @($dirs | Where-Object { $Installed -notcontains $_.Dir.Name -and $_.Version -ne $newest[$_.Product] } | ForEach-Object { $_.Dir })
+}
+
 function Invoke-JkSpaceClean {
     param([Parameter(Position = 0)][string]$What, [int]$Days = 7)
     switch -Regex ($What) {
@@ -143,7 +174,18 @@ function Invoke-JkSpaceClean {
             if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm not found' }
             & npm cache clean --force
         }
-        default { throw 'usage: jk space clean temp|conda|pip|npm   (other items list the right tool to use)' }
+        '^(jetbrains|jb)$' {
+            $stale = @(Get-JkStaleJetBrainsCaches)
+            if (-not $stale.Count) { Say (Paint 'green' "  no caches of old JetBrains IDE versions $($script:G.check)"); return }
+            $freed = 0.0
+            foreach ($d in $stale) {
+                $size = 0.0; $s = Get-JkFolderSize $d.FullName; if ($s) { $size = $s.Bytes }
+                try { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop; $freed += $size; Say ('  ' + (Paint 'gray' 'removed ') + (Paint 'white' $d.Name) + (Paint 'gray' "  $(Format-JkSize $size)")) }
+                catch { Say (Paint 'orange' "  could not remove $($d.Name) (an IDE using it may be open)") }
+            }
+            Say ((Paint 'green' "  freed $(Format-JkSize $freed) $($script:G.check)") + (Paint 'gray' '  caches of IDE versions no longer installed; your settings (AppData\Roaming) stay'))
+        }
+        default { throw 'usage: jk space clean temp|conda|pip|npm|jetbrains   (other items list the right tool to use)' }
     }
 }
 
