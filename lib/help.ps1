@@ -115,6 +115,16 @@ jk mark [alias]                bookmark the current folder;  jk mark old -Remove
 Candidates: bookmarks, Desktop folders (and course folders inside them), Documents,
 Downloads, home, and every folder you have jumped to; frequent ones rank higher.
 '@
+    'find'   = @'
+jk find co250 a3               files whose name or folders hold every word, best first
+                               (Desktop, Documents and Downloads, walked live: new files show up at once)
+jk find cs350 pdf              a word that is a file type keeps just that type
+jk find -o 2                   open result 2 of the last search;  -e 2 shows it in Explorer, -c 2 your editor
+jk find a3 sol -o              open the best match straight away;  -p prints its path: cp (jk find a3 -p) .
+jk find notes -All             up to 200 results (15 by default)
+jk find lab -Root D:\school    somewhere else (or: jk config set find.roots "C:\a;D:\b")
+Skips hidden folders, links and dependency/build folders (node_modules, venv, bin, obj, build, dist, target).
+'@
     'sys'    = @'
 jk sys                         CPU load, memory, every disk, battery, Wi-Fi/IP, apps using the most RAM
 jk port                        listening ports with the owning app (dev ports highlighted)
@@ -211,7 +221,7 @@ function Show-JkHelp {
         'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
         'Time'     = @('focus', 'in', 'at', 'remind')
         'Code'     = @('cp', 'repos', 'port')
-        'Machine'  = @('tidy', 'space', 'sys', 'go', 'mark', 'speed')
+        'Machine'  = @('find', 'go', 'mark', 'tidy', 'space', 'sys', 'speed')
         'jk'       = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
     }
     foreach ($g in $groups.Keys) {

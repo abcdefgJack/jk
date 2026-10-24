@@ -79,7 +79,8 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk cp stress` | `main` vs `brute` on `gen <seed>` inputs; a counterexample becomes a sample |
 | | `jk repos` / `jk repos -Fetch` | Every git repo under the Desktop: uncommitted, unpushed, behind (git runs for 8 repos at a time; a hung fetch is stopped after a minute) |
 | | `jk port 8080 -Kill` | Who holds a port, and free it |
-| Machine | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable). `jk tidy dupes` and `jk tidy old` report duplicates and stale installers; `-Recycle` sends them to the Recycle Bin, looking only at loose downloads and jk's category folders, never inside unzipped programs or repos |
+| Machine | `jk find co250 a3` / `jk find -o 1` | Any file on the Desktop, in Documents or Downloads whose name or folders hold every word, best first (a word like `pdf` picks the type). Walked live in about 0.2 s, so new files show up at once; `-o`, `-e`, `-c`, `-p` open, reveal in Explorer, edit or print a result |
+| | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable). `jk tidy dupes` and `jk tidy old` report duplicates and stale installers; `-Recycle` sends them to the Recycle Bin, looking only at loose downloads and jk's category folders, never inside unzipped programs or repos |
 | | `j co250`, `j co250/final`, `j jobs`, `j -` | Fuzzy jump (Chinese folder names work too); `jk mark` bookmarks the current folder |
 | | `jk sys` | CPU, memory, disks, battery, Wi-Fi, apps using the most RAM |
 | | `jk space` / `jk space clean conda` | What fills the disk (caches, temp, Docker, `node_modules`), with the right cleanup for each |
@@ -103,6 +104,8 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 - **Grades** reuse the weights stored with your deadlines. A quiz window's opens/closes pair counts
   once, items that merely share a title (a weekly "Quiz") stay separate, and a note such as
   "best 6 of 8" turns into a drop-lowest rule automatically.
+- **Wide characters.** Chinese, Japanese and Korean text (and fullwidth punctuation) counts as two
+  columns, so tables stay aligned around folder names in those scripts.
 - **Fast startup.** The profile hook prints a cached one-line brief without loading the module,
   and tab completion loads it on first use.
 - **`jk speed fix`** replaces conda's hook, which runs `conda.exe` on every launch, with the same
@@ -127,6 +130,8 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
     local backups are gone.
   - `jk tidy apply` logs every move in `~\.jk\tidy\`, which is what `jk tidy undo` reads.
   - `jk cp` builds into a hidden `.jkcp` folder next to each solution, never into `.jk`.
+  - `jk find` keeps the paths it last listed in `~\.jk\find.last`, so `jk find -o 2` knows which
+    file is number 2.
 
 ## Development
 
