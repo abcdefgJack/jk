@@ -1326,6 +1326,38 @@ Test 'tidy apply + undo round-trips exactly' {
     $after = (Get-ChildItem $dir -Recurse | ForEach-Object { $_.FullName.Substring($dir.Length) } | Sort-Object) -join '|'
     Assert-Eq $after $before
 }
+Test 'tidy files course downloads into their course folders, and undo brings them back' {
+    $top = Join-Path $env:JK_HOME 'courses'
+    $coll = Join-Path $top 'Waterloo course'
+    foreach ($d in 'CS245', 'Stat 230', 'CS341', 'CO367\materials') { New-Item -ItemType Directory (Join-Path $coll $d) -Force | Out-Null }
+    Set-Content (Join-Path $coll 'CO367\materials\CO367_A1.pdf') 'filed'
+    $dl = Join-Path $top 'dl'
+    New-Item -ItemType Directory $dl -Force | Out-Null
+    foreach ($n in 'CS245-F25-A05.pdf', 'STAT_230_002_27.pdf', 'cs341piazza__Lab_1.pdf', 'CS234_A3.md', 'cs245 vs cs341.pdf', 'notes.pdf') { Set-Content (Join-Path $dl $n) $n }
+    Set-Content (Join-Path $dl 'CO367_A1.pdf') 'filed'   # same name and size as the copy already filed
+    Get-ChildItem $dl -File | ForEach-Object { $_.LastWriteTime = (Get-Date).AddDays(-10) }
+    Set-JkConfig 'tidy.courses' $top
+    try {
+        $folders = Get-JkCourseFolders
+        Assert-Eq (($folders.Keys | Sort-Object) -join ',') 'co367,cs245,cs341,stat230'
+        Assert-Eq (Get-JkFileCourse 'cs341piazza__Lab_1.pdf' $folders) 'cs341' 'a glued-on letter falls back to the number'
+        Assert-Eq (Get-JkFileCourse 'STAT231W26Lec003Slides.pdf' $folders) '' 'no folder for stat231'
+        Assert-Eq (Get-JkFileCourse 'cs245 vs cs341.pdf' $folders) '' 'two courses: left to the categories'
+        $dl = Resolve-JkLongPath $dl
+        $coll = Resolve-JkLongPath $coll
+        $before = (Get-ChildItem $top -Recurse | ForEach-Object { $_.FullName.Substring($top.Length) } | Sort-Object) -join '|'
+        Invoke-JkTidyRun $dl -Apply
+        Assert-True (Test-Path (Join-Path $coll 'CS245\CS245-F25-A05.pdf'))
+        Assert-True (Test-Path (Join-Path $coll 'Stat 230\STAT_230_002_27.pdf'))
+        Assert-True (Test-Path (Join-Path $coll 'CS341\cs341piazza__Lab_1.pdf'))
+        Assert-True (Test-Path (Join-Path $dl 'PDFs\CO367_A1.pdf')) 'an already-filed copy goes with the rest'
+        Assert-True (Test-Path (Join-Path $dl 'PDFs\cs245 vs cs341.pdf'))
+        Assert-True (Test-Path (Join-Path $dl 'Documents\CS234_A3.md'))
+        Undo-JkTidy
+        $after = (Get-ChildItem $top -Recurse | ForEach-Object { $_.FullName.Substring($top.Length) } | Sort-Object) -join '|'
+        Assert-Eq $after $before 'undo restores Downloads and leaves the emptied course folders in place'
+    } finally { Set-JkConfig 'tidy.courses' '' }
+}
 Test 'duplicate detection keeps the clean name' {
     $dir = Join-Path $env:JK_HOME 'dupes'
     New-Item -ItemType Directory $dir -Force | Out-Null
