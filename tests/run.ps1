@@ -1015,6 +1015,22 @@ Test 'first LEARN sync links to items typed in by hand instead of duplicating th
         Assert-Eq (($linked | ForEach-Object { $_.title } | Sort-Object) -join ',') 'A2A Synchronization,Midterm closes' 'hand-typed titles kept'
         $fp = @($after | Where-Object { (Get-JkProp $_ 'uid') -eq 'l-3' })[0]
         Assert-Eq "$($fp.title)|$($fp.kind)|$($fp.note)" 'Final Project|due|' 'a final project is not an exam; no course-name note'
+        # LEARN moves A2A a day: a sync by hand lists it, the morning task's quiet sync keeps it
+        # for the morning popup, which says it once
+        $moveTo = { param([int]$Days) [IO.File]::WriteAllLines($f, @('BEGIN:VCALENDAR', 'VERSION:2.0') + (& $ev 'l-1' ([datetime]::ParseExact($a2a, "yyyyMMdd'T'HHmmss'Z'", $null, 'AdjustToUniversal').AddDays($Days).ToString("yyyyMMdd'T'HHmmss'Z'")) 'A2A Synchronization Dropbox - Due' 'CS 350 - Operating Systems (Fall 2026)') + @('END:VCALENDAR')) }
+        & $moveTo 1
+        $out = (Invoke-JkDueSync $f 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match 'moved #\d+ CS 350 A2A Synchronization\s+Wed Oct 28 8:00 pm \S Thu Oct 29 8:00 pm') "sync by hand: $out"
+        & $moveTo 2
+        Invoke-JkDueSync $f -Quiet
+        Assert-Eq ((Get-JkState 'syncMoved' @()) -join '|') 'CS 350 A2A Synchronization to Fri Oct 30 8:00 pm'
+        $origNotify = ${function:Show-JkNotify}
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:MovedLines = $Lines; 'stub' }
+        try {
+            Invoke-JkDueRemind -Quiet -Force
+            Assert-True (@($script:MovedLines | Where-Object { $_ -eq 'LEARN moved: CS 350 A2A Synchronization to Fri Oct 30 8:00 pm' }).Count -eq 1) "popup: $($script:MovedLines -join ' / ')"
+            Assert-Eq @(Get-JkState 'syncMoved' @() | Where-Object { $_ }).Count 0 'said once'
+        } finally { Set-Item function:script:Show-JkNotify $origNotify }
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
 Test 'term phases: no section nudge after classes; next-term pointer; bigger exam-period budget' {

@@ -1016,6 +1016,8 @@ function Invoke-JkDueRemind {
     # open to-dos due today (or already overdue) ride along too, and are reason enough on their own
     $todos = @()
     try { $todos = @((Get-JkTodoData).items | Where-Object { -not $_.done -and ($td = Get-JkTodoDue $_) -and $td.Date -le $now.Date } | Sort-Object { Get-JkTodoDue $_ }) } catch { }
+    # deadlines the overnight LEARN sync moved, said once
+    $movedNotes = @(@(Get-JkState 'syncMoved' @()) | Where-Object { $_ })
     # in the study break and the exam period every day is a study day: planned study time is
     # reason enough for the brief, which then leads with the next exam
     $plan = $null; $studyDay = $false; $nextExam = $null
@@ -1029,8 +1031,12 @@ function Invoke-JkDueRemind {
             }
         }
     } catch { }
-    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count -and -not $studyDay) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count -and -not $studyDay -and -not $movedNotes.Count) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $lines = @()
+    if ($movedNotes.Count) {
+        $more = ''; if ($movedNotes.Count -gt 3) { $more = "; +$($movedNotes.Count - 3) more" }
+        $lines += "LEARN moved: $(@($movedNotes | Select-Object -First 3) -join '; ')$more"
+    }
     if ($weekLine) { $lines += $weekLine }
     if ($classes.Count) {
         $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
@@ -1116,6 +1122,9 @@ function Invoke-JkDueRemind {
             $accent = Get-JkCourseColor $nextExam.course $cmap
             $title = "Next exam: $(Get-JkCourseLabel $nextExam $cmap) $(([string]$nextExam.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()) $($xd.ToString('ddd', $script:Inv)) $(Format-JkTime $xd.ToString('HH:mm', $script:Inv)) (in $(Format-JkCount ([int]($xd.Date - $now.Date).TotalDays) 'day'))"
         }
+    } elseif ($movedNotes.Count -and -not $todos.Count) {
+        $accent = $script:JkPalette.amber
+        $title = "$(Format-JkCount $movedNotes.Count 'deadline') moved on LEARN"
     } elseif ($todos.Count) {
         $accent = $script:JkPalette.amber
         $title = "$(Format-JkCount $todos.Count 'to-do') due today"
@@ -1130,6 +1139,7 @@ function Invoke-JkDueRemind {
     if (-not (Test-Path $cal)) { Export-JkDueHtml -NoOpen -Quiet }
     $mode = Show-JkNotify -Title $title -Lines $lines -Accent $accent -Open $cal -OpenLabel 'Open calendar' -Seconds 20 -Sound -Wait:$Quiet
     Set-JkState 'lastRemind' ($now.ToString('s', $script:Inv))
+    if ($movedNotes.Count) { Set-JkState 'syncMoved' @() }
     if (-not $Quiet) { Say ((Paint 'green' "  reminder shown ($mode)") + "  $title") }
 }
 

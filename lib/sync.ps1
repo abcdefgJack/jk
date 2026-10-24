@@ -86,6 +86,14 @@ function Find-JkIcsCourse($Item, $Data) {
     $null
 }
 
+# "Sun Nov 1 11:59 pm" for a deadline's (new) date and time
+function Format-JkMovedWhen($Item) {
+    $d = Get-JkEventDue $Item
+    $s = $d.ToString('ddd MMM d', $script:Inv)
+    if ($Item.time) { $s += ' ' + (Format-JkTime $d.ToString('HH:mm', $script:Inv)) }
+    $s
+}
+
 # "CS 350: Assignment 2 - Due" -> Assignment 2; "Due: CS 350 A2A (8%)" (jk's own export) -> A2A + 8%
 function Get-JkIcsTitle([string]$Summary, [string]$CourseCode) {
     $t = $Summary
@@ -165,7 +173,7 @@ function Invoke-JkDueSync {
     $now = Get-JkNow
     $from = $now.Date.AddDays(-$PastDays); $to = $now.Date.AddDays($AheadDays)
     $data = Get-JkDueData
-    $added = @(); $updated = 0; $same = 0; $skipped = 0
+    $added = @(); $updated = 0; $same = 0; $skipped = 0; $moved = @()
     foreach ($ev in $feed) {
         $when = $ev.Start.When
         if ($ev.End -and -not $ev.Start.AllDay -and -not $ev.End.AllDay) {
@@ -209,8 +217,11 @@ function Invoke-JkDueSync {
                 if (-not $newTime -and $hit.time -and $hit.date -eq $date) { $newTime = [string]$hit.time }
                 $newTitle = $title; if ($kept) { $newTitle = [string]$hit.title }
                 $changed = ($hit.date -ne $date) -or ([string]$hit.time -ne $newTime) -or ([string]$hit.title -ne $newTitle)
+                $was = Get-JkEventDue $hit
+                $shifted = ($hit.date -ne $date) -or ([string]$hit.time -ne $newTime)
                 $hit.date = $date; $hit.time = $newTime; $hit.title = $newTitle
                 if ($changed) { $updated++ } else { $same++ }
+                if ($shifted -and (Get-JkEventDue $hit) -ge $now) { $moved += [pscustomobject]@{ Event = $hit; From = $was } }
                 Set-JkProp $hit 'src' $src
             }
             if ($uid) { Set-JkProp $hit 'uid' $uid }
@@ -227,10 +238,21 @@ function Invoke-JkDueSync {
     Save-JkDueData $data
     if ($isUrl -and $Source -ne $saved) { Set-JkConfig 'sync.url' $Source }
     Set-JkState 'lastSync' ((Get-Date).ToString('s', $script:Inv))
-    if ($Quiet) { return }
+    $cmap = Get-JkCourseMap $data
+    if ($Quiet) {
+        # the morning task syncs out of sight: keep what moved for the morning popup to mention
+        if ($moved.Count) {
+            $notes = @($moved | ForEach-Object { "$(Get-JkCourseLabel $_.Event $cmap) $($_.Event.title) to $(Format-JkMovedWhen $_.Event)" })
+            Set-JkState 'syncMoved' @(@(Get-JkState 'syncMoved' @()) + $notes | Where-Object { $_ } | Select-Object -Last 10)
+        }
+        return
+    }
     $origin = 'file'; if ($isUrl) { $origin = ([Uri]($Source -replace '^(?i)webcal://', 'https://')).Host }
     Say ((Paint 'green' "  synced $($script:G.check)") + "  $($added.Count) new, $updated updated, $same unchanged" + (Paint 'gray' "  $($script:G.dot) $(Format-JkCount $feed.Count 'event') in the feed from $origin"))
-    $cmap = Get-JkCourseMap $data
+    foreach ($m in $moved) {
+        $from = $m.From.ToString('ddd MMM d', $script:Inv); if ($m.Event.time) { $from += ' ' + (Format-JkTime $m.From.ToString('HH:mm', $script:Inv)) }
+        Say ('  ' + (Paint 'amber' 'moved ') + (Paint 'gray' "#$($m.Event.id) ") + (Paint "#$(Get-JkCourseColor $m.Event.course $cmap)" (Get-JkCourseLabel $m.Event $cmap)) + ' ' + (Paint 'white' ([string]$m.Event.title)) + (Paint 'gray' "   $from $($script:G.arrow) ") + (Paint 'white' (Format-JkMovedWhen $m.Event)))
+    }
     foreach ($e in ($added | Sort-Object date, time | Select-Object -First 15)) { Say (Format-JkDueLine $e $cmap ((Get-JkWidth)) -WithDate) }
     if ($added.Count -gt 15) { Say (Paint 'gray' "  +$($added.Count - 15) more  $($script:G.arrow) jk due all") }
     if ($added | Where-Object { -not $_.weight }) { Say (Paint 'gray' '  feeds carry no grade weights: add them with jk due edit <id> -Weight 8 for jk grade and jk plan') }
