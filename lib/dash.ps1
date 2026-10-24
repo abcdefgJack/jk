@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'due-files'; Cmd = 'jk due files cs341 a2'; Text = 'the files in the course folder for that deadline (A2.tex, A2\...), numbered for jk find -o' },
     @{ Id = 'clip'; Cmd = 'jk clip'; Text = 'word count of the clipboard; jk clip unwrap fixes text copied from a PDF' },
     @{ Id = 'grade-fill'; Cmd = 'jk grade fill'; Text = 'type the marks for everything already handed in, one after another (Enter skips)' },
     @{ Id = 'recent'; Cmd = 'jk recent'; Text = 'the files you changed in the last 2 days, newest first (jk find -o 1 opens one)' },

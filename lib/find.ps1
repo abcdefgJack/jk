@@ -220,6 +220,86 @@ function Test-JkRecentNoise($Hit) {
     $Hit.Name.StartsWith('~$') -or $ext -match $script:JkFindNoise -or $script:TidyPartial -contains $ext
 }
 
+# Names a deadline's files are likely to carry: "Assignment 2" -> a2, a02, assignment 2, hw2;
+# "Quiz 1" -> quiz 1, q1; codes such as "A2A" as they are; a bare "Midterm" as itself.
+function Get-JkTitleFileTokens([string]$Title) {
+    $t = ($Title -replace '(?i)\s+(opens?|closes?)$', '').Trim()
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($m in [regex]::Matches($t, '(?i)\b(assignment|asst|homework|hw)\s*0*(\d{1,2})\b')) {
+        $n = $m.Groups[2].Value
+        foreach ($x in "a$n", "a0$n", "assignment $n", "hw$n", "asst$n") { $out.Add($x) }
+    }
+    foreach ($m in [regex]::Matches($t, '(?i)\b(quiz|midterm|lab|tutorial|project)\s*0*(\d{1,2})\b')) {
+        $w = $m.Groups[1].Value.ToLower(); $n = $m.Groups[2].Value
+        foreach ($x in "$w $n", "$($w[0])$n") { $out.Add($x) }
+    }
+    foreach ($m in [regex]::Matches($t, '\b[A-Za-z]{1,3}\d{1,2}[A-Za-z]?\b')) { $out.Add($m.Value.ToLower()) }
+    if (-not $out.Count -and $t -match '(?i)\b(midterm|final|exam|quiz)\b') { $out.Add($Matches[1].ToLower()) }
+    @($out | Select-Object -Unique)
+}
+
+# The course's folder for a deadline: by its code ("HEALTH 105" -> HEALTH105) or its key.
+function Get-JkCourseFolderFor($Data, [string]$CourseKey) {
+    $folders = Get-JkCourseFolders
+    $c = @($Data.courses | Where-Object { $_.key -eq $CourseKey })[0]
+    foreach ($k in @((Get-JkNormKey ([string]$c.code)), (Get-JkNormKey $CourseKey))) { if ($k -and $folders.ContainsKey($k)) { return $folders[$k] } }
+    $null
+}
+
+# A deadline from an id, or from words: an optional course first ("cs341 a2", "health midterm 1"),
+# the rest all in the title. Several matches: the nearest upcoming one (the one being worked on),
+# else the latest past one.
+function Find-JkDueByWords($Data, [string[]]$Words) {
+    $w = @($Words | Where-Object { $_ })
+    if ($w.Count -eq 1 -and $w[0] -match '^#?\d+$') { return @(Find-JkEvents $Data $w -Any)[0] }
+    $evs = @($Data.events)
+    if ($w.Count -gt 1) {
+        $c = Resolve-JkCourse $Data $w[0]
+        if ($c) { $evs = @($evs | Where-Object { $_.course -eq $c.key }); $w = @($w | Select-Object -Skip 1) }
+    }
+    $hits = @($evs | Where-Object { $t = ([string]$_.title).ToLower(); -not @($w | Where-Object { -not $t.Contains($_.ToLower()) }).Count })
+    if (-not $hits.Count) { throw "no deadline matches '$($Words -join ' ')' (see: jk due all)" }
+    $now = Get-JkNow
+    $next = @($hits | Where-Object { (Get-JkEventDue $_) -ge $now } | Sort-Object { Get-JkEventDue $_ })
+    if ($next.Count) { return $next[0] }
+    @($hits | Sort-Object { Get-JkEventDue $_ } -Descending)[0]
+}
+
+# jk due files <id|text>: the files in the course folder that look like they belong to a deadline
+# (or, when none do, the newest ones there); numbered for jk find -o.
+function Show-JkDueFiles {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Refs)
+    if (-not $Refs) { throw 'usage: jk due files <id or part of the title>' }
+    $data = Get-JkDueData
+    $cmap = Get-JkCourseMap $data
+    $e = Find-JkDueByWords $data $Refs
+    $label = "$(Get-JkCourseLabel $e $cmap) $(([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())"
+    $dir = Get-JkCourseFolderFor $data ([string]$e.course)
+    if (-not $dir) { throw "no folder for $(Get-JkCourseLabel $e $cmap) on the Desktop (a course folder such as Waterloo course\CS350; jk config set tidy.courses <folder>)" }
+    $all = @(Find-JkFiles @() @($dir) -Since ([datetime]'1900-01-01') | Where-Object { -not (Test-JkRecentNoise $_) })
+    $tokens = @(Get-JkTitleFileTokens ([string]$e.title))
+    $hits = @()
+    if ($tokens.Count) {
+        $rx = '(?i)(?<![a-z0-9])(' + (($tokens | ForEach-Object { [regex]::Escape($_) -replace '\\ ', '[ _-]?' }) -join '|') + ')(?![0-9])'
+        $skip = (Split-Path $dir -Leaf).Length
+        # a match in the name counts more than one only in a folder (A2\MassSpring.ipynb)
+        $hits = @($all | ForEach-Object {
+                $inName = $_.Name -match $rx
+                $inPath = ("$($_.Folder)".Substring([Math]::Min($skip, "$($_.Folder)".Length))) -match $rx
+                if ($inName -or $inPath) { [pscustomobject]@{ Hit = $_; Rank = [int]$inName } }
+            } | Sort-Object @{ Expression = 'Rank'; Descending = $true }, @{ Expression = { $_.Hit.Modified }; Descending = $true } | ForEach-Object { $_.Hit })
+    }
+    $show = @($hits | Select-Object -First 15)
+    $sub = $label
+    if (-not $show.Count) { $show = @($all | Sort-Object Modified -Descending | Select-Object -First 8); $sub = "nothing named after $label yet; newest in the folder" }
+    Save-JkFindLast $show
+    Write-JkHeader 'Files' (Get-JkShortPath $dir) -Sub $sub
+    if (-not $show.Count) { Say (Paint 'gray' '  the folder is empty'); return }
+    Write-JkFindRows $show
+    Write-JkFindFooter
+    Say (Paint 'gray' "  j $(Get-JkNormKey (Split-Path $dir -Leaf)) goes to the folder")
+}
+
 # jk recent [days]: files changed in the last few days under the find roots, newest first.
 function Invoke-JkRecent {
     param([Parameter(Position = 0)][double]$Days = 2, [switch]$All, [string]$Root)

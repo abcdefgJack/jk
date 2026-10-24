@@ -1617,6 +1617,32 @@ Test 'jk clip: unwraps PDF text and counts words the way a word limit does' {
     $m = Measure-JkText "Hello world, it's 2026.`n$zh"
     Assert-Eq "$($m.Words) $($m.Cjk) $($m.Lines)" '4 5 3'
 }
+Test 'jk due files: the course folder''s files named after a deadline' {
+    Assert-Eq ((Get-JkTitleFileTokens 'Assignment 2') -join ',') 'a2,a02,assignment 2,hw2,asst2'
+    Assert-Eq ((Get-JkTitleFileTokens 'A2A Synchronization') -join ',') 'a2a'
+    Assert-Eq ((Get-JkTitleFileTokens 'Quiz 1 closes') -join ',') 'quiz 1,q1'
+    Assert-Eq ((Get-JkTitleFileTokens 'Midterm') -join ',') 'midterm'
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'due-files'; $script:JkConfigCache = $null
+    try {
+        $top = Join-Path $env:JK_HOME 'desk'
+        $c = Join-Path $top 'Waterloo course\CS341'
+        New-Item -ItemType Directory (Join-Path $c 'A2'), (Join-Path $c 'A3') -Force | Out-Null
+        foreach ($f in 'A2.tex', 'A2.aux', 'A2\notes.md', 'A3\draft.md', 'a22.pdf', 'syllabus.pdf') { Set-Content (Join-Path $c $f) 'x' }
+        Set-JkConfig 'tidy.courses' $top
+        Add-JkDue cs341 'Assignment 2' oct 30 11:59pm -Weight 4
+        Add-JkDue cs341 'Assignment 3' nov 13 11:59pm -Weight 4
+        Add-JkDue cs341 'Midterm 2' nov 9 6pm -Exam
+        Show-JkDueFiles cs341 assignment
+        Assert-Eq (@(Get-JkFindLast | ForEach-Object { Split-Path $_ -Leaf }) -join ',') 'A2.tex,notes.md' 'the nearest one; name before folder; no a22 or .aux'
+        Show-JkDueFiles cs341 3
+        Assert-Eq (@(Get-JkFindLast | ForEach-Object { Split-Path $_ -Leaf }) -join ',') 'draft.md'
+        Show-JkDueFiles cs341 midterm
+        Assert-True (@(Get-JkFindLast).Count -ge 4) 'nothing named after it: the newest files instead'
+        Add-JkDue cs999 'Essay' nov 20
+        Assert-Throws { Show-JkDueFiles cs999 essay }
+    } finally { Set-JkConfig 'tidy.courses' ''; $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'Fit counts CJK characters as two columns' {
     $cjk = [string][char]0x6295 + [char]0x5DE5 + [char]0x4F5C
     Assert-Eq (Get-JkTextWidth "Desktop\$cjk") 14

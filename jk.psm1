@@ -134,7 +134,7 @@ $script:JkParamTargets = @{
 }
 
 $script:JkActions = @{
-    'due'    = @('add', 'done', 'undone', 'edit', 'rm', 'all', 'past', 'week', 'exams', 'courses', 'course', 'cal', 'ics', 'sync', 'remind', 'import', 'help')
+    'due'    = @('add', 'done', 'undone', 'edit', 'rm', 'files', 'all', 'past', 'week', 'exams', 'courses', 'course', 'cal', 'ics', 'sync', 'remind', 'import', 'help')
     'todo'   = @('add', 'done', 'undo', 'rm', 'clear', 'edit', 'all', 'help')
     'class'  = @('week', 'list', 'next', 'pick', 'add', 'rm', 'import', 'help')
     'focus'  = @('25', '50', '15', 'status', 'stop', 'log', 'help')
@@ -218,7 +218,7 @@ function Get-JkCompletions {
         }
         elseif ($script:JkActions.ContainsKey($cmd)) { $vals = @($script:JkActions[$cmd]) }
     } elseif ($idx -ge 3) {
-        if ($cmd -eq 'due' -and $action -match '^(done|undone|edit|rm|x)$') {
+        if ($cmd -eq 'due' -and $action -match '^(done|undone|edit|rm|x|files|work)$') {
             $data = Get-JkDueData
             $cmap = Get-JkCourseMap $data
             $now = Get-JkNow
