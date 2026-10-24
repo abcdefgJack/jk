@@ -21,12 +21,14 @@ $script:JkTips = @(
     'jk class week          this week''s timetable; jk class import reads Quest''s list view',
     'jk space               what is filling the disk, with the right cleanup for each',
     'jk exams               every remaining exam with a countdown',
-    'jk jobs stripe         did I already apply? every application to a company, with links'
+    'jk jobs stripe         did I already apply? every application to a company, with links',
+    'jk find co250 a3       finds a file by words in its name or folders; jk find -o 1 opens it'
 )
 
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'find'; Cmd = 'jk find'; Text = 'find a file by words in its name or folders (jk find co250 a3); jk find -o 1 opens it' },
     @{ Id = 'backup-mirror'; Cmd = 'jk backup mirror'; Text = 'keep a daily copy of your jk data outside ~\.jk (another drive, USB, a synced folder)' },
     @{ Id = 'class-alerts'; Cmd = 'class alerts'; Text = 'a popup 10 minutes before each class, with the room (jk config set alert.class 5m, or off)' },
     @{ Id = 'jobs'; Cmd = 'jk jobs'; Text = 'your job tracker: applied, waiting on you, and "did I already apply to X?" (jk jobs stripe)' },

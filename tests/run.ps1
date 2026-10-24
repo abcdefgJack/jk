@@ -490,7 +490,7 @@ Test 'what''s new: each item once, three per run; a fresh setup sees none' {
     $n = $script:JkNews.Count
     $first = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-Eq ([regex]::Matches($first, '(?m)^\s+new\s{2}').Count) ([Math]::Min(3, $n)) 'first run: three'
-    Assert-True ($first -match 'new\s+jk jobs') 'newest first'
+    Assert-True ($first -match "new\s+$([regex]::Escape($script:JkNews[0].Cmd))") 'newest first'
     # the rest, three at a time, each exactly once
     $shown = [Math]::Min(3, $n)
     for ($run = 2; $run -le 10 -and $shown -lt $n; $run++) {
@@ -1355,6 +1355,46 @@ Test 'jk leaves $LASTEXITCODE as it found it' {
     $null = jk help 6>&1
     Assert-Eq $global:LASTEXITCODE 7
     $global:LASTEXITCODE = 0
+}
+Test 'jk find: every word in the name or folders, best first, skipping deps and links' {
+    $top = Join-Path $env:JK_HOME 'findroot'
+    $a3 = Join-Path $top 'Waterloo course\CO250\A3'
+    foreach ($d in $a3, (Join-Path $top 'CS350'), (Join-Path $top 'proj\node_modules\pkg'), (Join-Path $top '.git')) { New-Item -ItemType Directory $d -Force | Out-Null }
+    foreach ($f in "$a3\co250_a3.pdf", "$a3\a3_notes.txt", "$a3\data3.csv", "$top\CS350\a2a.pdf", "$top\CS350\a2a.aux", "$top\proj\node_modules\pkg\co250_a3.pdf", "$top\.git\co250_a3.pdf") { Set-Content -LiteralPath $f 'x' }
+    # a junction back into the tree must not list its files twice
+    $null = New-Item -ItemType Junction -Path (Join-Path $top 'link') -Target (Join-Path $top 'Waterloo course')
+    # results carry long paths; TEMP may be an 8.3 one (JACKWA~1)
+    $top = Resolve-JkLongPath $top
+    $a3 = Join-Path $top 'Waterloo course\CO250\A3'
+    $hits = @(Find-JkFiles @('co250', 'a3') @($top))
+    Assert-Eq (($hits | ForEach-Object { $_.Name }) -join ',') 'co250_a3.pdf,a3_notes.txt,data3.csv'
+    Assert-Eq $hits[0].Folder 'findroot\Waterloo course\CO250\A3'
+    # the type word keeps just that type; LaTeX by-products rank after the real file
+    Assert-Eq ((@(Find-JkFiles @('co250', 'pdf') @($top)) | ForEach-Object { $_.Name }) -join ',') 'co250_a3.pdf'
+    Assert-Eq ((@(Find-JkFiles @('a2a') @($top)) | ForEach-Object { $_.Name }) -join ',') 'a2a.pdf,a2a.aux'
+    Assert-Eq @(Find-JkFiles @('nothing-like-this') @($top)).Count 0
+
+    # the list remembers its results: -p <n> prints one, a bad number says how many there were
+    Set-JkConfig 'find.roots' $top
+    $null = Invoke-JkFind co250 a3
+    Assert-Eq (Invoke-JkFind -p 2) "$a3\a3_notes.txt"
+    Assert-Throws { Invoke-JkFind -p 7 }
+    # with words, -p prints the best match and keeps the list for -p <n>
+    Assert-Eq (Invoke-JkFind a2a -p) "$top\CS350\a2a.pdf"
+    Assert-Eq (Invoke-JkFind -p 2) "$top\CS350\a2a.aux"
+    Assert-Throws { Invoke-JkFind -o }
+    Set-JkConfig 'find.roots' ''
+    Remove-Item -LiteralPath (Join-Path $top 'link') -Force -Recurse
+}
+Test 'Fit counts CJK characters as two columns' {
+    $cjk = [string][char]0x6295 + [char]0x5DE5 + [char]0x4F5C
+    Assert-Eq (Get-JkTextWidth "Desktop\$cjk") 14
+    Assert-Eq (Get-JkTextWidth (Fit $cjk 10)) 10
+    $cut = Fit "ab$cjk" 7
+    Assert-Eq (Get-JkTextWidth $cut) 7
+    Assert-True $cut.EndsWith($script:G.ell) 'a cut string ends in an ellipsis'
+    Assert-Eq (Get-JkTextWidth (Fit $cjk 4 -Right)) 4
+    Assert-Eq (Fit 'plain' 7) 'plain  '
 }
 Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     $c = { param($a) [pscustomobject]@{ Alias = $a; Path = "C:\x\$a"; Source = 'auto' } }

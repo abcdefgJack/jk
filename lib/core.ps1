@@ -219,6 +219,7 @@ $script:JkConfigDefaults = [ordered]@{
     'plan.examMin'  = '15'        # prep minutes per percent of grade, exams
     'plan.dueMin'   = '30'        # work minutes per percent of grade, assignments
     'repos.roots'   = (Join-Path $HOME 'Desktop')
+    'find.roots'    = ''          # folders jk find searches (a;b); empty = Desktop, Documents, Downloads
     'sync.url'      = ''          # calendar feed for jk due sync (LEARN > Calendar > Subscribe)
     'jobs.file'     = ''          # job tracker table; empty = job_application_tracker.md in a Desktop folder
     'backup.mirror' = ''          # a folder outside ~\.jk for a daily snapshot (jk backup mirror <folder>)
@@ -356,13 +357,42 @@ function Get-JkBattery {
     [pscustomobject]@{ Percent = [int][Math]::Round($ps.BatteryLifePercent * 100); Plugged = ([string]$ps.PowerLineStatus -eq 'Online') }
 }
 
-function Get-JkVisibleLength([string]$Text) { ($Text -replace "$([char]27)\[[0-9;]*m", '').Length }
+function Get-JkVisibleLength([string]$Text) { Get-JkTextWidth ($Text -replace "$([char]27)\[[0-9;]*m", '') }
+
+# CJK and fullwidth characters take two terminal columns ("Desktop\<three hanzi>" is 14 wide, not 11)
+$script:JkWideRx = & {
+    # code-point ranges (kept as numbers so this file stays ASCII)
+    $r = @(0x1100, 0x115F, 0x2E80, 0x303E, 0x3041, 0x33FF, 0x3400, 0x4DBF, 0x4E00, 0x9FFF, 0xA000, 0xA4CF, 0xAC00, 0xD7A3, 0xF900, 0xFAFF, 0xFE30, 0xFE4F, 0xFF00, 0xFF60, 0xFFE0, 0xFFE6)
+    $set = for ($k = 0; $k -lt $r.Count; $k += 2) { [string][char]$r[$k] + '-' + [char]$r[$k + 1] }
+    '[' + ($set -join '') + ']'
+}
+
+function Get-JkTextWidth([string]$Text) {
+    if ($Text -notmatch $script:JkWideRx) { return $Text.Length }
+    $Text.Length + [regex]::Matches($Text, $script:JkWideRx).Count
+}
 
 # Truncate (with an ellipsis) or pad plain text to exactly $Width columns.
 function Fit {
     param([string]$Text, [int]$Width, [switch]$Right)
     if ($Width -le 0) { return '' }
     if ($null -eq $Text) { $Text = '' }
+    if ($Text -match $script:JkWideRx) {
+        $cols = Get-JkTextWidth $Text
+        if ($cols -gt $Width) {
+            $sb = New-Object Text.StringBuilder
+            $cols = 1
+            foreach ($ch in $Text.ToCharArray()) {
+                $cw = 1; if ("$ch" -match $script:JkWideRx) { $cw = 2 }
+                if ($cols + $cw -gt $Width) { break }
+                [void]$sb.Append($ch); $cols += $cw
+            }
+            $Text = $sb.ToString() + $script:G.ell
+        }
+        $pad = ' ' * ($Width - $cols)
+        if ($Right) { return $pad + $Text }
+        return $Text + $pad
+    }
     if ($Text.Length -gt $Width) { $Text = $Text.Substring(0, [Math]::Max(0, $Width - 1)) + $script:G.ell }
     if ($Right) { return $Text.PadLeft($Width) }
     $Text.PadRight($Width)
@@ -422,7 +452,7 @@ function Write-JkHeader {
     $w = Get-JkWidth
     $left = ' ' + $Title.ToUpper()
     if ($Sub) { $left += '  ' + $Sub }
-    $gap = [Math]::Max(2, $w - $left.Length - $Right.Length - 1)
+    $gap = [Math]::Max(2, $w - (Get-JkTextWidth $left) - (Get-JkTextWidth $Right) - 1)
     Say ''
     $head = Paint $Style (' ' + $Title.ToUpper())
     if ($Sub) { $head += '  ' + (Paint 'gray' $Sub) }
