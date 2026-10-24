@@ -346,6 +346,15 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
         $script:JkConfigCache = $null
     }
 }
+Test 'morning task: the daily trigger keeps local time across daylight saving changes' {
+    $t = New-JkDailyTrigger ([datetime]::ParseExact('07:45', 'HH:mm', [Globalization.CultureInfo]::InvariantCulture))
+    Assert-True ($t.StartBoundary -match 'T07:45:00$') "start: $($t.StartBoundary)"
+    Assert-True (-not (Test-JkTriggerPinnedToUtc $t.StartBoundary)) 'stored as local time'
+    # what earlier installs stored (doctor flags these)
+    Assert-True (Test-JkTriggerPinnedToUtc '2026-10-22T07:45:00-04:00')
+    Assert-True (Test-JkTriggerPinnedToUtc '2026-10-24T11:45:00Z')
+    Assert-True (-not (Test-JkTriggerPinnedToUtc '2026-10-24T07:45:00'))
+}
 Test 'morning brief: once per 3 hours, and a future stamp never silences it' {
     $orig = ${function:Show-JkNotify}
     $script:BriefCalls = 0

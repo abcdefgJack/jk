@@ -298,7 +298,8 @@ function Invoke-JkDoctor {
         $d = "$($info.State)"
         if ($info.NextRunTime) { $d += " $($script:G.dot) next $($info.NextRunTime.ToString('ddd h:mm tt', $script:Inv))" }
         if ($info.LastRunTime) { $d += " $($script:G.dot) last result $($info.LastTaskResult)" }
-        if ($info.LastRunTime -and $info.LastTaskResult -ne 0 -and $info.State -ne 'Running') { & $meh 'daily reminder task' "$d (non-zero: see background.log)" }
+        if ($info.PinnedToUtc) { & $meh 'daily reminder task' 'set in UTC, so it fires an hour early after DST ends - jk remind install' }
+        elseif ($info.LastRunTime -and $info.LastTaskResult -ne 0 -and $info.State -ne 'Running') { & $meh 'daily reminder task' "$d (non-zero: see background.log)" }
         else { & $ok 'daily reminder task' $d }
     } else { & $meh 'daily reminder task' 'not installed - jk remind install' }
     $slow = @(Get-JkProfileFiles | Where-Object { ([IO.File]::ReadAllText($_.Path)) -match 'shell\.powershell" "hook"' })
