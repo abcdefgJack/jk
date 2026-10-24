@@ -1346,6 +1346,16 @@ Test 'folder size via robocopy list mode (no exit-code leak)' {
     Assert-Eq (Get-JkFolderSize (Join-Path $dir 'missing')) $null
     Assert-Eq (Get-JkFolderSize (Join-Path $dir 'a.bin')).Bytes 1000
 }
+Test 'jk leaves $LASTEXITCODE as it found it' {
+    # doctor runs g++/python/javac/git --version; none of that may surface as a failed command
+    $global:LASTEXITCODE = 0
+    $null = jk doctor 6>&1
+    Assert-Eq $global:LASTEXITCODE 0
+    cmd /c exit 7
+    $null = jk help 6>&1
+    Assert-Eq $global:LASTEXITCODE 7
+    $global:LASTEXITCODE = 0
+}
 Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     $c = { param($a) [pscustomobject]@{ Alias = $a; Path = "C:\x\$a"; Source = 'auto' } }
     $v = @{}

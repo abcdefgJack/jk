@@ -48,6 +48,14 @@ function Resolve-JkCommand([string]$Name) {
 }
 
 function jk {
+    # jk reports through its own messages; git and compilers it runs along the way must not leave
+    # their exit codes behind for the prompt or a calling script
+    $exitCode = $global:LASTEXITCODE
+    try { Invoke-JkCommand @args }
+    finally { if ($global:LASTEXITCODE -ne $exitCode) { $global:LASTEXITCODE = $exitCode } }
+}
+
+function Invoke-JkCommand {
     $script:JkUseColor = Test-JkColor
     $script:JkConfigCache = $null
     $light = (Get-JkConfig 'theme') -eq 'light'
