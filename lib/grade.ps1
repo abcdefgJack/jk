@@ -147,6 +147,8 @@ function Show-JkGradeOverview {
         Say ('  ' + (Paint "bold #$(([string]$c.color).TrimStart('#'))" (Fit $c.code 12)) + (Paint 'muted' (Fit (Format-JkPct $m.Graded 0) 9 -Right)) + (Paint $avgStyle (Fit (Format-JkPct $m.Average) 10 -Right)) + (Paint 'muted' (Fit ('{0:N1}' -f $m.Banked) 9 -Right)) + (Paint 'gray' (Fit (Format-JkPct $target 0) 9 -Right)) + (Paint $need[1] (Fit $need[0] 15 -Right)))
     }
     Say ''
+    $unmarked = @(Get-JkUnmarkedItems).Count
+    if ($unmarked) { Say ('  ' + (Paint 'amber' "$(Format-JkCount $unmarked 'past item') with no mark yet") + (Paint 'gray' "  $($script:G.arrow) ") + (Paint 'cyan' 'jk grade fill') + (Paint 'gray' ' goes through them')) }
     Say (Paint 'gray' "  jk grade <course>  $($script:G.dot)  jk grade set <id> 17/20  $($script:G.dot)  jk grade target <course> 85")
 }
 
@@ -227,6 +229,71 @@ function Set-JkGrade {
     Say (Paint 'gray' "  course average now $(Format-JkPct $m.Average) over $(Format-JkPct $m.Graded 1) graded")
 }
 
+# Graded items already past with no mark yet, oldest first: what jk grade fill asks about. An
+# online window is one item, keyed by its closing half (as Get-JkGradeItems keys it).
+function Get-JkUnmarkedItems([datetime]$Now = (Get-JkNow)) {
+    $due = Get-JkDueData
+    $gd = Get-JkGradeData
+    $cmap = Get-JkCourseMap $due
+    $byId = @{}
+    foreach ($e in @($due.events)) { $byId[[string]$e.id] = $e }
+    $out = foreach ($c in @($due.courses)) {
+        foreach ($it in @(Get-JkGradeItems $due $gd ([string]$c.key))) {
+            if ($it.Extra -or $null -ne $it.Score) { continue }
+            $e = $byId[$it.Key]
+            if (-not $e) { continue }
+            $at = Get-JkEventDue $e
+            if ($at -ge $Now) { continue }
+            [pscustomobject]@{ Id = $it.Key; Label = "$(Get-JkCourseLabel $e $cmap) $($it.Title)"; Weight = $it.Weight; Due = $at }
+        }
+    }
+    @($out | Sort-Object Due)
+}
+
+# A marked item was handed in: check it off as of its due time (not now, which would tell jk plan
+# that the course's latest work was finished today), with the opening half of a window too.
+function Complete-JkMarkedItem([string]$Id) {
+    $data = Get-JkDueData
+    $e = @($data.events | Where-Object { [string]$_.id -eq $Id })[0]
+    if (-not $e -or $e.done) { return }
+    $done = @($e)
+    $win = Get-JkEventWindow $e $data
+    if ($win) { $done += $win.Open }
+    foreach ($x in $done) { $x.done = $true; Set-JkProp $x 'doneAt' ((Get-JkEventDue $x).ToString('s', $script:Inv)) }
+    Save-JkDueData $data
+}
+
+# jk grade fill: one pass over every past graded item without a mark.
+function Invoke-JkGradeFill {
+    $items = @(Get-JkUnmarkedItems)
+    if (-not $items.Count) { Say (Paint 'green' "  Every past graded item has a mark. $($script:G.check)"); return }
+    Write-JkHeader 'Marks to fill in' (Format-JkCount $items.Count 'item') -Sub 'past graded items with no mark yet'
+    if (-not (Test-JkInteractive)) {
+        foreach ($i in $items) {
+            Say ('  ' + (Paint 'gray' (Fit "#$($i.Id)" 5 -Right)) + '  ' + (Paint 'white' (Fit $i.Label 34)) + (Paint 'muted' (Fit "$($i.Weight)%" 7 -Right)) + (Paint 'gray' "  $($i.Due.ToString('MMM d', $script:Inv))"))
+        }
+        Say ''
+        Say (Paint 'gray' '  jk grade set <id> 17/20 for each, or run jk grade fill in a terminal to go through them')
+        return
+    }
+    Say (Paint 'gray' '  type the mark (17/20, 85 or 85%); Enter skips one, q stops')
+    $n = 0
+    foreach ($i in $items) {
+        while ($true) {
+            $ans = ([string](Read-Host "  $($i.Label) ($($i.Weight)%, $($i.Due.ToString('MMM d', $script:Inv)))")).Trim()
+            if (-not $ans) { break }
+            if ($ans -match '^(q|quit|stop)$') { Say (Paint 'gray' "  $(Format-JkCount $n 'mark') recorded; jk grade for the averages"); return }
+            try { $null = ConvertTo-JkPercent $ans } catch { Say (Paint 'orange' "    $($_.Exception.Message)"); continue }
+            Set-JkGrade $i.Id $ans
+            Complete-JkMarkedItem $i.Id
+            $n++
+            break
+        }
+    }
+    Say ''
+    Say (Paint 'gray' "  $(Format-JkCount $n 'mark') recorded; jk grade for the averages")
+}
+
 function Clear-JkGrade {
     param([Parameter(Position = 0)][string]$Ref)
     $gd = Get-JkGradeData
@@ -279,6 +346,7 @@ function Invoke-JkGrade {
         '^(clear|unset|rm)$' { Clear-JkGrade @rest; return }
         '^(add|extra)$' { Add-JkGradeExtra @rest; return }
         '^(target|goal)$' { Set-JkGradeTarget @rest; return }
+        '^(fill|catchup|marks)$' { Invoke-JkGradeFill; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'grade'; return }
     }
     Show-JkGrade @a

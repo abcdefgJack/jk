@@ -29,6 +29,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'grade-fill'; Cmd = 'jk grade fill'; Text = 'type the marks for everything already handed in, one after another (Enter skips)' },
     @{ Id = 'recent'; Cmd = 'jk recent'; Text = 'the files you changed in the last 2 days, newest first (jk find -o 1 opens one)' },
     @{ Id = 'exam-mornings'; Cmd = 'exam days'; Text = 'the morning popup leads with the exam, with its end time, room and what to bring' },
     @{ Id = 'battery-health'; Cmd = 'jk sys'; Text = 'now shows battery wear: how much of its original charge your battery still holds' },
