@@ -1812,7 +1812,7 @@ Test 'narrow windows: lines are cut instead of wrapping; help rewraps without lo
                 Assert-True (-not $l.Contains($script:G.ell)) "help $topic lost words: $l"
             }
         }
-        $out = @(& { jk; jk due; jk week; jk exams; jk help; jk plan; jk review } 6>&1 | ForEach-Object { "$_" })
+        $out = @(& { jk; jk due; jk week; jk exams; jk help; jk plan; jk review; jk grade; jk grade cs350 } 6>&1 | ForEach-Object { "$_" })
         Assert-True ($out.Count -gt 40) 'the views printed'
         foreach ($l in $out) { Assert-True ((Get-JkVisibleLength $l) -le 60) "overflows 60: $l" }
     } finally { $env:JK_WIDTH = $saved }
