@@ -70,21 +70,25 @@ function Show-JkSpace {
     $rows = @()
     $targets = @(Get-JkSpaceTargets)
     $i = 0
+    # a progress line that rewrites itself, only where a terminal can show it that way (captured
+    # output would collect every step on one line)
+    $live = Test-JkInteractive
+    $clear = "`r" + (' ' * ((Get-JkWidth) - 1)) + "`r"
     foreach ($t in $targets) {
         $i++
-        Write-Host ("`r  " + (Paint 'gray' ("measuring {0}/{1}  {2}{3}" -f $i, $targets.Count, $t.Name, (' ' * 20)))) -NoNewline
+        if ($live) { Write-Host ($clear + '  ' + (Paint 'gray' ("measuring {0}/{1}  {2}" -f $i, $targets.Count, $t.Name))) -NoNewline }
         $s = Get-JkFolderSize $t.Path
         if ($s -and $s.Bytes -gt 0) { $rows += [pscustomobject]@{ Name = $t.Name; Bytes = $s.Bytes; Files = $s.Files; Fix = $t.Fix; Path = $t.Path } }
     }
     if (-not $NoNodeModules) {
-        Write-Host ("`r  " + (Paint 'gray' ("looking for node_modules under the Desktop$($script:G.ell)" + (' ' * 30)))) -NoNewline
+        if ($live) { Write-Host ($clear + '  ' + (Paint 'gray' "looking for node_modules under the Desktop$($script:G.ell)")) -NoNewline }
         $nm = @(Find-JkNodeModules @([Environment]::GetFolderPath('Desktop')))
         $nmBytes = 0.0
         $nmList = @()
         foreach ($p in $nm) { $s = Get-JkFolderSize $p; if ($s) { $nmBytes += $s.Bytes; $nmList += [pscustomobject]@{ Path = $p; Bytes = $s.Bytes; Age = [int]((Get-Date) - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays } } }
         if ($nmBytes -gt 0) { $rows += [pscustomobject]@{ Name = "node_modules ($($nm.Count) projects)"; Bytes = $nmBytes; Files = 0; Fix = 'delete node_modules of projects you are not working on (npm install brings it back)'; Path = '' } }
     }
-    Write-Host ("`r" + (' ' * 70) + "`r") -NoNewline
+    if ($live) { Write-Host $clear -NoNewline }
     $rows = @($rows | Sort-Object Bytes -Descending)
     $total = ($rows | Measure-Object Bytes -Sum).Sum
     $max = ($rows | Measure-Object Bytes -Maximum).Maximum

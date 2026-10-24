@@ -495,7 +495,8 @@ function Invoke-JkCpStress {
             $cmp = Compare-JkOutput $b.Out $a.Out
             if (-not $cmp.Ok) { $bad = "WA: token $($cmp.Index + 1) expected '$($cmp.Expected)', got '$($cmp.Got)'" }
         }
-        if (($i % 10) -eq 0 -or $bad) { Write-Host ("`r  " + (Paint 'gray' "round $($i + 1)/$N  seed $s  ")) -NoNewline }
+        # progress every 10 rounds where a terminal rewrites it in place; the failing round always
+        if (((($i % 10) -eq 0) -and (Test-JkInteractive)) -or $bad) { Write-Host ("`r  " + (Paint 'gray' "round $($i + 1)/$N  seed $s  ")) -NoNewline }
         if ($bad) {
             Say ''
             # keep the counterexample as the next numbered sample so plain `jk cp` re-checks it
