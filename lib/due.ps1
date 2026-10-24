@@ -821,10 +821,10 @@ function Export-JkDueIcs {
     foreach ($e in @($data.events)) {
         if ($e.done -and -not $IncludeDone) { continue }
         $code = Get-JkCourseLabel $e $cmap
+        # "Due:", "Exam:" or "Appt:" says what it is at a glance in a calendar app (sync strips it again)
         $prefix = 'Due'
         if ($e.kind -eq 'exam') { $prefix = 'Exam' } elseif ($e.kind -eq 'appt') { $prefix = 'Appt' }
-        $summary = "$code $($e.title)"
-        if ($e.kind -eq 'due') { $summary = "Due: $summary" }
+        $summary = "${prefix}: $code $($e.title)"
         if ($e.weight -and $e.weight -ne '0%') { $summary += " ($($e.weight))" }
         $L.Add('BEGIN:VEVENT')
         $L.Add("UID:jk-$($e.id)-$($e.course)@jk.local")
@@ -917,8 +917,8 @@ function Get-JkDueSoon {
 # output (scheduled runs); repeated runs within 3 hours are skipped unless -Force.
 # An exam's note without the times the popup already shows: "4:30 - 6:20 pm <dot> in person, room
 # TBA" keeps "in person, room TBA", and a window's "6:00 am Oct 26 -> 11:59 pm Oct 27" goes too.
-function Get-JkExamNote($Event) {
-    $note = [string]$Event.note
+function Get-JkExamNote($Item) {
+    $note = [string]$Item.note
     if (-not $note) { return '' }
     $sep = [regex]::Escape($script:G.dot)
     $keep = foreach ($seg in ($note -split "\s*$sep\s*")) {

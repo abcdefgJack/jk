@@ -74,14 +74,14 @@ function ConvertFrom-JkIcs([string]$Text) {
 # made from the title, the categories, or a code that opens the description (LEARN writes
 # "CS 350 - Operating Systems (Fall 2026)" there); a code mentioned further on ("LEC 001",
 # "AFM 425 students write at 4:30") must not invent one.
-function Find-JkIcsCourse($Event, $Data) {
+function Find-JkIcsCourse($Item, $Data) {
     $rx = '\b([A-Z]{2,6})[ -]?(\d{3}[A-Z]?)\b'
     $codesIn = { param($t) [regex]::Matches($t, $rx) | Where-Object { $_.Groups[1].Value -notmatch '^(LEC|LAB|TUT|SEM|SEC|TST|ROOM|RM)$' } | ForEach-Object { "$($_.Groups[1].Value) $($_.Groups[2].Value)" } | Select-Object -Unique }
-    $all = @(& $codesIn "$($Event.Summary) | $($Event.Categories) | $($Event.Location) | $($Event.Description)")
+    $all = @(& $codesIn "$($Item.Summary) | $($Item.Categories) | $($Item.Location) | $($Item.Description)")
     foreach ($c in $all) { $hit = Resolve-JkCourse $Data $c; if ($hit) { return $hit } }
     $lead = ''
-    if ([string]$Event.Description -match '^\s*([A-Z]{2,6}[ -]?\d{3}[A-Z]?)\b') { $lead = $Matches[1] }
-    $own = @(& $codesIn "$($Event.Summary) | $($Event.Categories) | $lead")
+    if ([string]$Item.Description -match '^\s*([A-Z]{2,6}[ -]?\d{3}[A-Z]?)\b') { $lead = $Matches[1] }
+    $own = @(& $codesIn "$($Item.Summary) | $($Item.Categories) | $lead")
     if ($own.Count) { return (Resolve-JkCourse $Data $own[0] -Create) }
     $null
 }
