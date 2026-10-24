@@ -963,6 +963,29 @@ function Get-JkExamDayTitle($Soon, $Cmap, [datetime]$Now) {
     "$($today.Count) exams today: " + (@($today | ForEach-Object { "$(Get-JkCourseLabel $_ $Cmap) $(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" }) -join ', ')
 }
 
+# The title when the next two days hold an exam but today does not: "Exam tomorrow: CS 350
+# Midterm 4:30 pm (+2 more due)", "Exam Mon: HEALTH 105 Midterm 1 opens 6:00 am". $null without one.
+function Get-JkExamSoonTitle($Soon, $Cmap, [datetime]$Now, $Data) {
+    $x = @($Soon | Where-Object { $_.kind -eq 'exam' } | Sort-Object { Get-JkEventDue $_ })[0]
+    if (-not $x) { return $null }
+    $d = Get-JkEventDue $x
+    $day = $d.ToString('ddd', $script:Inv)
+    if ($d.Date -eq $Now.Date.AddDays(1)) { $day = 'tomorrow' }
+    $t = "Exam ${day}: $(Get-JkCourseLabel $x $Cmap) $($x.title)"
+    if ($x.time) { $t += ' ' + (Format-JkTime $d.ToString('HH:mm', $script:Inv)) }
+    # an online window that has opened can be written today: "Exam open now: ... closes tomorrow 11:59 pm"
+    if ($Data -and [string]$x.title -match '(?i)\s+closes?$') {
+        $win = Get-JkEventWindow $x $Data
+        if ($win -and $win.Opens -le $Now) {
+            $t = "Exam open now: $(Get-JkCourseLabel $x $Cmap) $(([string]$x.title -replace '(?i)\s+closes?$', '').Trim()), closes $day"
+            if ($x.time) { $t += ' ' + (Format-JkTime $d.ToString('HH:mm', $script:Inv)) }
+        }
+    }
+    $others = @($Soon).Count - 1
+    if ($others -gt 0) { $t += " (+$others more due)" }
+    $t
+}
+
 # Sunday's look at the week: "This week: 9 due, 3 exams - CO 367 Quiz 2 Thu, CS 350 Midterm Thu,
 # CS 370 Midterm Mon". An online exam's opens/closes pair counts once. $null when the week is empty.
 function Get-JkWeekAheadLine($Data, $Cmap, [datetime]$Now) {
@@ -1103,6 +1126,13 @@ function Invoke-JkDueRemind {
             $title = $examTitle
             $first = @($soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $now.Date })[0]
             $accent = Get-JkCourseColor $first.course $cmap
+        } else {
+            # an exam tomorrow or the day after leads too, in its course's colour
+            $soonTitle = Get-JkExamSoonTitle $soon $cmap $now $data
+            if ($soonTitle) {
+                $title = $soonTitle
+                $accent = Get-JkCourseColor (@($soon | Where-Object { $_.kind -eq 'exam' } | Sort-Object { Get-JkEventDue $_ })[0]).course $cmap
+            }
         }
     } elseif ($examsAhead.Count) {
         # nothing in the next two days, an exam soon after: "CS 370 Midterm in 2 days (Mon 7:00 pm)"

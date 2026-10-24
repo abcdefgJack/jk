@@ -412,10 +412,14 @@ Test 'exam mornings: the title says so, and exam lines carry the end time and wh
         Invoke-JkDueRemind -Quiet -Force
         Assert-True ($script:ExamTitle -like 'Exam today: * Midterm 4:30 pm') "title: $($script:ExamTitle)"
         Assert-True (@($script:ExamLines | Where-Object { $_ -like "Today 4:30-6:20 pm $dash * Midterm (exam) $d in person, room TBA" }).Count -eq 1) "lines: $($script:ExamLines -join ' / ')"
-        # the day before is an ordinary morning
+        # the day before leads with it too
         $env:JK_NOW = '2026-10-28T07:45:00'
         Invoke-JkDueRemind -Quiet -Force
-        Assert-True ($script:ExamTitle -like '* in the next 48h') "the day before: $($script:ExamTitle)"
+        Assert-True ($script:ExamTitle -like 'Exam tomorrow: * Midterm 4:30 pm*') "the day before: $($script:ExamTitle)"
+        # a morning with only an assignment due keeps the plain count
+        $env:JK_NOW = '2026-10-30T07:45:00'
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True ($script:ExamTitle -like '* in the next 48h') "after the exam: $($script:ExamTitle)"
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
 Test 'dashboard cache: kept for the same key, redone when the data changes' {
@@ -531,6 +535,24 @@ Test 'finals season: the term line counts exams left, and a study day gets its b
         # after the last one
         $env:JK_NOW = '2026-12-20T07:45:00'
         Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) "Fall 2026 $dot exam period $dot your exams are done $($script:G.check)"
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
+Test 'morning brief: an exam in the next two days leads, an opened window says it is open' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'exam-soon'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:SoonTitle = $Title; 'stub' }
+    try {
+        Add-JkDue health 'Quiz opens' nov 23 6am -Exam
+        Add-JkDue health 'Quiz closes' nov 24 11:59pm -Exam
+        Add-JkDue cs341 'A4' nov 24 11:59pm
+        $env:JK_NOW = '2026-11-22T07:45:00'
+        Invoke-JkDueRemind -Quiet -Force
+        # only the opening falls in the next 48 hours
+        Assert-True ($script:SoonTitle -like 'Exam tomorrow: * Quiz opens 6:00 am') "before it opens: $($script:SoonTitle)"
+        $env:JK_NOW = '2026-11-23T07:45:00'
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True ($script:SoonTitle -like 'Exam open now: * Quiz, closes tomorrow 11:59 pm (+1 more due)') "once open: $($script:SoonTitle)"
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
 Test 'Sunday mornings look at the whole week' {
