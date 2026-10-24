@@ -147,7 +147,8 @@ jk clip plain                  the same text with its formatting dropped, ready 
 jk sys                         CPU load, memory, every disk, battery, Wi-Fi/IP, apps using the most RAM
                                battery health: today's full charge against what it held new (from Windows'
                                battery report, read once and cached)
-jk port                        listening ports with the owning app (dev ports highlighted)
+jk port                        listening ports with the owning app (dev ports highlighted); a database
+                               other devices can reach is flagged with the setting that keeps it local
 jk port 8080                   who is on 8080;   jk port 8080 -Kill   frees it
 '@
     'repos'  = @'

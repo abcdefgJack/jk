@@ -700,6 +700,30 @@ Test 'listening ports from netstat: IPv4 and IPv6, only foreign port 0, any lang
     # and the real table parses (every Windows box listens on something, e.g. 135)
     Assert-True (@(Get-JkListeners).Count -gt 0) 'real netstat'
 }
+Test 'databases open to the network: grouped ports, the setting and file that keep them local' {
+    $lines = @(
+        '  TCP    0.0.0.0:3306           0.0.0.0:0              LISTENING       6968',
+        '  TCP    0.0.0.0:33060          0.0.0.0:0              LISTENING       6968',
+        '  TCP    [::]:3306              [::]:0                 LISTENING       6968',
+        '  TCP    127.0.0.1:6379         0.0.0.0:0              LISTENING       500',
+        '  TCP    0.0.0.0:5432           0.0.0.0:0              LISTENING       600',
+        '  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       700'
+    )
+    $names = @{ 6968 = 'mysqld'; 500 = 'redis-server'; 600 = 'postgres'; 700 = 'java' }
+    $x = @(Get-JkExposedServices (Get-JkListeners -Lines $lines) $names)
+    Assert-Eq (($x | ForEach-Object { "$($_.Name):$($_.Ports -join ',')" }) -join ' ') 'mysqld:3306,33060 postgres:5432' 'redis is local only; a dev server is not a database'
+    Assert-True ($x[0].Fix -match 'mysqlx-bind-address') 'the X protocol port has its own setting'
+    $cases = [ordered]@{
+        '"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe" --defaults-file="C:\ProgramData\MySQL\MySQL Server 8.0\my.ini" MySQL80' = 'C:\ProgramData\MySQL\MySQL Server 8.0\my.ini'
+        '"C:/Program Files/PostgreSQL/16/bin/pg_ctl.exe" runservice -N "postgresql-x64-16" -D "C:/Program Files/PostgreSQL/16/data" -w'   = 'C:\Program Files\PostgreSQL\16\data\postgresql.conf'
+        '"C:\Program Files\MongoDB\Server\7.0\bin\mongod.exe" --config "C:\Program Files\MongoDB\Server\7.0\bin\mongod.cfg" --service'   = 'C:\Program Files\MongoDB\Server\7.0\bin\mongod.cfg'
+        '"C:\Program Files\Redis\redis-server.exe" --service-run "C:\Program Files\Redis\redis.windows-service.conf"'                    = 'C:\Program Files\Redis\redis.windows-service.conf'
+    }
+    foreach ($k in $cases.Keys) { Assert-Eq (Get-JkDbServiceInfo 'x' $k 'svc').File $cases[$k] }
+    # the real registry walk answers quickly whether or not a database is installed
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $null = Get-JkDbServiceInfo 'no-such-db-exe'; $sw.Stop()
+    Assert-True ($sw.ElapsedMilliseconds -lt 1500) "registry walk took $($sw.ElapsedMilliseconds) ms"
+}
 Test 'jk sys: CPU load from GetSystemTimes, addresses from .NET' {
     $l = Get-JkCpuLoad 100
     Assert-True ($null -ne $l -and $l -ge 0 -and $l -le 100) "load: $l"

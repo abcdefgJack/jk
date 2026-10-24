@@ -370,6 +370,9 @@ function Invoke-JkDoctor {
     }
     if ($recent.Count) { & $meh 'background errors' "$($recent.Count) this week, latest: $(Fit ($recent[-1] -replace '^\S+\s+', '') 60)  ($log)" }
     else { & $ok 'background errors' 'none this week' }
+    $exposed = @(Get-JkExposedServices (Get-JkListeners) (Get-JkProcessNames))
+    foreach ($x in $exposed) { & $meh 'open to the network' "$($x.Name) ($($x.Ports -join ', ')) answers other devices too - see jk port" }
+    if (-not $exposed.Count) { & $ok 'open to the network' 'no database listens beyond this PC' }
     foreach ($tool in @(@('g++', 'C++ for jk cp'), @('python', 'Python for jk cp'), @('javac', 'Java for jk cp'), @('git', 'git for jk repos'))) {
         $c = Get-Command $tool[0] -ErrorAction SilentlyContinue
         if ($c) {
