@@ -84,6 +84,8 @@ Weights come from your deadlines; "best 6 of 8" in a note drops the lowest autom
     'tidy'   = @'
 jk tidy | jk tidy scan         report on Downloads: categories, biggest files, duplicates, old installers
 jk tidy apply                  move loose files into Installers\, PDFs\, Images\ ... (newer than 2 days stay)
+                               files named after a course (CS245-F25-A05.pdf, STAT_230_002_27.pdf) go to that
+                               course's folder (Desktop\Waterloo course\CS245) instead; tidy.courses off to stop
 jk tidy undo                   put the last batch back exactly where it was
 jk tidy dupes [-Recycle]       find identical files (by content hash); -Recycle bins the extra copies
 jk tidy old [-Days 90] [-Recycle]   installers/archives you probably do not need any more

@@ -43,13 +43,66 @@ function Get-JkTidyCategory([string]$Ext) {
     'Other'
 }
 
-# Loose files in the folder, classified. Saved web pages keep their "<name>_files" folder.
+# Course folders keyed the way course codes appear in file names: "Waterloo course\Stat 230" is
+# stat230. Looks one level into Desktop folders that collect courses (course, school, term...)
+# and at course-named folders on the Desktop itself. tidy.courses names other roots (a;b), or off.
+$script:JkCourseKeyRx = '^[a-z]{2,6}\d{2,3}[a-z]?$'
+
+function Get-JkCourseFolders {
+    $cfg = [string](Get-JkConfig 'tidy.courses')
+    if ($cfg -eq 'off') { return @{} }
+    $roots = @($cfg -split ';' | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_.Trim()) } | Where-Object { $_ })
+    if (-not $roots.Count) { $roots = @([Environment]::GetFolderPath('Desktop')) }
+    $map = @{}
+    foreach ($r in $roots) {
+        $top = @(Get-ChildItem -LiteralPath $r -Directory -ErrorAction SilentlyContinue)
+        foreach ($d in $top) {
+            if ($d.Name -notmatch '(?i)course|school|uni|class|term|semester') { continue }
+            foreach ($s in @(Get-ChildItem -LiteralPath $d.FullName -Directory -ErrorAction SilentlyContinue)) {
+                $k = Get-JkNormKey $s.Name
+                if ($k -match $script:JkCourseKeyRx -and -not $map.ContainsKey($k)) { $map[$k] = $s.FullName }
+            }
+        }
+        foreach ($d in $top) {
+            $k = Get-JkNormKey $d.Name
+            if ($k -match $script:JkCourseKeyRx -and -not $map.ContainsKey($k)) { $map[$k] = $d.FullName }
+        }
+    }
+    $map
+}
+
+# The one course a file name points at: "CO_250_S26.pdf", "STAT_230_002_27.pdf" and
+# "cs341piazza__Lab_1.pdf" (a letter glued on falls back to the bare number). $null when the
+# name points at no course in $Folders, or at two.
+function Get-JkFileCourse([string]$Name, [hashtable]$Folders) {
+    $found = @()
+    foreach ($m in [regex]::Matches($Name, '(?i)(?<![a-z])([a-z]{2,6})[ _-]?(\d{2,3})([a-z]?)(?![0-9])')) {
+        $base = ($m.Groups[1].Value + $m.Groups[2].Value).ToLower()
+        $k = $base + $m.Groups[3].Value.ToLower()
+        if (-not $Folders.ContainsKey($k)) { $k = $base }
+        if ($Folders.ContainsKey($k) -and $found -notcontains $k) { $found += $k }
+    }
+    if ($found.Count -eq 1) { return $found[0] }
+    $null
+}
+
+# "name|size" -> path for every file in a course folder, to spot downloads that are already filed.
+function Get-JkFolderIndex([string]$Path) {
+    $idx = @{}
+    foreach ($f in @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue)) { $idx["$($f.Name.ToLower())|$($f.Length)"] = $f.FullName }
+    $idx
+}
+
+# Loose files in the folder, classified. Saved web pages keep their "<name>_files" folder. A file
+# named after a course with a folder ($Courses, from Get-JkCourseFolders) goes to that folder
+# instead, unless the same name and size is already in it.
 function Get-JkTidyPlan {
-    param([string]$Path, [int]$MinAgeDays = 2)
+    param([string]$Path, [int]$MinAgeDays = 2, [hashtable]$Courses = @{})
     $now = Get-Date
     $files = @(Get-ChildItem -LiteralPath $Path -File -Force -ErrorAction SilentlyContinue | Where-Object {
             -not ($_.Attributes -band [IO.FileAttributes]::System) -and $script:TidySkip -notcontains $_.Name.ToLower() -and $script:TidySkipExt -notcontains $_.Extension.ToLower()
         })
+    $indexes = @{}
     foreach ($f in $files) {
         $ext = $f.Extension.ToLower()
         $cat = Get-JkTidyCategory $ext
@@ -62,8 +115,25 @@ function Get-JkTidyPlan {
             $cdir = Join-Path $f.DirectoryName ($f.BaseName + '_files')
             if (Test-Path -LiteralPath $cdir) { $companion = $cdir }
         }
-        [pscustomobject]@{ File = $f; Category = $cat; Status = $status; Companion = $companion; AgeDays = [int]($now - $f.LastWriteTime).TotalDays }
+        $dest = $null; $label = $cat; $filed = $null
+        if ($Courses.Count -and $status -ne 'partial') {
+            $ck = Get-JkFileCourse $f.Name $Courses
+            if ($ck) {
+                $folder = $Courses[$ck]
+                if (-not $indexes.ContainsKey($folder)) { $indexes[$folder] = Get-JkFolderIndex $folder }
+                $filed = $indexes[$folder]["$($f.Name.ToLower())|$($f.Length)"]
+                if (-not $filed) { $cat = 'Course'; $dest = $folder; $label = Split-Path $folder -Leaf }
+            }
+        }
+        [pscustomobject]@{ File = $f; Category = $cat; Status = $status; Companion = $companion; AgeDays = [int]($now - $f.LastWriteTime).TotalDays; Dest = $dest; Label = $label; Filed = $filed }
     }
+}
+
+# "C:\Users\me\Desktop\Waterloo course\CS245" -> "Desktop\Waterloo course\CS245"
+function Get-JkShortPath([string]$Path) {
+    $desk = [Environment]::GetFolderPath('Desktop').TrimEnd('\')
+    if ($Path.StartsWith($desk + '\', [StringComparison]::OrdinalIgnoreCase)) { return 'Desktop' + $Path.Substring($desk.Length) }
+    $Path
 }
 
 function Get-JkUniquePath([string]$Dir, [string]$Name) {
@@ -109,7 +179,7 @@ function Invoke-JkTidyRun {
     if (-not $Path) { $Path = Get-JkDownloadsPath }
     $Path = Resolve-JkLongPath $Path
     if ($MinAge -lt 0) { $MinAge = [int](Get-JkConfig 'tidy.minAge') }
-    $plan = @(Get-JkTidyPlan -Path $Path -MinAgeDays $MinAge)
+    $plan = @(Get-JkTidyPlan -Path $Path -MinAgeDays $MinAge -Courses (Get-JkCourseFolders))
     if ($Apply) { Invoke-JkTidyApply $Path $plan; return }
 
     $w = Get-JkWidth
@@ -125,6 +195,18 @@ function Invoke-JkTidyRun {
     if (-not $maxSize) { $maxSize = 1 }
     foreach ($c in $byCat) {
         Say ('  ' + (Paint 'bold white' (Fit $c.Name 12)) + (Paint 'muted' (Fit (Format-JkCount $c.Count 'file') 11 -Right)) + (Paint 'white' (Fit (Format-JkSize $c.Size) 10 -Right)) + '  ' + (Get-JkBar ($c.Size / $maxSize) 24 'teal'))
+    }
+
+    # files named after a course go to that course's folder
+    $toCourse = @($plan | Where-Object { $_.Dest -and $_.Status -eq 'move' })
+    $filed = @($plan | Where-Object { $_.Filed })
+    if ($toCourse.Count -or $filed.Count) {
+        Say ''
+        Say (' ' + (Paint 'bold white' 'Course files') + (Paint 'gray' '  named after a course that has a folder'))
+        foreach ($g in ($toCourse | Group-Object Dest | Sort-Object Count -Descending)) {
+            Say ('  ' + (Paint 'bold cyan' (Fit (Split-Path $g.Name -Leaf) 12)) + (Paint 'muted' (Fit (Format-JkCount $g.Count 'file') 11 -Right)) + (Paint 'gray' "  $($script:G.arrow) ") + (Paint 'muted' (Fit (Get-JkShortPath $g.Name) ([Math]::Max(20, $w - 30)))))
+        }
+        if ($filed.Count) { Say ('  ' + (Paint 'gray' "$(Format-JkCount $filed.Count 'file') already in a course folder (same name and size) go with the rest")) }
     }
 
     Say ''
@@ -156,9 +238,13 @@ function Invoke-JkTidyRun {
         if ($partial) { $bits += "$partial unfinished downloads" }
         Say ('  ' + (Paint 'gray' ("$($script:G.bullet) left in place: " + ($bits -join ', '))))
     }
-    $cats = @($moving | Group-Object Category).Count
+    $local = @($moving | Where-Object { -not $_.Dest })
+    $cats = @($local | Group-Object Category).Count
+    $where = "into $(Format-JkCount $cats 'folder') inside $(Split-Path $Path -Leaf)\"
+    if ($toCourse.Count -eq $moving.Count) { $where = 'into their course folders' }
+    elseif ($toCourse.Count) { $where = "$($toCourse.Count) into course folders, $($local.Count) $where" }
     Say ''
-    Say ('  ' + (Paint 'bold green' 'jk tidy apply') + " moves $(Format-JkCount $moving.Count 'file') into $(Format-JkCount $cats 'folder') inside $(Split-Path $Path -Leaf)\" + (Paint 'gray' "  (undo: jk tidy undo)"))
+    Say ('  ' + (Paint 'bold green' 'jk tidy apply') + " moves $(Format-JkCount $moving.Count 'file'): $where" + (Paint 'gray' "  (undo: jk tidy undo)"))
 }
 
 function Invoke-JkTidyApply([string]$Path, $Plan) {
@@ -168,6 +254,7 @@ function Invoke-JkTidyApply([string]$Path, $Plan) {
     $failed = 0
     foreach ($p in $moving) {
         $destDir = Join-Path $Path $p.Category
+        if ($p.Dest) { $destDir = $p.Dest }
         if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
         try {
             $dest = Get-JkUniquePath $destDir $p.File.Name
@@ -185,9 +272,10 @@ function Invoke-JkTidyApply([string]$Path, $Plan) {
     }
     $dir = Get-JkPath 'tidy'
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
-    $name = (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json'
+    # milliseconds: two batches in the same second must not share (and overwrite) one undo log
+    $name = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.json'
     Save-JkJson "tidy\$name" ([pscustomobject]@{ root = $Path; at = (Get-Date).ToString('s'); moves = $log.ToArray() })
-    $summary = $moving | Group-Object Category | Sort-Object Count -Descending | ForEach-Object { "$($_.Name) $($_.Count)" }
+    $summary = $moving | Group-Object Label | Sort-Object Count -Descending | ForEach-Object { "$($_.Name) $($_.Count)" }
     Say ((Paint 'green' "  moved $(Format-JkCount $log.Count 'item') $($script:G.check)") + (Paint 'gray' "  $($summary -join ', ')"))
     if ($failed) { Say (Paint 'yellow' "  $failed files could not be moved (probably open in another program)") }
     Say (Paint 'gray' "  undo with: jk tidy undo")
@@ -207,11 +295,14 @@ function Undo-JkTidy {
             $back++
         } else { $miss++ }
     }
-    # remove category folders that the batch created and left empty
+    # remove category folders that the batch created and left empty: only jk's own folders directly
+    # inside the tidied folder, never a course folder elsewhere that happens to be empty now
+    $root = [string]$logData.root
     foreach ($d in ($moves | ForEach-Object { Split-Path $_.to -Parent } | Select-Object -Unique)) {
+        if ($root -and (Split-Path $d -Parent) -ne $root) { continue }
         if ((Test-Path -LiteralPath $d) -and -not (Get-ChildItem -LiteralPath $d -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $d }
     }
-    Move-Item -LiteralPath $last.FullName -Destination ($last.FullName + '.undone')
+    Move-Item -LiteralPath $last.FullName -Destination (Get-JkUniquePath $dir ($last.Name + '.undone'))
     Say ((Paint 'green' "  restored $back items $($script:G.check)") + $(if ($miss) { Paint 'yellow' "  ($miss had moved or been renamed since and were left alone)" } else { '' }))
 }
 
