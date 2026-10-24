@@ -392,6 +392,25 @@ Test 'exam mornings: the title says so, and exam lines carry the end time and wh
         Assert-True ($script:ExamTitle -like '* in the next 48h') "the day before: $($script:ExamTitle)"
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
+Test 'dashboard cache: kept for the same key, redone when the data changes' {
+    $script:Computed = 0
+    $one = Get-JkCached 'probe' 'k1' { $script:Computed++; 'first' }
+    $two = Get-JkCached 'probe' 'k1' { $script:Computed++; 'second' }
+    Assert-Eq "$one $two $script:Computed" 'first first 1' 'same key: computed once'
+    Assert-Eq (Get-JkCached 'probe' 'k2' { 'third' }) 'third' 'a new key recomputes'
+    Set-Content -LiteralPath (Join-Path $env:JK_HOME 'cache\probe.txt') -Value 'garbage without a key line' -NoNewline
+    Assert-Eq (Get-JkCached 'probe' 'k2' { 'fourth' }) 'fourth' 'a damaged cache file is just recomputed'
+    # the study line follows a new deadline at once, not an hour later
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'dash-cache'; $script:JkConfigCache = $null
+    try {
+        Add-JkDue cs350 'Big one' oct 23 8pm -Weight 30
+        $before = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'STUDY TODAY' })
+        Add-JkDue cs341 'Other one' oct 23 8pm -Weight 30
+        $after = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'STUDY TODAY' })
+        Assert-True ($before[0] -notmatch 'CS341' -and $after[0] -match 'CS341') "before: $before / after: $after"
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'grade fill: each past graded item once, marks recorded and checked off at their due time' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'grade-fill'; $script:JkConfigCache = $null
