@@ -122,6 +122,7 @@ jk find co250 a3               files whose name or folders hold every word, best
                                (Desktop, Documents and Downloads, walked live: new files show up at once)
 jk find cs350 pdf              a word that is a file type keeps just that type
 jk find -o 2                   open result 2 of the last search;  -e 2 shows it in Explorer, -c 2 your editor
+                               (jk find -o <Tab> cycles through the results by name)
 jk find a3 sol -o              open the best match straight away;  -p prints its path: cp (jk find a3 -p) .
 jk find notes -All             up to 200 results (15 by default)
 jk find lab -Root D:\school    somewhere else (or: jk config set find.roots "C:\a;D:\b")
