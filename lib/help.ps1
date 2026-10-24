@@ -53,6 +53,7 @@ jk focus                       start a 25-minute block (or show the running one)
 jk focus 50 cs350 a2a          50 minutes, labelled - the label's course colours it
 jk focus 1h30m reading         any length: 25, 25m, 1h, 1h30m, 1:30
 jk focus stop                  end early (time so far is logged)
+jk focus status                the running block: time left and label
 jk focus log                   last 7 days as a bar chart, totals by label, streak
 A popup slides in when time is up, even if Windows notifications are off.
 '@
@@ -60,7 +61,7 @@ A popup slides in when time is up, even if Windows notifications are off.
 jk in 20m take the laundry out      popup in 20 minutes (20m, 1h30m, 90s, 45)
 jk at 3:30pm call home              popup at a time today (or tomorrow if already past)
 jk at tomorrow 9am submit form      also: fri 17:00, dec 3 10am
-jk remind                           pending reminders + daily-task status
+jk remind | jk remind list          pending reminders + daily-task status
 jk remind cancel 3
 jk remind install                   morning brief popup (today's classes + deadlines within 48h) at remind.time
                                     (jk config set remind.time 7:45am) and on sign-in; re-arms reminders after a restart
@@ -81,7 +82,7 @@ jk grade add cs350 "Participation" -Weight 5 -Score 100     parts that are not d
 Weights come from your deadlines; "best 6 of 8" in a note drops the lowest automatically.
 '@
     'tidy'   = @'
-jk tidy                        report on Downloads: categories, biggest files, duplicates, old installers
+jk tidy | jk tidy scan         report on Downloads: categories, biggest files, duplicates, old installers
 jk tidy apply                  move loose files into Installers\, PDFs\, Images\ ... (newer than 2 days stay)
 jk tidy undo                   put the last batch back exactly where it was
 jk tidy dupes [-Recycle]       find identical files (by content hash); -Recycle bins the extra copies
@@ -94,11 +95,12 @@ Nothing is ever deleted permanently: -Recycle uses the Recycle Bin.
 jk cp new A                    make <cp.root>\A with main.cpp + 1.in/1.out, cd there, open editor
 jk cp new A -Lang py|java|usaco   -Here  (create in the current folder instead)
 jk cp add                      clipboard -> next N.in, then copy the expected output and press Enter
-jk cp                          compile (cached) and run every *.in; diff with *.out / *.ans
+jk cp | jk cp test             compile (cached) and run every *.in; diff with *.out / *.ans
 jk cp -d                       debug build: _GLIBCXX_DEBUG bounds checks, -ftrapv overflow traps
 jk cp -v                       also show stderr (dbg(...) output) for passing tests
 jk cp -Timeout 5               per-test limit in seconds (default 3)
 jk cp run                      compile and run interactively
+jk cp open | jk cp clean       open the solution in your editor | delete the compiled cache (.jkcp)
 jk cp stress                   main vs brute.cpp|py on inputs from gen.cpp|py <seed>; stops at the first mismatch
 Compiled with -std=c++20 -O2 -Wall -DLOCAL and a 256 MB stack (deep recursion just works).
 Floating-point answers match within 1e-6. Exit codes like 0xC0000005 are explained.
@@ -140,7 +142,7 @@ jk jobs stripe                 did I already apply? every row for a company or r
 jk jobs robinhood backend      all words must match (company, role or location)
 jk jobs todo                   everything still waiting on you: sign-ins, MFA, take-homes, queued
 jk jobs skipped                what was ruled out, and why
-jk jobs edit                   open the tracker
+jk jobs edit | jk jobs path    open the tracker | print where it is
 Reads job_application_tracker.md (a markdown table: Date | Company | Role | Location | Status | Link)
 from a Desktop folder, or jk config set jobs.file <path>. Read-only: jk never changes the tracker.
 A blocked row counts as done once a later row applies to the same company and role.
@@ -148,9 +150,9 @@ A blocked row counts as done once a later row applies to the same company and ro
     'space'  = @'
 jk space                       sizes of Downloads, Recycle Bin, temp, conda/pip/npm caches, Gradle, Maven,
                                Docker's disk, browser/editor caches and every node_modules under the Desktop
-jk space -NoNodeModules       skip the node_modules search (faster)
-jk space clean temp           delete temp files older than 7 days (-Days 30 to keep more)
-jk space clean conda          conda clean --all   (also: pip, npm)
+jk space -NoNodeModules        skip the node_modules search (faster)
+jk space clean temp            delete temp files older than 7 days (-Days 30 to keep more)
+jk space clean conda           conda clean --all   (also: pip, npm)
 The report never deletes anything; each row names the right tool to free that space.
 '@
     'speed'  = @'
@@ -177,7 +179,7 @@ $script:JkHelpTopics['mark'] = $script:JkHelpTopics['go']
 $script:JkHelpTopics['doctor'] = $script:JkHelpTopics['setup']
 $script:JkHelpTopics['update'] = "jk update                      git pull --ff-only in the jk folder, list what changed, reload the module`n                               (refuses if tracked files have uncommitted changes)"
 $script:JkHelpTopics['plan'] = "jk plan                        today's study blocks per course, and the next 7 days if you follow the plan`njk plan start                  start a 25-minute focus block on the most urgent item`n                               Work per item = weight x 15 min (exams) or x 30 min (assignments), minus focus`n                               already logged on that course, spread over the days left.`njk config set plan.hours 4     daily budget (default 3)   plan.examMin / plan.dueMin tune the estimates`njk config set plan.examHours 8 the budget during the study break and exams (default 6, no classes then)"
-$script:JkHelpTopics['backup'] = "jk backup                      days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file`njk backup mirror D:\jk-backup   also keep a daily snapshot outside the data folder (another drive, USB, synced folder);`n                               restore reads it when the local backups are gone.  jk backup mirror off"
+$script:JkHelpTopics['backup'] = "jk backup | jk backup list     days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file`njk backup mirror D:\jk-backup  also keep a daily snapshot outside the data folder (another drive, USB, synced folder);`n                               restore reads it when the local backups are gone.  jk backup mirror off"
 
 function Write-JkHelpBlock([string]$Text) {
     foreach ($l in ($Text -split "`r?`n")) {

@@ -1437,6 +1437,19 @@ Test 'every router action is offered by tab completion' {
     }
     Assert-Eq (@($missing) -join ', ') ''
 }
+Test 'jk help <command> names every action' {
+    $missing = foreach ($cmd in $script:JkActions.Keys) {
+        $topic = $script:JkHelpTopics[$cmd]
+        if (-not $topic) { continue }
+        # words on the help lines for this command ("jk todo done 2 | undo 2 | rm 2")
+        $words = @($topic -split "`r?`n" | Where-Object { $_ -match "^jk $cmd\b" } | ForEach-Object { $_ -split '[^\w-]+' })
+        foreach ($act in @($script:JkActions[$cmd])) {
+            if ($act -match '^\d+$' -or $act -eq 'help') { continue }
+            if ($words -notcontains $act) { "$cmd $act" }
+        }
+    }
+    Assert-Eq (@($missing) -join ', ') ''
+}
 
 Remove-Module jk
 Remove-Item $env:JK_HOME -Recurse -Force -ErrorAction SilentlyContinue
