@@ -95,7 +95,8 @@ jk tidy apply                  move loose files into Installers\, PDFs\, Images\
                                course's folder (Desktop\Waterloo course\CS245) instead; tidy.courses off to stop
 jk tidy undo                   put the last batch back exactly where it was
 jk tidy dupes [-Recycle]       find identical files (by content hash); -Recycle bins the extra copies
-jk tidy old [-Days 90] [-Recycle]   installers/archives you probably do not need any more
+jk tidy old [-Days 90] [-Recycle]   installers/archives you probably do not need any more, and partial
+                                    downloads nobody has touched for a week
   (both look at loose downloads and jk's category folders only, never inside unzipped programs or repos)
 jk tidy "C:\some\folder"       any other folder
 Nothing is ever deleted permanently: -Recycle uses the Recycle Bin.

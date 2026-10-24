@@ -1762,6 +1762,21 @@ Test 'tidy apply + undo round-trips exactly' {
     $after = (Get-ChildItem $dir -Recurse | ForEach-Object { $_.FullName.Substring($dir.Length) } | Sort-Object) -join '|'
     Assert-Eq $after $before
 }
+Test 'tidy: a partial download left for a week is offered by tidy old; nothing to move says so' {
+    $dir = Join-Path $env:JK_HOME 'dl-partial'
+    New-Item -ItemType Directory $dir -Force | Out-Null
+    foreach ($n in 'live.crdownload', 'dead.tmp', 'new.pdf') { Set-Content (Join-Path $dir $n) $n }
+    (Get-Item (Join-Path $dir 'dead.tmp')).LastWriteTime = (Get-Date).AddDays(-500)
+    $out = (Invoke-JkTidyRun $dir -NoDupes 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($out -match '1 partial download abandoned \(untouched for 500\+ days\)') "abandoned line: $out"
+    Assert-True ($out -match 'left in place: 1 newer than 2 days, 1 unfinished download(?!s)') 'the live one is still unfinished'
+    Assert-True ($out -match 'nothing for jk tidy apply to move right now' -and $out -notmatch 'moves 0') 'no "moves 0 files: into their course folders"'
+    $old = (Invoke-JkTidyOld $dir 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($old -match 'dead\.tmp' -and $old -notmatch 'live\.crdownload') 'only the abandoned one'
+    # jk config says what an empty default comes to
+    $cfg = (& { jk config } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($cfg -match 'tidy\.path\s+\(default: \S' -and $cfg -match 'sync\.url\s+\(default: not connected yet') "config: $cfg"
+}
 Test 'tidy files course downloads into their course folders, and undo brings them back' {
     $top = Join-Path $env:JK_HOME 'courses'
     $coll = Join-Path $top 'Waterloo course'
