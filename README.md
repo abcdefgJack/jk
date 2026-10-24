@@ -70,6 +70,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
 | | `jk plan` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight and days left; starts the next 25-minute block |
 | | `jk grade cs350` | Running weighted average and "to finish with 80% you need 77% on the rest" |
+| | `jk grade fill` | Goes through every past graded item with no mark: type it (`17/20`, `85`), Enter skips. Each marked item is checked off as of its due date |
 | | `jk todo "email the TA" -Due fri` | Lightweight to-do list |
 | | `jk review` | Last 7 days (done, slipped, focus per course) and next 7 (load, where the marks are) |
 | | `jk jobs` / `jk jobs stripe` | Job applications from your tracker table: applied, waiting on you (sign-ins, MFA, take-homes), ruled out, weekly pace; search answers "did I already apply?" (read-only) |

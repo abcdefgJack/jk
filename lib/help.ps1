@@ -75,6 +75,7 @@ jk config set alert.class 5m   or   off
     'grade'  = @'
 jk grade                       every course: graded so far, average, and what you need on the rest
 jk grade cs350                 one course in detail, with a "to finish with X you need Y" table
+jk grade fill                  go through every past graded item with no mark: type it, Enter skips
 jk grade set 23 17/20          record a mark for deadline #23 (85, 85%, 17/20 all work)
 jk grade clear 23
 jk grade target cs350 85       default target is 80%

@@ -392,6 +392,37 @@ Test 'exam mornings: the title says so, and exam lines carry the end time and wh
         Assert-True ($script:ExamTitle -like '* in the next 48h') "the day before: $($script:ExamTitle)"
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
+Test 'grade fill: each past graded item once, marks recorded and checked off at their due time' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'grade-fill'; $script:JkConfigCache = $null
+    $origTI = ${function:Test-JkInteractive}
+    try {
+        Add-JkDue cs350 'A1' oct 7 8pm -Weight 8
+        Add-JkDue health 'Quiz opens' oct 10 9am -Weight 5 -Exam
+        Add-JkDue health 'Quiz closes' oct 11 9pm -Weight 5 -Exam
+        Add-JkDue cs341 'A2' oct 30 11:59pm -Weight 4
+        Add-JkDue cs350 'Reading' oct 1
+        $items = @(Get-JkUnmarkedItems)
+        Assert-Eq $items.Count 2 'past and graded only, the quiz window once'
+        Assert-True ($items[1].Label -like '* Quiz') "label: $($items[1].Label)"
+        $script:Answers = New-Object System.Collections.Generic.Queue[string]
+        foreach ($x in '7/8', 'x', '90') { $script:Answers.Enqueue($x) }
+        function script:Read-Host { param($Prompt) $script:Answers.Dequeue() }
+        function script:Test-JkInteractive { $true }
+        Invoke-JkGradeFill
+        Assert-Eq @(Get-JkUnmarkedItems).Count 0 'a typo is asked again, then both are marked'
+        Assert-Eq (@((Get-JkGradeData).scores | ForEach-Object { "$($_.score)" }) -join ',') '87.5,90'
+        $d = Get-JkDueData
+        $a1 = @($d.events | Where-Object { $_.title -eq 'A1' })[0]
+        Assert-Eq "$($a1.done) $($a1.doneAt)" 'True 2026-10-07T20:00:00' 'done as of its due time, not today'
+        Assert-True @($d.events | Where-Object { $_.title -eq 'Quiz opens' })[0].done 'the opening half too'
+        Assert-True (-not @($d.events | Where-Object { $_.title -eq 'A2' })[0].done) 'future items untouched'
+    } finally {
+        Remove-Item function:script:Read-Host -ErrorAction SilentlyContinue
+        Set-Item function:script:Test-JkInteractive $origTI
+        $env:JK_HOME = $saved; $script:JkConfigCache = $null
+    }
+}
 Test 'Sunday mornings look at the whole week' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'week-ahead'; $script:JkConfigCache = $null
