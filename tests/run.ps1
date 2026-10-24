@@ -860,6 +860,15 @@ Test 'term phases: no section nudge after classes; next-term pointer; bigger exa
         $env:JK_NOW = '2026-12-28T09:00:00'
         $after = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($after -match 'is over\. Next term: jk due sync' -and $after -notmatch 'add your class sections') 'after the term: next-term pointer'
+        # a week past the exams the next term is under way: named by season, old term no longer described
+        $env:JK_NOW = '2027-01-06T09:00:00'
+        Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) 'Winter 2027'
+        $jan = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($jan -match 'Winter 2027: bring in its deadlines' -and $jan -notmatch 'term over|is over') 'new term with nothing in it yet'
+        Add-JkDue cs999 'Lab 1' 'jan 15' 5pm | Out-Null
+        $jan2 = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($jan2 -notmatch 'bring in its deadlines') 'quiet once the new term has deadlines'
+        Assert-Eq (Get-JkSeasonName ([datetime]'2027-06-01')) 'Spring 2027'
     } finally {
         $env:JK_NOW = '2026-10-22T14:00:00'
         $env:JK_HOME = $saved

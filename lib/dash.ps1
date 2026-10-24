@@ -237,8 +237,12 @@ function Show-JkDashboard {
     # sections only matter while there are classes to go to
     if ($phase -in '', 'before', 'classes') { try { $unpicked = @(Get-JkUnpickedCourses) } catch { } }
     # one setup nudge at a time: sections first, then the LEARN feed, then next term
+    $upcoming = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
     if ($phase -eq 'after') {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) $($info.Name) is over.") + (Paint 'gray' ' Next term: ') + (Paint 'cyan' 'jk due sync') + (Paint 'gray' ' (LEARN) and ') + (Paint 'cyan' 'jk class import') + (Paint 'gray' ' (Quest)'))
+    } elseif ($phase -eq 'next' -and -not $upcoming) {
+        # a new term with nothing in it yet
+        Say ('  ' + (Paint 'cyan' "$($script:G.star) $($info.Name):") + (Paint 'gray' ' bring in its deadlines with ') + (Paint 'cyan' 'jk due sync') + (Paint 'gray' ' (LEARN) and its classes with ') + (Paint 'cyan' 'jk class import') + (Paint 'gray' ' (Quest)'))
     } elseif ($unpicked.Count) {
         Say ('  ' + (Paint 'cyan' "$($script:G.star) add your class sections") + (Paint 'gray' " ($($unpicked -join ', ') not on your timetable yet)  $($script:G.arrow) ") + (Paint 'cyan' 'jk class pick'))
     } elseif (-not (Get-JkConfig 'sync.url') -and @($data.events).Count) {
