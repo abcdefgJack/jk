@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'clip', 'sys', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -25,6 +25,7 @@ $script:JkCommands = [ordered]@{
     'go'     = @{ Fn = 'Invoke-JkGo'; Aliases = @('cd', 'jump'); Desc = 'jump to a folder by fuzzy name (also: j <name>)' }
     'mark'   = @{ Fn = 'Invoke-JkMark'; Aliases = @('bookmark'); Desc = 'bookmark the current folder for jk go' }
     'find'   = @{ Fn = 'Invoke-JkFind'; Aliases = @('search', 'ff'); Desc = 'find a file by words in its name or folders (Desktop, Documents, Downloads); -o opens it' }
+    'clip'   = @{ Fn = 'Invoke-JkClip'; Aliases = @('clipboard', 'cb'); Desc = 'clipboard text: word count; unwrap lines copied from a PDF; drop formatting' }
     'recent' = @{ Fn = 'Invoke-JkRecent'; Aliases = @('changed', 'latest'); Desc = 'files you changed in the last 2 days (or N), newest first; jk find -o 1 opens one' }
     'repos'  = @{ Fn = 'Invoke-JkRepos'; Aliases = @('git'); Desc = 'status of every git repo on the Desktop: dirty, ahead, behind' }
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
@@ -152,6 +153,7 @@ $script:JkActions = @{
     'go'     = @()
     'find'   = @()
     'recent' = @()
+    'clip'   = @('unwrap', 'count', 'plain', 'help')
     'help'   = @()
 }
 

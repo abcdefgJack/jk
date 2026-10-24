@@ -1566,6 +1566,36 @@ Test 'jk recent: files changed since a cut-off, newest first, without lock files
         Assert-Throws { Invoke-JkRecent 0 }
     } finally { Set-JkConfig 'find.roots' '' }
 }
+Test 'jk clip: unwraps PDF text and counts words the way a word limit does' {
+    $pdf = @(
+        'The gradient method is one of the simplest and most widely used optimi-',
+        'zation algorithms. At each step it moves along the negative gradient of',
+        'the objective, which is the steepest descent direction.',
+        'It needs a step size.',
+        '- choose a starting point x0 and a tolerance for the stopping rule here',
+        '- repeat until the norm of the gradient is small (see the COVID-',
+        '19 example and the Hartree-',
+        'Fock one)',
+        '',
+        '',
+        'A new paragraph after blank lines.'
+    ) -join "`r`n"
+    $r = ConvertFrom-JkWrappedText $pdf
+    $want = @(
+        'The gradient method is one of the simplest and most widely used optimization algorithms. At each step it moves along the negative gradient of the objective, which is the steepest descent direction. It needs a step size.',
+        '- choose a starting point x0 and a tolerance for the stopping rule here',
+        '- repeat until the norm of the gradient is small (see the COVID-19 example and the Hartree-Fock one)',
+        '',
+        'A new paragraph after blank lines.'
+    ) -join "`n"
+    Assert-Eq $r.Text $want
+    Assert-Eq "$($r.Mended) $($r.Paragraphs)" '1 4'
+    # Chinese lines join without a space
+    $zh = ([string][char]0x8FD9 + [char]0x662F + [char]0x88AB) + "`n" + ([string][char]0x6362 + [char]0x884C + [char]0x3002)
+    Assert-Eq (ConvertFrom-JkWrappedText $zh).Text ($zh -replace "`n", '')
+    $m = Measure-JkText "Hello world, it's 2026.`n$zh"
+    Assert-Eq "$($m.Words) $($m.Cjk) $($m.Lines)" '4 5 3'
+}
 Test 'Fit counts CJK characters as two columns' {
     $cjk = [string][char]0x6295 + [char]0x5DE5 + [char]0x4F5C
     Assert-Eq (Get-JkTextWidth "Desktop\$cjk") 14
