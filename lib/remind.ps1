@@ -360,13 +360,28 @@ function Get-JkTaskInfo {
     # "never" comes back as a date in 1899
     $last = $null; if (([datetime]$t.LastRunTime).Year -gt 2000) { $last = [datetime]$t.LastRunTime }
     $next = $null; if (([datetime]$t.NextRunTime).Year -gt 2000) { $next = [datetime]$t.NextRunTime }
-    [pscustomobject]@{ State = $state; NextRunTime = $next; LastRunTime = $last; LastTaskResult = [int]$t.LastTaskResult }
+    # an install from before the daily trigger kept local time
+    $utc = $false
+    try { foreach ($tr in $t.Definition.Triggers) { if ($tr.Type -eq 2 -and (Test-JkTriggerPinnedToUtc ([string]$tr.StartBoundary))) { $utc = $true } } } catch { }
+    [pscustomobject]@{ State = $state; NextRunTime = $next; LastRunTime = $last; LastTaskResult = [int]$t.LastTaskResult; PinnedToUtc = $utc }
 }
 
 function Get-JkTaskCommand {
     $psd1 = Join-Path (Get-JkRoot) 'jk.psd1'
     "Import-Module '$($psd1.Replace("'", "''"))'; jk remind tick"
 }
+
+# A daily trigger at local wall-clock time. New-ScheduledTaskTrigger stores the start in UTC
+# ("11:45:00Z" for 7:45 am in Waterloo), which Task Scheduler treats as "synchronize across time
+# zones": the task keeps that UTC time, so after daylight saving time ends it fires at 6:45.
+function New-JkDailyTrigger([datetime]$At) {
+    $t = New-ScheduledTaskTrigger -Daily -At $At
+    $t.StartBoundary = $At.ToString('yyyy-MM-ddTHH:mm:ss', $script:Inv)
+    $t
+}
+
+# True when a trigger start carries a UTC offset or Z, i.e. it drifts an hour across DST changes.
+function Test-JkTriggerPinnedToUtc([string]$StartBoundary) { $StartBoundary -match '(Z|[+-]\d{2}:\d{2})$' }
 
 function Install-JkRemindTask {
     $time = Get-JkConfig 'remind.time'
@@ -376,7 +391,7 @@ function Install-JkRemindTask {
     if (Test-Path $conhost) { $action = New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$ps`" $psArgs" }
     else { $action = New-ScheduledTaskAction -Execute $ps -Argument $psArgs }
     $at = [datetime]::ParseExact($time, 'HH:mm', $script:Inv)
-    $triggers = @(New-ScheduledTaskTrigger -Daily -At $at)
+    $triggers = @(New-JkDailyTrigger $at)
     $logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
     $logon.Delay = 'PT2M'
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -MultipleInstances IgnoreNew
