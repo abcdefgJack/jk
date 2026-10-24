@@ -117,8 +117,18 @@ Test 'durations' {
     Assert-Eq (ConvertTo-JkSeconds '90s') 90
     Assert-Eq (ConvertTo-JkSeconds '1:30') 5400
     Assert-Eq (ConvertTo-JkSeconds '2 hours') 7200
+    Assert-Eq (ConvertTo-JkSeconds '1h30') 5400
     Assert-Throws { ConvertTo-JkSeconds 'abc' }
     Assert-Throws { ConvertTo-JkSeconds '20 parsecs' }
+    # what jk in / jk focus take from the front of what was typed: seconds, words used
+    $rd = { param([string]$s) $r = Read-JkDurationWords ($s -split ' '); "$($r.Seconds)/$($r.Used)" }
+    Assert-Eq (& $rd '2 hours study') '7200/2' 'a spelled-out unit is part of the length'
+    Assert-Eq (& $rd '10 minutes break') '600/2'
+    Assert-Eq (& $rd '1h 30m stretch') '5400/2'
+    Assert-Eq (& $rd '1h30 stretch') '5400/1'
+    Assert-Eq (& $rd '45 call') '2700/1'
+    Assert-Eq (& $rd '20m 3 things') '1200/1' 'a message starting with a number keeps it'
+    Assert-Throws { Read-JkDurationWords @('soon', 'please') }
 }
 Test 'times pulled from calendar notes' {
     $d = [char]0x2013

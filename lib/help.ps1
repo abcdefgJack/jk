@@ -60,7 +60,7 @@ jk focus log                   last 7 days as a bar chart, totals by label, stre
 A popup slides in when time is up, even if Windows notifications are off.
 '@
     'remind' = @'
-jk in 20m take the laundry out      popup in 20 minutes (20m, 1h30m, 90s, 45)
+jk in 20m take the laundry out      popup in 20 minutes (20m, 1h30, 2 hours, 90s, 45)
 jk at 3:30pm call home              popup at a time today (or tomorrow if already past)
 jk at tomorrow 9am submit form      also: fri 17:00, dec 3 10am
 jk remind | jk remind list          pending reminders + daily-task status

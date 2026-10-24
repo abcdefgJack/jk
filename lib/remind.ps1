@@ -251,10 +251,11 @@ function Write-JkReminderSet($Item) {
 # jk in 20m take the laundry out
 function Invoke-JkRemindIn {
     $a = @($args | ForEach-Object { [string]$_ })
-    if ($a.Count -eq 0) { throw 'usage: jk in <20m|1h30m|90s> <message>' }
-    $secs = ConvertTo-JkSeconds $a[0]
+    if ($a.Count -eq 0) { throw 'usage: jk in <20m|1h30m|2 hours|90s> <message>' }
+    $d = Read-JkDurationWords $a
+    $secs = $d.Seconds
     $text = ''
-    if ($a.Count -gt 1) { $text = ($a[1..($a.Count - 1)]) -join ' ' }
+    if ($a.Count -gt $d.Used) { $text = ($a[$d.Used..($a.Count - 1)]) -join ' ' }
     $item = New-JkReminder -At (Get-JkLocalAfter $secs) -Text $text
     Write-JkReminderSet $item
 }

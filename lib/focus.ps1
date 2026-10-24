@@ -30,6 +30,8 @@ function ConvertTo-JkSeconds([string]$Text) {
     $t = $Text.Trim().ToLower()
     if ($t -match '^\d+(\.\d+)?$') { return [int]([double]$t * 60) }
     if ($t -match '^(\d+):(\d{2})$') { return [int]$Matches[1] * 3600 + [int]$Matches[2] * 60 }
+    # "1h30": the minutes without their m
+    if ($t -match '^(\d+)h(\d{1,2})$') { return [int]$Matches[1] * 3600 + [int]$Matches[2] * 60 }
     $total = 0.0
     $rest = $t
     # longest unit names first so "2 hours" is not read as "2 h" + "ours"
@@ -44,6 +46,23 @@ function ConvertTo-JkSeconds([string]$Text) {
     }
     if ($total -le 0 -or $rest.Trim()) { throw "can't understand the duration '$Text' (try 25, 25m, 1h30m, 90s)" }
     [int]$total
+}
+
+# The duration at the start of what was typed, and how many words it took: "20m", "1h30",
+# "2 hours", "1h 30m", or a bare number of minutes ("45 call"). The rest is the message.
+$script:JkUnitWord = '^(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)$'
+
+function Read-JkDurationWords([string[]]$Words) {
+    $parts = @(); $i = 0
+    while ($i -lt $Words.Count) {
+        $w = ([string]$Words[$i]).ToLower()
+        if ($w -match '^\d+(\.\d+)?$' -and $i + 1 -lt $Words.Count -and ([string]$Words[$i + 1]).ToLower() -match $script:JkUnitWord) { $parts += $w + ([string]$Words[$i + 1]).ToLower(); $i += 2; continue }
+        if ($w -match '^(\d+(\.\d+)?(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s))+$' -or $w -match '^\d+h\d{1,2}$') { $parts += $w; $i++; continue }
+        if ($i -eq 0 -and $w -match '^\d+(\.\d+)?$|^\d+:\d{2}$') { $parts += $w; $i++; break }
+        break
+    }
+    if (-not $parts.Count) { throw "can't understand the duration '$($Words[0])' (try 25, 25m, 1h30m, 2 hours, 90s)" }
+    [pscustomobject]@{ Seconds = (ConvertTo-JkSeconds ($parts -join '')); Used = $i }
 }
 
 function Get-JkFocusData {
@@ -104,7 +123,11 @@ function Start-JkFocus {
         return
     }
     if (-not $Minutes) { $Minutes = Get-JkConfig 'focus.minutes' }
-    $secs = ConvertTo-JkSeconds $Minutes
+    # "jk focus 2 hours cs350": the unit word belongs to the length, not the label
+    $words = @(@($Minutes) + @($Label) | Where-Object { $_ })
+    $dur = Read-JkDurationWords $words
+    $secs = $dur.Seconds
+    $Label = @($words | Select-Object -Skip $dur.Used)
     $lbl = ($Label -join ' ').Trim()
     $now = Get-Date
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
