@@ -8,8 +8,9 @@ jk due cs350                   everything for one course (past ones dimmed, done
 jk due all | past | exams      whole term | what's behind you | every remaining exam
 jk due week                    two-week grid (Mon-Sun columns)
 jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, fri, tomorrow, in 3 days, tonight, 8pm, 2026-12-02)
-jk due add cs341 "Midterm 3" nov 30 7pm -Exam -End 9pm
+jk due add cs341 Midterm 3 nov 30 7-9pm -Exam          quotes optional; 7-9pm sets the end time
 jk due done 23 | jk due done a2a                        mark done by id or by part of the title
+jk due done cs341 midterm 2                             or course and title words (a1 = Assignment 1)
 jk due undone 23 | jk due rm 23
 jk due files 24                the files in its course folder named after it (A2.tex, A2\..., a2a.pdf)
 jk due edit 24 -Date oct 30 -Time 4:30pm -Note "room MC 2065"
@@ -55,14 +56,14 @@ jk todo clear                  drop finished items and renumber
     'focus'  = @'
 jk focus                       start a 25-minute block (or show the running one)
 jk focus 50 cs350 a2a          50 minutes, labelled - the label's course colours it
-jk focus 1h30m reading         any length: 25, 25m, 1h, 1h30m, 1:30
+jk focus 1h30m reading         any length: 25, 25m, 1h, 1h30m, 1:30, for half an hour
 jk focus stop                  end early (time so far is logged)
 jk focus status                the running block: time left and label
 jk focus log                   last 7 days as a bar chart, totals by label, streak
 A popup slides in when time is up, even if Windows notifications are off.
 '@
     'remind' = @'
-jk in 20m take the laundry out      popup in 20 minutes (20m, 1h30, 2 hours, 90s, 45)
+jk in 20m take the laundry out      popup in 20 minutes (20m, 1h30, 2 hours, an hour, half an hour, 90s, 45)
 jk at 3:30pm call home              popup at a time today (or tomorrow if already past)
 jk at tomorrow 9am submit form      also: fri 17:00, dec 3 10am
 jk remind | jk remind list          pending reminders + daily-task status

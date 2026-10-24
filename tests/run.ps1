@@ -137,6 +137,14 @@ Test 'durations' {
     Assert-Eq (& $rd '10 minutes break') '600/2'
     Assert-Eq (& $rd '1h 30m stretch') '5400/2'
     Assert-Eq (& $rd '1h30 stretch') '5400/1'
+    # spoken lengths
+    Assert-Eq (& $rd 'half an hour call mom') '1800/3'
+    Assert-Eq (& $rd 'an hour and a half reading') '5400/5'
+    Assert-Eq (& $rd 'a minute tea') '60/2'
+    Assert-Eq (& $rd 'for 30 minutes cs350') '1800/3'
+    Assert-Eq (& $rd 'a quarter of an hour x') '900/5'
+    Assert-Eq (& $rd '1 hour and 30 minutes x') '5400/5'
+    Assert-Throws { Read-JkDurationWords @('half', 'x') }
     Assert-Eq (& $rd '45 call') '2700/1'
     Assert-Eq (& $rd '20m 3 things') '1200/1' 'a message starting with a number keeps it'
     Assert-Throws { Read-JkDurationWords @('soon', 'please') }
@@ -1214,6 +1222,43 @@ Test 'reopen and grade by title text, including finished items' {
     Assert-Eq @((Get-JkGradeData).scores | Where-Object { [string]$_.id -eq [string]$e.id })[0].score 90
     Set-JkDueDone -Undo $e.id
     Clear-JkGrade $e.id
+}
+Test 'jk due add: unquoted titles, "due nov 6", exam time ranges, a twin noted; names by course and words' {
+    $file = Get-JkPath 'deadlines.json'
+    $saved = [IO.File]::ReadAllText($file)
+    try {
+        $out = @(& {
+                jk due add cs350 A4 Paging dec 2 8pm -Weight 10
+                jk due add cs350 midterm 2 nov 19 7-8:50pm -Exam
+                jk due add cs350 A3 due nov 6 at 11:59pm
+                jk due add cs350 Midterm oct 30 -Exam
+                jk due add cs350 A4 dec 9
+            } 6>&1 | ForEach-Object { "$_" })
+        $ev = { param($t) @((Get-JkDueData).events | Where-Object { $_.course -eq 'cs350' -and $_.title -ceq $t }) }
+        $a4 = @(& $ev 'A4 Paging')[0]
+        Assert-Eq "$($a4.date) $($a4.time) $($a4.weight)" '2026-12-02 20:00 10%' 'words before the date join the title'
+        $m2 = @(& $ev 'midterm 2')[0]
+        Assert-Eq "$($m2.date) $($m2.time)-$($m2.end) $($m2.kind)" '2026-11-19 19:00-20:50 exam' 'the 2 stays in the title; 7-8:50pm is start and end'
+        $a3 = @(& $ev 'A3')[0]
+        Assert-Eq "$($a3.date) $($a3.time)" '2026-11-06 23:59' '"due nov 6 at 11:59pm"'
+        $orig = @(& $ev 'Midterm' | Where-Object { $_.date -eq '2026-10-29' })[0]
+        Assert-True (@($out | Where-Object { $_ -match "already has Midterm on Thu Oct 29 \(#$($orig.id)\)" }).Count -eq 1) "twin noted: $($out -join ' / ')"
+        # an exact title wins over a longer one; course + words name one item
+        $short = @(& $ev 'A4')[0]
+        Assert-Eq @(Find-JkEvents (Get-JkDueData) @('A4'))[0].id $short.id '"A4" is A4, not A4 Paging'
+        Set-JkDueDone health assignment 2
+        $h2 = @((Get-JkDueData).events | Where-Object { $_.course -eq 'health' -and $_.title -eq 'Assignment 2' })[0]
+        Assert-True $h2.done 'health assignment 2 checked off'
+        Set-JkDueDone -Undo health a2
+        Assert-True (-not @((Get-JkDueData).events | Where-Object { $_.id -eq $h2.id })[0].done) 'reopened as "health a2"'
+        Assert-Throws { Find-JkEvents (Get-JkDueData) @('cs350', 'midterm') } 'two cs350 midterms ahead'
+        # edit -Date takes a time after the date, and the phrases add takes
+        $null = @(& { jk due edit $a4.id -Date nov 8 5pm } 6>&1)
+        $x = @((Get-JkDueData).events | Where-Object { $_.id -eq $a4.id })[0]
+        Assert-Eq "$($x.date) $($x.time)" '2026-11-08 17:00'
+        $null = @(& { jk due edit $a4.id -Date in 3 days } 6>&1)
+        Assert-Eq @((Get-JkDueData).events | Where-Object { $_.id -eq $a4.id })[0].date '2026-10-25'
+    } finally { [IO.File]::WriteAllText($file, $saved) }
 }
 
 Write-Host ''
