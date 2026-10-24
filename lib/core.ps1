@@ -399,7 +399,52 @@ function Fit {
     $Text.PadRight($Width)
 }
 
-function Say([string]$Line = '') { Write-Host $Line }
+# A line wider than the window wraps and breaks every column under it, so Say cuts it at the
+# window's width (colour codes kept, an ellipsis where it was cut). Output with no window to
+# measure is left alone.
+function Say([string]$Line = '') {
+    $limit = Get-JkLineLimit
+    if ($limit -gt 0 -and ($Line.Length -gt $limit -or ($Line.Length * 2 -gt $limit -and $Line -match $script:JkWideRx))) {
+        $Line = (@($Line -split "`n") | ForEach-Object { Limit-JkLine $_ $limit }) -join "`n"
+    }
+    Write-Host $Line
+}
+
+function Get-JkLineLimit {
+    if ($env:JK_WIDTH) { return [int]$env:JK_WIDTH }
+    try { $w = $Host.UI.RawUI.WindowSize.Width; if ($w -ge 20) { return $w - 1 } } catch { }
+    0
+}
+
+$script:JkAnsiAt = New-Object regex '\G\x1b\[[0-9;]*m'
+
+function Limit-JkLine([string]$Line, [int]$Width) {
+    if ((Get-JkVisibleLength $Line) -le $Width) { return $Line }
+    $sb = New-Object Text.StringBuilder
+    $cols = 0; $i = 0
+    while ($i -lt $Line.Length) {
+        $m = $script:JkAnsiAt.Match($Line, $i)
+        if ($m.Success) { [void]$sb.Append($m.Value); $i += $m.Length; continue }
+        $cw = 1; if ("$($Line[$i])" -match $script:JkWideRx) { $cw = 2 }
+        if ($cols + $cw -gt $Width - 1) { break }
+        [void]$sb.Append($Line[$i]); $cols += $cw; $i++
+    }
+    [void]$sb.Append($script:G.ell)
+    if ($Line.IndexOf([char]27) -ge 0) { [void]$sb.Append("$([char]27)[0m") }
+    $sb.ToString()
+}
+
+# Word-wrap plain text into lines of at most $Width columns.
+function Split-JkWords([string]$Text, [int]$Width) {
+    $out = New-Object System.Collections.Generic.List[string]
+    $cur = ''
+    foreach ($word in ($Text -split ' ')) {
+        if ($cur -eq '') { $cur = $word; continue }
+        if ((Get-JkTextWidth "$cur $word") -le $Width) { $cur = "$cur $word" } else { $out.Add($cur); $cur = $word }
+    }
+    if ($cur -ne '') { $out.Add($cur) }
+    @($out)
+}
 
 # "1 file" / "3 files" ("1 copy" / "2 copies" with an explicit plural)
 function Format-JkCount([int]$N, [string]$Noun, [string]$Plural = '') {
@@ -453,6 +498,9 @@ function Write-JkHeader {
     $w = Get-JkWidth
     $left = ' ' + $Title.ToUpper()
     if ($Sub) { $left += '  ' + $Sub }
+    # a narrow window shortens the right-hand note rather than wrapping the header
+    $room = $w - (Get-JkTextWidth $left) - 3
+    if ((Get-JkTextWidth $Right) -gt $room) { if ($room -ge 12) { $Right = (Fit $Right $room).TrimEnd() } else { $Right = '' } }
     $gap = [Math]::Max(2, $w - (Get-JkTextWidth $left) - (Get-JkTextWidth $Right) - 1)
     Say ''
     $head = Paint $Style (' ' + $Title.ToUpper())

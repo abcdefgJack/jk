@@ -128,6 +128,10 @@ function Show-JkDashboard {
     Say (' ' + (Paint 'bold white' 'THIS WEEK') + (Paint 'gray' "  $($soon.Count) due in 7 days"))
     if ($soon.Count -eq 0) { Say (Paint 'green' "  Nothing due in the next 7 days. $($script:G.check)") }
     $shown = 0
+    # the title column gives way to the EXAM tag when one is on screen, so rows keep one width
+    $tagW = 0
+    if (@($soon | Select-Object -First 8 | Where-Object { $_.kind -eq 'exam' }).Count) { $tagW = 7 }
+    $titleW = [Math]::Max(12, $w - 46 - $tagW)
     foreach ($e in $soon) {
         if ($shown -ge 8) { break }
         $due = Get-JkEventDue $e
@@ -138,7 +142,6 @@ function Show-JkDashboard {
         $color = Get-JkCourseColor $e.course $cmap
         $time = Format-JkTime ([string]$e.time)
         $tag = ''; if ($e.kind -eq 'exam') { $tag = ' ' + (Paint "bold bg:#$color ink" ' EXAM ') }
-        $titleW = [Math]::Max(12, $w - 46)
         $line = '  ' + (Paint $dst (Fit $dayTxt 6)) + (Paint 'gray' (Fit ($due.ToString('MMM d', [Globalization.CultureInfo]::InvariantCulture)) 7)) + (Paint "bold #$color" (Fit (Get-JkCourseLabel $e $cmap) 11)) + (Paint 'white' (Fit ([string]$e.title) $titleW)) + (Paint 'muted' (Fit $time 9 -Right)) + (Paint 'gray' (Fit ([string]$e.weight) 7 -Right)) + $tag
         Say $line
         $shown++
