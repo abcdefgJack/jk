@@ -356,6 +356,29 @@ Test 'morning brief: once per 3 hours, and a future stamp never silences it' {
         Assert-Eq (Read-JkJson 'state.json' $null).lastRemind '2026-10-22T14:00:00' 'and replaced with now'
     } finally { Set-Item function:script:Show-JkNotify $orig }
 }
+Test 'exam mornings: the title says so, and exam lines carry the end time and what to bring' {
+    $d = $script:G.dot; $dash = $script:G.dash; $arrow = $script:G.arrow
+    Assert-Eq (Get-JkExamNote ([pscustomobject]@{ note = "4:30 $dash 6:20 pm $d in person, room TBA" })) 'in person, room TBA'
+    Assert-Eq (Get-JkExamNote ([pscustomobject]@{ note = "6:00 am Oct 26 $arrow 11:59 pm Oct 27 $d LEARN quiz, ~60$($dash)70 min" })) "LEARN quiz, ~60$($dash)70 min"
+    Assert-Eq (Get-JkExamNote ([pscustomobject]@{ note = "7:30 $dash 10:00 pm $d room TBA $d one handwritten sheet, no calculator" })) "room TBA $d one handwritten sheet, no calculator"
+    Assert-Eq (Get-JkExamNote ([pscustomobject]@{ note = '11:59 pm' })) ''
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'exam-morning'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:ExamTitle = $Title; $script:ExamLines = $Lines; 'stub' }
+    try {
+        Add-JkDue cs350 'Midterm' oct 29 4:30pm -Exam -End 6:20pm -Note "4:30 $dash 6:20 pm $d in person, room TBA"
+        Add-JkDue cs341 'Assignment 2' oct 30 11:59pm
+        $env:JK_NOW = '2026-10-29T07:45:00'
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True ($script:ExamTitle -like 'Exam today: * Midterm 4:30 pm') "title: $($script:ExamTitle)"
+        Assert-True (@($script:ExamLines | Where-Object { $_ -like "Today 4:30-6:20 pm $dash * Midterm (exam) $d in person, room TBA" }).Count -eq 1) "lines: $($script:ExamLines -join ' / ')"
+        # the day before is an ordinary morning
+        $env:JK_NOW = '2026-10-28T07:45:00'
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-True ($script:ExamTitle -like '* in the next 48h') "the day before: $($script:ExamTitle)"
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
 Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled out, finds by company' {
     $md = Join-Path $env:JK_HOME 'tracker.md'
     $d = [string][char]0x2014
