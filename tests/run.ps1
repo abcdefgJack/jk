@@ -1424,6 +1424,19 @@ Test 'tab completion engine' {
     Assert-Eq ((& $names '' @('jk', 'cp', 'new', 'x', '-Lang')) -join ',') 'cpp,py,java,usaco'
     Assert-True ((& $names '' @('jk', 'due', 'add')) -contains 'cs350')
 }
+Test 'every router action is offered by tab completion' {
+    # the first name in each '^(name|alias...)' pattern of a router is its action; tick is the
+    # morning task's entry point; the rest are value checks, not actions
+    $skip = @{ remind = @('tick'); config = @('auto', 'dark'); port = @('svchost') }
+    $missing = foreach ($cmd in $script:JkActions.Keys) {
+        $fn = Get-Item "function:$($script:JkCommands[$cmd].Fn)"
+        $found = [regex]::Matches($fn.Definition, "'\^\(([a-z][a-z0-9]*)[|)]") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+        foreach ($act in $found) {
+            if (@($script:JkActions[$cmd]) -notcontains $act -and @($skip[$cmd]) -notcontains $act) { "$cmd $act" }
+        }
+    }
+    Assert-Eq (@($missing) -join ', ') ''
+}
 
 Remove-Module jk
 Remove-Item $env:JK_HOME -Recurse -Force -ErrorAction SilentlyContinue
