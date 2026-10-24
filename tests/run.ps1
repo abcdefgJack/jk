@@ -1789,7 +1789,8 @@ Test 'dashboard: tight on memory, the machine line names the biggest app' {
     try {
         function script:Get-JkMemory { [pscustomobject]@{ Total = 16GB; Free = 1.6GB } }
         $line = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'RAM' })[0]
-        Assert-True ($line -match 'RAM 90% \(chrome 3\.0 GB\)') "tight: $line"
+        # sizes follow the culture: 3.0 GB, or 3,0 GB in the German CI pass
+        Assert-True ($line -match 'RAM 90% \(chrome 3[.,]0 GB\)') "tight: $line"
         function script:Get-JkMemory { [pscustomobject]@{ Total = 16GB; Free = 8GB } }
         $line = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'RAM' })[0]
         Assert-True ($line -match 'RAM 50%' -and $line -notmatch 'chrome') "roomy: $line"
