@@ -948,6 +948,29 @@ function Get-JkExamDayTitle($Soon, $Cmap, [datetime]$Now) {
     "$($today.Count) exams today: " + (@($today | ForEach-Object { "$(Get-JkCourseLabel $_ $Cmap) $(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" }) -join ', ')
 }
 
+# Sunday's look at the week: "This week: 9 due, 3 exams - CO 367 Quiz 2 Thu, CS 350 Midterm Thu,
+# CS 370 Midterm Mon". An online exam's opens/closes pair counts once. $null when the week is empty.
+function Get-JkWeekAheadLine($Data, $Cmap, [datetime]$Now) {
+    $end = $Now.Date.AddDays(8)
+    $week = @($Data.events | Where-Object { -not $_.done -and ($d = Get-JkEventDue $_) -ge $Now -and $d -lt $end } | Sort-Object { Get-JkEventDue $_ })
+    if (-not $week.Count) { return $null }
+    $seen = @{}
+    $exams = @(foreach ($e in ($week | Where-Object { $_.kind -eq 'exam' })) {
+        $t = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()
+        $k = "$($e.course)|$t"
+        if ($seen.ContainsKey($k)) { continue }
+        $seen[$k] = $true
+        "$(Get-JkCourseLabel $e $Cmap) $t $((Get-JkEventDue $e).ToString('ddd', $script:Inv))"
+    })
+    $other = @($week | Where-Object { $_.kind -ne 'exam' }).Count
+    $txt = "This week: $other due"
+    if ($exams.Count) {
+        $txt += ", $(Format-JkCount $exams.Count 'exam') $($script:G.dash) " + (@($exams | Select-Object -First 3) -join ', ')
+        if ($exams.Count -gt 3) { $txt += ", +$($exams.Count - 3) more" }
+    }
+    $txt
+}
+
 function Invoke-JkDueRemind {
     param([double]$Hours = 0, [switch]$Quiet, [switch]$Force)
     if (-not $Hours) { $Hours = [double](Get-JkConfig 'remind.hours') }
@@ -964,10 +987,14 @@ function Invoke-JkDueRemind {
     # the rest of today's classes ride along, so the morning popup doubles as a day brief
     $classes = @()
     try { $classes = @(Get-JkClassesOn $now.Date | Where-Object { $_.Start -gt $now }) } catch { }
-    if ($soon.Count -eq 0 -and $classes.Count -eq 0) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
+    # Sundays also look at the whole week, and that alone is reason enough for the popup
+    $weekLine = $null
+    if ($now.DayOfWeek -eq 'Sunday') { $weekLine = Get-JkWeekAheadLine $data $cmap $now }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $lines = @()
+    if ($weekLine) { $lines += $weekLine }
     if ($classes.Count) {
         $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
     }
@@ -1016,9 +1043,13 @@ function Invoke-JkDueRemind {
             $first = @($soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $now.Date })[0]
             $accent = Get-JkCourseColor $first.course $cmap
         }
-    } else {
+    } elseif ($classes.Count) {
         $accent = Get-JkCourseColor $classes[0].Class.course $cmap
         $title = "$($classes.Count) class$(if ($classes.Count -ne 1) {'es'}) today, nothing due soon"
+    } else {
+        # a Sunday with nothing in the next two days: the week ahead is the news
+        $accent = $script:JkPalette.blue
+        $title = 'Nothing due in the next two days'
     }
     $cal = Get-JkPath 'calendar.html'
     if (-not (Test-Path $cal)) { Export-JkDueHtml -NoOpen -Quiet }

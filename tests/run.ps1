@@ -392,6 +392,29 @@ Test 'exam mornings: the title says so, and exam lines carry the end time and wh
         Assert-True ($script:ExamTitle -like '* in the next 48h') "the day before: $($script:ExamTitle)"
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
+Test 'Sunday mornings look at the whole week' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'week-ahead'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:WeekTitle = $Title; $script:WeekLines = $Lines; 'stub' }
+    try {
+        # Sun Nov 22: nothing in the next two days, but an exam window and an assignment later on
+        Add-JkDue cs350 'Quiz opens' nov 25 9am -Exam
+        Add-JkDue cs350 'Quiz closes' nov 26 9pm -Exam
+        Add-JkDue cs341 'A4' nov 27 11:59pm
+        Add-JkDue cs341 'A5' dec 5 11:59pm
+        $env:JK_NOW = '2026-11-22T07:45:00'
+        $script:WeekTitle = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-Eq $script:WeekTitle 'Nothing due in the next two days' 'the week alone is worth the popup'
+        Assert-True ($script:WeekLines[0] -like "This week: 1 due, 1 exam $($script:G.dash) * Quiz Wed") "line: $($script:WeekLines[0])"
+        # a weekday morning with nothing close stays quiet
+        $env:JK_NOW = '2026-11-23T07:45:00'
+        $script:WeekTitle = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-Eq $script:WeekTitle $null 'no popup on a quiet Monday'
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
 Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled out, finds by company' {
     $md = Join-Path $env:JK_HOME 'tracker.md'
     $d = [string][char]0x2014
