@@ -14,8 +14,12 @@ function Get-JkPlanItems {
     $examPer = [double](Get-JkConfig 'plan.examMin')
     $duePer = [double](Get-JkConfig 'plan.dueMin')
     $groups = @{}
+    # dates are ISO text: anything outside [today, horizon] is skipped before any parsing
+    $fromDay = $Now.ToString('yyyy-MM-dd', $script:Inv)
+    $toDay = $Now.AddDays($HorizonDays).ToString('yyyy-MM-dd', $script:Inv)
     foreach ($e in @($data.events)) {
         if ($e.done) { continue }
+        if ([string]$e.date -lt $fromDay -or [string]$e.date -gt $toDay) { continue }
         $w = Get-JkWeightValue $e.weight
         if ($w -le 0) { continue }
         $due = Get-JkEventDue $e
@@ -34,22 +38,33 @@ function Get-JkPlanItems {
         }
     }
     $items = @($groups.Values)
-    # resolve each session's course once (labels repeat a lot)
+    # only the last two weeks of focus can count (items are at most 14 days out, and credit starts
+    # 14 days before each); start stamps are ISO, so they compare as text without parsing. Each
+    # label's course is resolved once: a term of sessions repeats a handful of labels.
+    $cutoff = $Now.Date.AddDays(-14).ToString('s', $script:Inv)
+    $memo = @{}
     $sessions = foreach ($s in @($fd.sessions)) {
-        $first = ([string]$s.label -split '\s+')[0]
-        if (-not $first) { continue }
-        $c = Resolve-JkCourse $data $first
-        if ($c) { [pscustomobject]@{ Course = $c.key; Start = [datetime]::Parse([string]$s.start, $script:Inv); Minutes = [double]$s.actual } }
+        if ([string]$s.start -lt $cutoff) { continue }
+        $ck = Resolve-JkLabelCourse $data $memo ([string]$s.label)
+        if ($ck) { [pscustomobject]@{ Course = $ck; Start = [datetime]::Parse([string]$s.start, $script:Inv); Minutes = [double]$s.actual } }
     }
     # focus already logged on a course since two weeks before an item counts toward it,
     # shared between that course's items in proportion to their effort. Time before the course's
-    # last finished item was spent on that item, so it does not count.
+    # last finished item was spent on that item, so it does not count. (One pass over the finished
+    # items, comparing their ISO done-stamps as text, finds each course's latest.)
+    $nowIso = $Now.ToString('s', $script:Inv)
+    $lastDone = @{}
+    foreach ($f in @($data.events)) {
+        if (-not $f.done) { continue }
+        $at = [string](Get-JkProp $f 'doneAt' '')
+        if ($at -and $at -le $nowIso -and $at -gt [string]$lastDone[[string]$f.course]) { $lastDone[[string]$f.course] = $at }
+    }
     foreach ($course in ($items | Group-Object Course)) {
         $courseItems = @($course.Group)
         $since = ($courseItems | ForEach-Object { $_.Due.AddDays(-14) } | Measure-Object -Minimum).Minimum
-        foreach ($f in @($data.events | Where-Object { $_.course -eq $course.Name -and $_.done })) {
-            $at = Get-JkDoneAt $f
-            if ($at -and $at -gt $since -and $at -le $Now) { $since = $at }
+        if ($lastDone[$course.Name]) {
+            $at = [datetime]::Parse($lastDone[$course.Name], $script:Inv)
+            if ($at -gt $since) { $since = $at }
         }
         $logged = 0.0
         foreach ($s in @($sessions)) {
@@ -115,16 +130,29 @@ function Get-JkPlanSchedule {
     $sched
 }
 
+# A focus label ("cs350 a2a") -> course key. $Memo remembers each first word: resolving a course
+# name is a fuzzy search, and a term of sessions uses the same few labels over and over.
+function Resolve-JkLabelCourse($Data, [hashtable]$Memo, [string]$Label) {
+    $first = ($Label -split '\s+')[0]
+    if (-not $first) { return $null }
+    if (-not $Memo.ContainsKey($first)) {
+        $c = Resolve-JkCourse $Data $first
+        $Memo[$first] = $(if ($c) { [string]$c.key } else { $null })
+    }
+    $Memo[$first]
+}
+
 # Focus minutes logged today per course key.
 function Get-JkTodayFocusByCourse([datetime]$Now = (Get-JkNow)) {
     $data = Get-JkDueData -Cached
+    $memo = @{}
+    $day = $Now.ToString('yyyy-MM-dd', $script:Inv)
     $out = @{}
     foreach ($s in @((Get-JkFocusData).sessions)) {
-        $start = [datetime]::Parse([string]$s.start, $script:Inv)
-        if ($start.Date -ne $Now.Date) { continue }
-        $first = ([string]$s.label -split '\s+')[0]
-        $c = $null; if ($first) { $c = Resolve-JkCourse $data $first }
-        if ($c) { $out[$c.key] = [double]$out[$c.key] + [double]$s.actual }
+        # ISO start stamps: today's begin with today's date, no parsing needed
+        if (-not ([string]$s.start).StartsWith($day)) { continue }
+        $ck = Resolve-JkLabelCourse $data $memo ([string]$s.label)
+        if ($ck) { $out[$ck] = [double]$out[$ck] + [double]$s.actual }
     }
     $out
 }
