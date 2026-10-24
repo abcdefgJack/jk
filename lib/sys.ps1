@@ -194,6 +194,76 @@ function Get-JkListeners {
     $rows
 }
 
+function Test-JkAllInterfaces([string]$Addr) { $Addr -match '0\.0\.0\.0|::(?!1)|^::$' }
+
+# Databases answering on every network (0.0.0.0 / ::) instead of this PC alone: on shared Wi-Fi
+# anyone nearby can try passwords on them unless the firewall stops it. The setting that keeps
+# each one local:
+$script:JkDbBind = [ordered]@{
+    'mysqld'       = 'bind-address = 127.0.0.1 under [mysqld] in my.ini'
+    'mariadbd'     = 'bind-address = 127.0.0.1 under [mysqld] in my.ini'
+    'postgres'     = "listen_addresses = 'localhost' in postgresql.conf"
+    'mongod'       = 'bindIp: 127.0.0.1 in mongod.cfg'
+    'redis-server' = 'bind 127.0.0.1 in redis.conf'
+    'memurai'      = 'bind 127.0.0.1 in memurai.conf'
+    'sqlservr'     = 'turn off TCP/IP in SQL Server Configuration Manager'
+}
+
+# Listeners from Get-JkListeners and pid -> process name; returns Name, Ports, Fix per database
+# that is open beyond this PC.
+function Get-JkExposedServices($Listeners, [hashtable]$Names) {
+    $ports = [ordered]@{}
+    foreach ($c in @($Listeners)) {
+        $name = [string]$Names[[int]$c.OwningProcess]
+        if (-not $name -or -not $script:JkDbBind.Contains($name.ToLower())) { continue }
+        if (-not (Test-JkAllInterfaces ([string]$c.LocalAddress))) { continue }
+        if (-not $ports.Contains($name)) { $ports[$name] = @() }
+        if ($ports[$name] -notcontains [int]$c.LocalPort) { $ports[$name] += [int]$c.LocalPort }
+    }
+    foreach ($name in $ports.Keys) {
+        $p = @($ports[$name] | Sort-Object)
+        $fix = $script:JkDbBind[$name.ToLower()]
+        # MySQL's X protocol port has a setting of its own
+        if ($name -match '^(mysqld|mariadbd)$' -and $p -contains 33060) { $fix = $fix -replace '^bind-address = 127\.0\.0\.1', 'bind-address = 127.0.0.1 and mysqlx-bind-address = 127.0.0.1' }
+        [pscustomobject]@{ Name = $name; Ports = $p; Fix = $fix }
+    }
+}
+
+# The Windows service a database runs as, and the config file its command line names, so the
+# advice can say which file and which service:
+#   mysqld.exe --defaults-file="...\my.ini" MySQL80       pg_ctl.exe runservice -N x -D "...\data"
+#   mongod.exe --config "...\mongod.cfg" --service        redis-server.exe --service-run "...conf"
+function Get-JkDbServiceInfo([string]$Name, [string]$PathName = $null, [string]$Service = $null) {
+    if (-not $PathName) {
+        $exe = $Name; if ($Name -eq 'postgres') { $exe = 'pg_ctl' }
+        # straight from the registry: a CIM service query costs about 1.5 s
+        $root = $null
+        try {
+            $root = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services')
+            foreach ($sn in $root.GetSubKeyNames()) {
+                $k = $root.OpenSubKey($sn)
+                if (-not $k) { continue }
+                $ip = [string]$k.GetValue('ImagePath', '', 'DoNotExpandEnvironmentNames')
+                $k.Close()
+                if ($ip -match "(?i)[\\/]$([regex]::Escape($exe))\.exe") { $PathName = $ip; $Service = $sn; break }
+            }
+        } catch { } finally { if ($root) { $root.Close() } }
+        if (-not $PathName) { return $null }
+    }
+    $file = $null
+    if ($PathName -match '--defaults-file="([^"]+)"|--defaults-file=(\S+)') { $file = "$($Matches[1])$($Matches[2])" }
+    elseif ($PathName -match '--config\s+"([^"]+)"|--config\s+(\S+)') { $file = "$($Matches[1])$($Matches[2])" }
+    elseif ($PathName -match '\s-D\s+"([^"]+)"|\s-D\s+(\S+)') { $file = (Join-Path "$($Matches[1])$($Matches[2])" 'postgresql.conf') }
+    elseif ($PathName -match '"([^"]+\.(conf|cfg|ini))"') { $file = $Matches[1] }
+    [pscustomobject]@{ Service = $Service; File = $file }
+}
+
+function Get-JkProcessNames {
+    $n = @{}
+    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) { $n[$p.Id] = $p.ProcessName }
+    $n
+}
+
 function Invoke-JkPort {
     param([Parameter(Position = 0)][int]$Port, [switch]$Kill, [switch]$All)
     $conns = @(Get-JkListeners)
@@ -226,12 +296,29 @@ function Invoke-JkPort {
     } | Sort-Object Port
     if (-not $All) { $rows = @($rows | Where-Object { $_.Port -lt 49152 -and $_.Name -notmatch '^(svchost|System|lsass|wininit|services|spoolsv|Idle)$' }) }
     Write-JkHeader 'Listening ports' "$(@($rows).Count) shown$(if (-not $All) { ' (-All for system ones)' })"
+    $names = @{}; foreach ($k in $procs.Keys) { $names[$k] = $procs[$k].ProcessName }
+    $exposed = @(Get-JkExposedServices $conns $names)
     foreach ($r in $rows) {
         $st = 'white'; if ($script:DevPorts -contains $r.Port) { $st = 'bold cyan' }
-        $scope = 'local only'
-        if ($r.Addr -match '0\.0\.0\.0|::(?!1)|^::$') { $scope = 'all interfaces' }
-        Say ('  ' + (Paint $st (Fit "$($r.Port)" 7 -Right)) + '  ' + (Paint 'white' (Fit $r.Name 22)) + ' ' + (Paint 'gray' (Fit "pid $($r.Pid)" 11)) + (Paint 'gray' $scope))
+        $scope = 'local only'; $scopeSt = 'gray'
+        if (Test-JkAllInterfaces $r.Addr) { $scope = 'all interfaces' }
+        if (@($exposed | Where-Object { $_.Ports -contains $r.Port }).Count) { $scope = 'all interfaces (other devices can reach it)'; $scopeSt = 'orange' }
+        Say ('  ' + (Paint $st (Fit "$($r.Port)" 7 -Right)) + '  ' + (Paint 'white' (Fit $r.Name 22)) + ' ' + (Paint 'gray' (Fit "pid $($r.Pid)" 11)) + (Paint $scopeSt $scope))
     }
     Say ''
+    foreach ($x in $exposed) {
+        $info = Get-JkDbServiceInfo $x.Name
+        $fix = $x.Fix
+        if ($info -and $info.File) { $fix = $fix -replace ' in \S+$', '' }
+        Say ('  ' + (Paint 'orange' "! $($x.Name) ($($x.Ports -join ', ')) answers on every network, not just this PC"))
+        Say (Paint 'gray' '    on shared Wi-Fi others can try to log in unless the firewall stops them. Only used from this PC? set')
+        Say ('    ' + (Paint 'white' $fix))
+        $where = @()
+        if ($info -and $info.File) { $where += "in $($info.File)" }
+        if ($info -and $info.Service) { $where += "then restart the $($info.Service) service (needs admin)" } else { $where += 'then restart it' }
+        Say (Paint 'gray' "    $($where -join ', ')")
+        Say (Paint 'gray' '    (Docker containers reaching it through host.docker.internal need it left open)')
+    }
+    if ($exposed.Count) { Say '' }
     Say (Paint 'gray' "  jk port 8080  (who has it)  $($script:G.dot)  jk port 8080 -Kill  (free it)")
 }
