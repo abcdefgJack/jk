@@ -110,6 +110,17 @@ Test 'date + time phrases' {
     $w = ConvertFrom-JkWhen 'tomorrow'; Assert-Eq $w.Time ''
     $w = ConvertFrom-JkWhen '2026-12-04 9am'; Assert-Eq $w.Date.ToString('yyyy-MM-dd') '2026-12-04'; Assert-Eq $w.Time '09:00'
     Assert-Throws { ConvertFrom-JkWhen 'whenever' }
+    # everyday phrasings (the pinned clock is Thu Oct 22, 2 pm)
+    $f = { param($s) $r = ConvertFrom-JkWhen $s; "$($r.Date.ToString('MM-dd')) $($r.Time)".Trim() }
+    Assert-Eq (& $f 'in 3 days') '10-25'
+    Assert-Eq (& $f 'in 3 days 5pm') '10-25 17:00' 'the time after "in N days" is kept'
+    Assert-Eq (& $f 'in 2 weeks 9am') '11-05 09:00'
+    Assert-Eq (& $f 'in a week') '10-29'
+    Assert-Eq (& $f 'tonight') '10-22 23:59'
+    Assert-Eq (& $f 'tonight 10pm') '10-22 22:00'
+    Assert-Eq (& $f 'eod') '10-22 23:59'
+    Assert-Eq (& $f '8pm') '10-22 20:00' 'a time alone is today'
+    Assert-Eq (& $f '9am') '10-23 09:00' 'or tomorrow once it has passed'
 }
 Test 'durations' {
     Assert-Eq (ConvertTo-JkSeconds '25') 1500

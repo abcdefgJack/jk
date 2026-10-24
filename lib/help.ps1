@@ -7,7 +7,7 @@ jk due 30                      ... the next 30 days
 jk due cs350                   everything for one course (past ones dimmed, done ones struck)
 jk due all | past | exams      whole term | what's behind you | every remaining exam
 jk due week                    two-week grid (Mon-Sun columns)
-jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, fri, tomorrow, +3, 2026-12-02)
+jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, fri, tomorrow, in 3 days, tonight, 8pm, 2026-12-02)
 jk due add cs341 "Midterm 3" nov 30 7pm -Exam -End 9pm
 jk due done 23 | jk due done a2a                        mark done by id or by part of the title
 jk due undone 23 | jk due rm 23
