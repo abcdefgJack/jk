@@ -106,6 +106,8 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
   "best 6 of 8" turns into a drop-lowest rule automatically.
 - **Wide characters.** Chinese, Japanese and Korean text (and fullwidth punctuation) counts as two
   columns, so tables stay aligned around folder names in those scripts.
+- **Narrow windows** (a split pane, a VS Code terminal). A line that would wrap is cut at the window
+  edge with `…`, and `jk help` rewraps its descriptions instead, so tables never break.
 - **Fast startup.** The profile hook prints a cached one-line brief without loading the module,
   and tab completion loads it on first use.
 - **`jk speed fix`** replaces conda's hook, which runs `conda.exe` on every launch, with the same

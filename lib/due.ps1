@@ -471,7 +471,8 @@ function Show-JkDueWeek {
     $cmap = Get-JkCourseMap $data
     $now = Get-JkNow
     $w = Get-JkWidth
-    $colW = [Math]::Max(10, [int][Math]::Floor(($w - 2) / 7))
+    # seven columns and a leading space within the window; 7 still fits "Mon 19"
+    $colW = [Math]::Max(7, [int][Math]::Floor(($w - 1) / 7))
     $monday = $now.Date.AddDays(-(([int]$now.DayOfWeek + 6) % 7))
     $info = Get-JkTermInfo $data $now
     Write-JkHeader 'Week view' (Format-JkTermLine $info)

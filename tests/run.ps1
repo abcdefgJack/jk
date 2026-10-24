@@ -1498,6 +1498,29 @@ Test 'help renders for every topic' {
     Show-JkHelp
     foreach ($k in $script:JkHelpTopics.Keys) { Show-JkHelp $k }
 }
+Test 'narrow windows: lines are cut instead of wrapping; help rewraps without losing words' {
+    $esc = [char]27
+    $line = "$esc[1mbold$esc[0m " + ('x' * 50)
+    $cut = Limit-JkLine $line 20
+    Assert-Eq (Get-JkVisibleLength $cut) 20
+    Assert-True $cut.StartsWith("$esc[1mbold$esc[0m") 'colour codes survive the cut'
+    Assert-True $cut.EndsWith("$esc[0m") 'a cut coloured line resets its colour'
+    Assert-Eq (Limit-JkLine 'short' 20) 'short'
+    Assert-Eq ((Split-JkWords 'one two three four' 9) -join '|') 'one two|three|four'
+    $saved = $env:JK_WIDTH
+    try {
+        $env:JK_WIDTH = '60'
+        foreach ($topic in $script:JkHelpTopics.Keys) {
+            foreach ($l in @(Show-JkHelp $topic 6>&1 | ForEach-Object { "$_" } | Select-Object -Skip 3)) {
+                Assert-True ((Get-JkVisibleLength $l) -le 60) "help $topic overflows: $l"
+                Assert-True (-not $l.Contains($script:G.ell)) "help $topic lost words: $l"
+            }
+        }
+        $out = @(& { jk; jk due; jk week; jk exams; jk help; jk plan; jk review } 6>&1 | ForEach-Object { "$_" })
+        Assert-True ($out.Count -gt 40) 'the views printed'
+        foreach ($l in $out) { Assert-True ((Get-JkVisibleLength $l) -le 60) "overflows 60: $l" }
+    } finally { $env:JK_WIDTH = $saved }
+}
 Test 'tab completion engine' {
     $names = { param($w, $t) @(Get-JkCompletions -Word $w -Tokens $t | ForEach-Object { $_.CompletionText }) }
     Assert-True ((& $names 'du' @('jk', 'du')) -contains 'due')

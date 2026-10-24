@@ -83,7 +83,7 @@ Weights come from your deadlines; "best 6 of 8" in a note drops the lowest autom
 '@
     'tidy'   = @'
 jk tidy | jk tidy scan         report on Downloads: categories, biggest files, duplicates, old installers
-jk tidy apply                  move loose files into Installers\, PDFs\, Images\ ... (newer than 2 days stay)
+jk tidy apply                  move loose files into Installers\, PDFs\, Images\ ... (newer than 2 days stay);
                                files named after a course (CS245-F25-A05.pdf, STAT_230_002_27.pdf) go to that
                                course's folder (Desktop\Waterloo course\CS245) instead; tidy.courses off to stop
 jk tidy undo                   put the last batch back exactly where it was
@@ -193,16 +193,49 @@ $script:JkHelpTopics['update'] = "jk update                      git pull --ff-o
 $script:JkHelpTopics['plan'] = "jk plan                        today's study blocks per course, and the next 7 days if you follow the plan`njk plan start                  start a 25-minute focus block on the most urgent item`n                               Work per item = weight x 15 min (exams) or x 30 min (assignments), minus focus`n                               already logged on that course, spread over the days left.`njk config set plan.hours 4     daily budget (default 3)   plan.examMin / plan.dueMin tune the estimates`njk config set plan.examHours 8 the budget during the study break and exams (default 6, no classes then)"
 $script:JkHelpTopics['backup'] = "jk backup | jk backup list     days with a snapshot (taken before the first change of each day, 30 kept)`njk backup restore 2026-10-21   put that day's files back; the current ones are set aside first`njk backup restore 2026-10-21 deadlines    just one file`njk backup mirror D:\jk-backup  also keep a daily snapshot outside the data folder (another drive, USB, synced folder);`n                               restore reads it when the local backups are gone.  jk backup mirror off"
 
+# An example command, wrapped like a shell line: the rest continues four spaces in.
+function Write-JkHelpCommand([string]$Cmd, [int]$Width) {
+    $lead = '  '
+    foreach ($chunk in (Split-JkWords $Cmd ($Width - 6))) { Say ($lead + (Paint 'cyan' $chunk)); $lead = '      ' }
+}
+
+# Help lines wrap in a narrow window rather than being cut: a description continues under itself,
+# and a command too long to leave it room puts the description on the lines below.
 function Write-JkHelpBlock([string]$Text) {
-    foreach ($l in ($Text -split "`r?`n")) {
+    $w = Get-JkWidth
+    $lines = @($Text -split "`r?`n")
+    $i = 0
+    while ($i -lt $lines.Count) {
+        $l = $lines[$i]; $i++
         if ($l -match '^(jk [^ ].*?|j [^ ].*?)(\s{2,})(.*)$') {
-            Say ('  ' + (Paint 'cyan' $Matches[1]) + $Matches[2] + (Paint 'muted' $Matches[3]))
+            $cmd = $Matches[1]; $gap = $Matches[2]; $desc = $Matches[3]
+            # indented lines under a description continue it
+            $more = @()
+            while ($i -lt $lines.Count -and $lines[$i] -match '^\s{8,}\S') { $more += $lines[$i]; $i++ }
+            $col = 2 + $cmd.Length + $gap.Length
+            if ($col + (Get-JkTextWidth $desc) -le $w -and -not @($more | Where-Object { 2 + (Get-JkTextWidth $_) -gt $w }).Count) {
+                Say ('  ' + (Paint 'cyan' $cmd) + $gap + (Paint 'muted' $desc))
+                foreach ($x in $more) { Say ('  ' + (Paint 'muted' $x)) }
+                continue
+            }
+            $desc = (@($desc) + @($more | ForEach-Object { $_.Trim() })) -join ' '
+            $head = '  ' + (Paint 'cyan' $cmd) + $gap
+            if ($col -gt $w - 24) { Write-JkHelpCommand $cmd $w; $col = [Math]::Min(33, [Math]::Max(4, $w - 40)); $head = ' ' * $col }
+            $first = $true
+            foreach ($chunk in (Split-JkWords $desc ($w - $col))) {
+                if ($first) { Say ($head + (Paint 'muted' $chunk)); $first = $false } else { Say ((' ' * $col) + (Paint 'muted' $chunk)) }
+            }
         } elseif ($l -match '^(jk |j )') {
-            Say ('  ' + (Paint 'cyan' $l))
-        } elseif ($l -match '^\s{8,}') {
-            Say ('  ' + (Paint 'muted' $l))
+            Write-JkHelpCommand $l $w
+        } elseif ($l -match '^(\s{8,})(.*)$') {
+            $col = [Math]::Min(2 + $Matches[1].Length, [Math]::Max(4, $w - 40))
+            foreach ($chunk in (Split-JkWords $Matches[2] ($w - $col))) { Say ((' ' * $col) + (Paint 'muted' $chunk)) }
         } else {
-            Say ('  ' + (Paint 'gray' $l))
+            # a run of plain lines is one paragraph: kept as written when it fits, rewrapped when not
+            $para = @($l)
+            while ($i -lt $lines.Count -and $lines[$i] -and $lines[$i] -notmatch '^(jk |j |\s{8,})') { $para += $lines[$i]; $i++ }
+            if (-not @($para | Where-Object { 2 + (Get-JkTextWidth $_) -gt $w }).Count) { foreach ($x in $para) { Say ('  ' + (Paint 'gray' $x)) }; continue }
+            foreach ($chunk in (Split-JkWords (($para | ForEach-Object { $_.Trim() }) -join ' ') ($w - 4))) { Say ('  ' + (Paint 'gray' $chunk)) }
         }
     }
 }
@@ -219,6 +252,7 @@ function Show-JkHelp {
         return
     }
     Write-JkHeader 'jk' "v$((Get-Module jk).Version) $($script:G.dot) your command-line sidekick"
+    $w = Get-JkWidth
     $groups = [ordered]@{
         'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
         'Time'     = @('focus', 'in', 'at', 'remind')
@@ -231,11 +265,23 @@ function Show-JkHelp {
         foreach ($c in $groups[$g]) {
             $al = @($script:JkCommands[$c].Aliases | Where-Object { $_ -notmatch '^-' })
             $alTxt = ''
-            if ($al.Count) { $alTxt = Paint 'gray' (' (' + ($al -join ', ') + ')') }
-            Say ('   ' + (Paint 'cyan' (Fit "jk $c" 12)) + (Paint 'muted' $script:JkCommands[$c].Desc) + $alTxt)
+            if ($al.Count) { $alTxt = ' (' + ($al -join ', ') + ')' }
+            $desc = $script:JkCommands[$c].Desc
+            if (15 + (Get-JkTextWidth ($desc + $alTxt)) -le $w) { Say ('   ' + (Paint 'cyan' (Fit "jk $c" 12)) + (Paint 'muted' $desc) + (Paint 'gray' $alTxt)); continue }
+            # too wide: wrap the description under itself, aliases on its last line if they fit
+            $chunks = @(Split-JkWords $desc ($w - 15))
+            $last = $chunks[-1]
+            if ($alTxt -and 15 + (Get-JkTextWidth ($last + $alTxt)) -gt $w) { $chunks += ''; $alTxt = $alTxt.TrimStart() }
+            for ($k = 0; $k -lt $chunks.Count; $k++) {
+                $lead = '   ' + (' ' * 12); if ($k -eq 0) { $lead = '   ' + (Paint 'cyan' (Fit "jk $c" 12)) }
+                $tail = ''; if ($k -eq $chunks.Count - 1) { $tail = Paint 'gray' $alTxt }
+                Say ($lead + (Paint 'muted' $chunks[$k]) + $tail)
+            }
         }
         Say ''
     }
-    Say (Paint 'gray' '  jk                dashboard: next exam, this week, to-dos, focus, machine')
-    Say (Paint 'gray' '  jk help <command> examples for one command   |   Tab completes commands, ids and options')
+    foreach ($pair in @(@('jk', 'dashboard: next exam, this week, to-dos, focus, machine'), @('jk help <command>', 'examples for one command   |   Tab completes commands, ids and options'))) {
+        $lead = '  ' + (Fit $pair[0] 18)
+        foreach ($chunk in (Split-JkWords $pair[1] ([Math]::Max(20, $w - 21)))) { Say (Paint 'gray' ($lead + $chunk)); $lead = ' ' * 20 }
+    }
 }
