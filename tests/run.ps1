@@ -1059,6 +1059,7 @@ Test 'section catalog: pick adds meetings, skips duplicates, flags clashes' {
         Assert-Throws { Select-JkSections cs350 health 081 }
         $one = (Select-JkSections cs350 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($one -match 'LEC 002' -and $one -notmatch 'LEC 081') 'one course shows only its sections'
+        Assert-True ($one -match 'jk class pick cs350 \d{3} ') 'and an example for that course'
         Show-JkSectionCatalog
         # the interactive prompt: answers are read one course and kind at a time
         Assert-True (-not (Test-JkInteractive)) 'tests never prompt'
@@ -1071,6 +1072,11 @@ Test 'section catalog: pick adds meetings, skips duplicates, flags clashes' {
             Assert-Eq ($pairs -join ' ') 'health 081' 'a wrong number is asked again; cs350 is already picked'
             Assert-Eq $script:Prompts.Count 2
             Assert-True ($script:Prompts[0] -match 'HEALTH.*LEC \(081\)') "prompt: $($script:Prompts[0])"
+            # jk class pick <course> asks about that course alone
+            $script:Answers.Enqueue('81'); $script:Prompts = @()
+            Assert-Eq (@(Read-JkSectionPicks -Course health) -join ' ') 'health 081'
+            Assert-Eq $script:Prompts.Count 1 'one question, for that course'
+            Assert-Eq @(Read-JkSectionPicks -Course cs350).Count 0 'a course already on the timetable is not asked about'
         } finally { Remove-Item function:script:Read-Host }
     } finally { $env:JK_HOME = $saved }
 }

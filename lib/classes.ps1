@@ -456,14 +456,23 @@ function Show-JkSectionCatalog {
         }
     }
     Say ''
-    Say (Paint 'gray' "  jk class pick cs341 003 cs350 002 cs370 001   (course and section pairs; labs too: cs341 101)")
+    if ($Course) {
+        $sec = @($cat | Where-Object { $_.kind -eq 'LEC' } | ForEach-Object { [string]$_.section } | Sort-Object)[0]
+        if (-not $sec) { $sec = [string]$cat[0].section }
+        Say (Paint 'gray' "  jk class pick $($c.key) $sec   (your section number; a lab or tutorial goes the same way)")
+    } else {
+        Say (Paint 'gray' "  jk class pick cs341 003 cs350 002 cs370 001   (course and section pairs; labs too: cs341 101)")
+    }
 }
 
 # Asks about each course with nothing on the timetable yet: its lecture, then its lab or
 # tutorial if it has one. A course already started is left alone, so a lab skipped once is not
 # asked about again. Accepts "3" or "003"; Enter skips. Returns course/section pairs.
+# -Course asks about that course only.
 function Read-JkSectionPicks {
+    param([string]$Course)
     $cat = @(Get-JkSectionCatalog)
+    if ($Course) { $cat = @($cat | Where-Object { $_.course -eq $Course }) }
     $mine = @((Get-JkClassData).items)
     $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
     $pairs = @()
@@ -500,7 +509,17 @@ function Select-JkSections {
         }
         return
     }
-    if ($a.Count -eq 1) { Show-JkSectionCatalog -Course $a[0]; return }
+    if ($a.Count -eq 1) {
+        # one course: its sections, then (in a terminal) which one is yours
+        Show-JkSectionCatalog -Course $a[0]
+        if (Test-JkInteractive) {
+            $key = (Resolve-JkCourse (Get-JkDueData -Cached) $a[0]).key
+            $pairs = @(Read-JkSectionPicks -Course $key)
+            if ($pairs.Count) { Say ''; Select-JkSections @pairs }
+            elseif (@((Get-JkClassData).items | Where-Object { $_.course -eq $key }).Count) { Say (Paint 'gray' "  already on your timetable (jk class list; jk class rm <id> to change it)") }
+        }
+        return
+    }
     if ($a.Count % 2 -ne 0) { throw 'give course and section pairs: jk class pick cs341 003 cs350 002' }
     $cat = @(Get-JkSectionCatalog)
     if (-not $cat) { throw "no section catalog ($(Get-JkPath 'sections.json'))" }
