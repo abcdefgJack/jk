@@ -1515,6 +1515,31 @@ Test 'needed-on-the-rest math' {
     Assert-Eq (Get-JkNeededText 99 $m)[1] 'red' 'needs more than 100%'
     Show-JkGrade cs350; Show-JkGradeOverview
 }
+Test 'marks by course and title words, scores with spaces, one target for every course' {
+    $file = Join-Path $env:JK_HOME 'grades.json'
+    $saved = [IO.File]::ReadAllText($file)
+    try {
+        foreach ($k in @{ '17 out of 20' = 85; '85 %' = 85; '17 / 20' = 85; '8.5/10' = 85 }.GetEnumerator()) { Assert-Eq (ConvertTo-JkPercent $k.Key) $k.Value "for '$($k.Key)'" }
+        $null = @(& {
+                jk grade health a1 9/10              # no "set", a1 = Assignment 1
+                jk grade set health midterm 24 / 30  # the opens/closes window is one item
+                jk grade cs350 a2 8 out of 10        # a2 = A2A here, the only one in the fixture
+            } 6>&1)
+        $gd = Get-JkGradeData
+        $score = { param($course, $title) @(Get-JkGradeItems (Get-JkDueData) $gd $course | Where-Object { $_.Title -eq $title })[0].Score }
+        Assert-Eq (& $score health 'Assignment 1') 90
+        Assert-Eq (& $score health 'Midterm') 80
+        Assert-Eq (& $score cs350 'A2A Synchronization') 80
+        Assert-Throws { Set-JkGrade health assignment 5/10 } 'three assignments match'
+        Assert-Throws { Set-JkGrade cs350 midterm } 'no mark given'
+        Assert-Eq (Resolve-JkGradeRef (Get-JkDueData) $gd @('cs350', 'nonsense')) '' 'nothing graded by that name'
+        $null = @(& { jk grade target 85; jk grade target cs350 90; jk grade target 70 health } 6>&1)
+        $gd = Get-JkGradeData
+        Assert-Eq (Get-JkTarget $gd 'cs350') 90
+        Assert-Eq (Get-JkTarget $gd 'health') 70 'percent first, course second'
+        Assert-Eq (Get-JkTarget $gd 'cs341') 85 'the default for the rest'
+    } finally { [IO.File]::WriteAllText($file, $saved) }
+}
 
 Write-Host ''
 Write-Host 'to-do' -ForegroundColor Cyan
