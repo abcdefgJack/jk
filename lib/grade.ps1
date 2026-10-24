@@ -135,6 +135,12 @@ function Show-JkGradeOverview {
     $due = Get-JkDueData
     $gd = Get-JkGradeData
     Write-JkHeader 'Grades' 'avg = weighted average of what is graded so far'
+    # grades hang off the weights on your deadlines: none yet, say how they get there
+    if (-not @($due.courses | Where-Object { @(Get-JkGradeItems $due $gd $_.key).Count }).Count) {
+        Say (Paint 'gray' '  Nothing to grade yet: marks go against deadlines that carry a weight.')
+        Say ('  ' + (Paint 'cyan' 'jk due add cs350 "A3" nov 25 8pm -Weight 10') + (Paint 'gray' '   or  ') + (Paint 'cyan' 'jk due edit <id> -Weight 10'))
+        return
+    }
     Say (Paint 'gray' ('  ' + (Fit 'course' 12) + (Fit 'graded' 9 -Right) + (Fit 'average' 10 -Right) + (Fit 'banked' 9 -Right) + (Fit 'target' 9 -Right) + (Fit 'need on rest' 15 -Right)))
     foreach ($c in @($due.courses)) {
         $items = Get-JkGradeItems $due $gd $c.key

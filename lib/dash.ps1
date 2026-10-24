@@ -267,7 +267,10 @@ function Show-JkDashboard {
     # comes first, so a narrow window that cuts the line still shows what to type.
     $upcoming = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
     $nudge = { param([string]$Cmd, [string]$Why) Say ('  ' + (Paint 'cyan' "$($script:G.star) $Cmd") + '  ' + (Paint 'gray' $Why)) }
-    if ($phase -eq 'after') {
+    if (-not @($data.events).Count -and $phase -ne 'next') {
+        # a brand-new setup: the first thing worth doing
+        & $nudge 'jk due sync' 'bring in your deadlines: in LEARN, Calendar > Subscribe, copy the link, then run it'
+    } elseif ($phase -eq 'after') {
         & $nudge 'jk due sync  +  jk class import' "$($info.Name) is over: next term's deadlines (LEARN) and classes (Quest)"
     } elseif ($phase -eq 'next' -and -not $upcoming) {
         # a new term with nothing in it yet

@@ -153,7 +153,9 @@ function Show-JkClasses {
     Write-JkHeader 'Classes' "$(@($data.items).Count) weekly meeting$(if (@($data.items).Count -ne 1) {'s'})" -Sub ($now.ToString('dddd, MMM d', $script:Inv))
     if (@($data.items).Count -eq 0) {
         Say (Paint 'yellow' '  No classes yet.')
-        Say ('  ' + (Paint 'cyan' 'jk class add cs350 tue,thu 4pm-5:20pm "MC 1056"') + (Paint 'gray' '   or copy Quest > Class Schedule > List View, then: jk class import'))
+        Say ('  ' + (Paint 'cyan' 'jk class import') + (Paint 'gray' '   after copying Quest > Class Schedule > List View'))
+        Say ('  ' + (Paint 'cyan' 'jk class pick') + (Paint 'gray' '     your sections from the course outlines, when jk has them'))
+        Say ('  ' + (Paint 'cyan' 'jk class add cs350 tue,thu 4pm-5:20pm "MC 1056"') + (Paint 'gray' '   one meeting by hand'))
         return
     }
     $todayKey = $now.Date.ToString('yyyy-MM-dd')
