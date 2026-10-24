@@ -1783,6 +1783,18 @@ Test 'space clean jetbrains: only caches of versions no longer installed, never 
     $stale = @(Get-JkStaleJetBrainsCaches $root @('CLion2024.2', 'IntelliJIdea2025.1') | ForEach-Object { $_.Name } | Sort-Object)
     Assert-Eq ($stale -join ',') 'CLion2023.1,PyCharmCE2022.1' 'the newest PyCharmCE stays though Windows does not list it'
 }
+Test 'dashboard: tight on memory, the machine line names the biggest app' {
+    $origMem = ${function:Get-JkMemory}; $origHogs = ${function:Get-JkMemoryHogs}
+    function script:Get-JkMemoryHogs { param([int]$Top) [pscustomobject]@{ Name = 'chrome'; Mem = 3GB; Count = 28; Cpu = 0 } }
+    try {
+        function script:Get-JkMemory { [pscustomobject]@{ Total = 16GB; Free = 1.6GB } }
+        $line = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'RAM' })[0]
+        Assert-True ($line -match 'RAM 90% \(chrome 3\.0 GB\)') "tight: $line"
+        function script:Get-JkMemory { [pscustomobject]@{ Total = 16GB; Free = 8GB } }
+        $line = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'RAM' })[0]
+        Assert-True ($line -match 'RAM 50%' -and $line -notmatch 'chrome') "roomy: $line"
+    } finally { Set-Item function:script:Get-JkMemory $origMem; Set-Item function:script:Get-JkMemoryHogs $origHogs }
+}
 Test 'fuzzy folder scoring: exact > prefix > substring > subsequence' {
     $c = { param($a) [pscustomobject]@{ Alias = $a; Path = "C:\x\$a"; Source = 'auto' } }
     $v = @{}

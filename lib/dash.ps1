@@ -233,7 +233,10 @@ function Show-JkDashboard {
         $mem = Get-JkMemory
         $memUsed = 1 - ($mem.Free / $mem.Total)
         $st = 'muted'; if ($memUsed -gt 0.9) { $st = 'red' } elseif ($memUsed -gt 0.8) { $st = 'orange' }
-        $sysBits += Paint $st ("RAM {0:N0}%" -f ($memUsed * 100))
+        $ram = "RAM {0:N0}%" -f ($memUsed * 100)
+        # tight on memory: name the app holding the most, the one worth closing
+        if ($memUsed -gt 0.85) { try { $hog = @(Get-JkMemoryHogs 1)[0]; if ($hog) { $ram += " ($($hog.Name) $(Format-JkSize $hog.Mem))" } } catch { } }
+        $sysBits += Paint $st $ram
         $upDays = (Get-JkUptime).TotalDays
         if ($upDays -ge 7) { $sysBits += Paint 'yellow' "up $([int]$upDays)d (restart?)" }
     } catch { }
