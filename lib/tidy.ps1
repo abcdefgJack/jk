@@ -21,6 +21,8 @@ $script:TidyCategories = [ordered]@{
     'Torrents'   = @('.torrent')
 }
 $script:TidyPartial = @('.crdownload', '.part', '.partial', '.download', '.tmp', '.opdownload')
+# a partial download nobody has written to for a week is not coming back: jk tidy old offers it
+$script:TidyDeadPartialDays = 7
 $script:TidySkip = @('desktop.ini', 'thumbs.db')
 $script:TidySkipExt = @('.lnk', '.url')
 
@@ -221,6 +223,11 @@ function Invoke-JkTidyRun {
     if ($old.Count) {
         Say ('  ' + (Paint 'orange' "$($script:G.bullet) $($old.Count) installers/archives older than 30 days") + " $($script:G.dot) $(Format-JkSize $oldSize)" + (Paint 'gray' "   $($script:G.arrow) jk tidy old"))
     }
+    $dead = @($plan | Where-Object { $_.Status -eq 'partial' -and $_.AgeDays -ge $script:TidyDeadPartialDays })
+    if ($dead.Count) {
+        $deadSize = ($dead | ForEach-Object { $_.File.Length } | Measure-Object -Sum).Sum
+        Say ('  ' + (Paint 'orange' "$($script:G.bullet) $(Format-JkCount $dead.Count 'partial download') abandoned (untouched for $(($dead | Measure-Object AgeDays -Minimum).Minimum)+ days)") + " $($script:G.dot) $(Format-JkSize $deadSize)" + (Paint 'gray' "   $($script:G.arrow) jk tidy old"))
+    }
     if (-not $NoDupes) {
         $dupes = @(Get-JkDuplicateGroups ($plan | ForEach-Object { $_.File }))
         $extra = @($dupes | ForEach-Object { $_.Extras }).Count
@@ -230,20 +237,21 @@ function Invoke-JkTidyRun {
         }
     }
     $recent = @($plan | Where-Object { $_.Status -eq 'recent' }).Count
-    $partial = @($plan | Where-Object { $_.Status -eq 'partial' }).Count
+    $partial = @($plan | Where-Object { $_.Status -eq 'partial' }).Count - $dead.Count
     $moving = @($plan | Where-Object { $_.Status -eq 'move' })
     if ($recent -or $partial) {
         $bits = @()
         if ($recent) { $bits += "$recent newer than $MinAge days" }
-        if ($partial) { $bits += "$partial unfinished downloads" }
+        if ($partial) { $bits += "$(Format-JkCount $partial 'unfinished download')" }
         Say ('  ' + (Paint 'gray' ("$($script:G.bullet) left in place: " + ($bits -join ', '))))
     }
+    Say ''
+    if (-not $moving.Count) { Say (Paint 'gray' '  nothing for jk tidy apply to move right now'); return }
     $local = @($moving | Where-Object { -not $_.Dest })
     $cats = @($local | Group-Object Category).Count
     $where = "into $(Format-JkCount $cats 'folder') inside $(Split-Path $Path -Leaf)\"
     if ($toCourse.Count -eq $moving.Count) { $where = 'into their course folders' }
     elseif ($toCourse.Count) { $where = "$($toCourse.Count) into course folders, $($local.Count) $where" }
-    Say ''
     Say ('  ' + (Paint 'bold green' 'jk tidy apply') + " moves $(Format-JkCount $moving.Count 'file'): $where" + (Paint 'gray' "  (undo: jk tidy undo)"))
 }
 
@@ -349,9 +357,13 @@ function Invoke-JkTidyOld {
     $Path = Resolve-JkLongPath $Path
     $now = Get-Date
     $exts = @($script:TidyCategories['Installers']) + @($script:TidyCategories['Archives'])
-    $files = @(Get-JkLooseDownloads $Path | Where-Object { $exts -contains $_.Extension.ToLower() -and ($now - $_.LastWriteTime).TotalDays -ge $Days } | Sort-Object Length -Descending)
+    # plus partial downloads left for a week: a .crdownload / .tmp nobody is still writing
+    $files = @(Get-JkLooseDownloads $Path | Where-Object {
+            $age = ($now - $_.LastWriteTime).TotalDays
+            ($exts -contains $_.Extension.ToLower() -and $age -ge $Days) -or ($script:TidyPartial -contains $_.Extension.ToLower() -and $age -ge $script:TidyDeadPartialDays)
+        } | Sort-Object Length -Descending)
     $size = ($files | Measure-Object -Property Length -Sum).Sum
-    Write-JkHeader 'Old installers & archives' "$(Format-JkCount $files.Count 'file') $($script:G.dot) $(Format-JkSize $size)" -Sub "older than $(Format-JkCount $Days 'day')"
+    Write-JkHeader 'Old installers & archives' "$(Format-JkCount $files.Count 'file') $($script:G.dot) $(Format-JkSize $size)" -Sub "older than $(Format-JkCount $Days 'day'), and partial downloads left $($script:TidyDeadPartialDays)+ days"
     $w = Get-JkWidth
     foreach ($f in ($files | Select-Object -First 30)) {
         Say ('  ' + (Paint 'white' (Fit (Format-JkSize $f.Length) 9 -Right)) + '  ' + (Fit $f.FullName.Substring($Path.Length).TrimStart('\') ([Math]::Max(20, $w - 36))) + (Paint 'gray' (Fit ("$([int]($now - $f.LastWriteTime).TotalDays)d old") 10 -Right)))

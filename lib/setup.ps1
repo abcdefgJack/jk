@@ -9,13 +9,28 @@ function Invoke-JkConfig {
         $all = Get-JkConfig
         $cfg = Read-JkJson 'config.json' $null
         Write-JkHeader 'Config' (Get-JkPath 'config.json')
+        # empty defaults that mean "work it out": say what they come to here
+        $userDir = [Environment]::GetFolderPath('UserProfile').TrimEnd('\')
+        $short = { param($p) if ($p -and $p.StartsWith($userDir + '\', [StringComparison]::OrdinalIgnoreCase)) { '~' + $p.Substring($userDir.Length) } else { $p } }
+        $auto = [ordered]@{
+            'tidy.path'    = { & $short (Get-JkDownloadsPath) }
+            'tidy.courses' = { "$(Format-JkCount @((Get-JkCourseFolders).Keys).Count 'course folder') found on the Desktop" }
+            'find.roots'   = { (@(Get-JkFindRoots) | ForEach-Object { & $short $_ }) -join '; ' }
+            'sync.url'     = { 'not connected yet - jk due sync' }
+            'jobs.file'    = { $f = Find-JkJobsFile; if ($f) { "found $(& $short $f)" } else { 'none found on the Desktop' } }
+        }
         foreach ($k in $all.Keys) {
             $isSet = $cfg -and $cfg.PSObject.Properties[$k]
             $st = 'muted'; if ($isSet) { $st = 'white' }
             $shown = [string]$all[$k]
             # feed links carry a private token: show only the start
             if ($k -like '*url*' -and $shown.Length -gt 36) { $shown = $shown.Substring(0, 36) + $script:G.ell }
-            Say ('  ' + (Paint 'cyan' (Fit $k 16)) + (Paint $st $shown) + $(if (-not $isSet) { Paint 'gray' '  (default)' } else { '' }))
+            $tag = ''
+            if (-not $isSet) {
+                $tag = '  (default)'
+                if (-not $shown -and $auto.Contains($k)) { try { $tag = "(default: $(& $auto[$k]))" } catch { } }
+            }
+            Say ('  ' + (Paint 'cyan' (Fit $k 16)) + (Paint $st $shown) + (Paint 'gray' $tag))
         }
         Say ''
         Say (Paint 'gray' '  jk config set <key> <value>   |   jk config reset <key>   |   jk help config')
