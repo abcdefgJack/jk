@@ -1300,6 +1300,15 @@ if (Get-Command g++ -ErrorAction SilentlyContinue) {
 
 Write-Host ''
 Write-Host 'files, folders, misc' -ForegroundColor Cyan
+Test 'battery wear: design capacity from the battery report, health in plain words' {
+    $xml = '<?xml version="1.0" encoding="utf-8"?><BatteryReport xmlns="http://schemas.microsoft.com/battery/2012"><Batteries><Battery><Id>BIF0_9</Id><DesignCapacity>52007</DesignCapacity><FullChargeCapacity>33676</FullChargeCapacity></Battery></Batteries></BatteryReport>'
+    Assert-Eq (ConvertFrom-JkBatteryReport $xml) 52007
+    Assert-Eq (ConvertFrom-JkBatteryReport ($xml -replace '</Batteries>', '<Battery><DesignCapacity>1000</DesignCapacity></Battery></Batteries>')) 53007 'two batteries add up'
+    $f = @(Format-JkBatteryHealth ([pscustomobject]@{ Design = 52007; Full = 33676; Health = 33676 / 52007 }))
+    Assert-Eq $f[0] 'health 65% (holds 33.7 of 52.0 Wh)'
+    Assert-True ($f[1] -match 'about 65% as long') 'a worn battery says what that means'
+    Assert-Eq (@(Format-JkBatteryHealth ([pscustomobject]@{ Design = 50000; Full = 45000; Health = 0.9 }))[1]) '' 'a healthy one says nothing more'
+}
 Test 'tidy categories and collision-free names' {
     Assert-Eq (Get-JkTidyCategory '.EXE') 'Installers'
     Assert-Eq (Get-JkTidyCategory '.pdf') 'PDFs'

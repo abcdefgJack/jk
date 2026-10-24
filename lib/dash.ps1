@@ -28,6 +28,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'battery-health'; Cmd = 'jk sys'; Text = 'now shows battery wear: how much of its original charge your battery still holds' },
     @{ Id = 'tidy-courses'; Cmd = 'jk tidy'; Text = 'course downloads (CS245-F25-A05.pdf, STAT_230_002_27.pdf) now go to their course folders' },
     @{ Id = 'find'; Cmd = 'jk find'; Text = 'find a file by words in its name or folders (jk find co250 a3); jk find -o 1 opens it' },
     @{ Id = 'backup-mirror'; Cmd = 'jk backup mirror'; Text = 'keep a daily copy of your jk data outside ~\.jk (another drive, USB, a synced folder)' },
