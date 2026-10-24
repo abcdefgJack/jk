@@ -229,7 +229,7 @@ function Invoke-JkDueSync {
     Set-JkState 'lastSync' ((Get-Date).ToString('s', $script:Inv))
     if ($Quiet) { return }
     $origin = 'file'; if ($isUrl) { $origin = ([Uri]($Source -replace '^(?i)webcal://', 'https://')).Host }
-    Say ((Paint 'green' "  synced $($script:G.check)") + "  $($added.Count) new, $updated updated, $same unchanged" + (Paint 'gray' "  $($script:G.dot) $($feed.Count) events in the feed from $origin"))
+    Say ((Paint 'green' "  synced $($script:G.check)") + "  $($added.Count) new, $updated updated, $same unchanged" + (Paint 'gray' "  $($script:G.dot) $(Format-JkCount $feed.Count 'event') in the feed from $origin"))
     $cmap = Get-JkCourseMap $data
     foreach ($e in ($added | Sort-Object date, time | Select-Object -First 15)) { Say (Format-JkDueLine $e $cmap ((Get-JkWidth)) -WithDate) }
     if ($added.Count -gt 15) { Say (Paint 'gray' "  +$($added.Count - 15) more  $($script:G.arrow) jk due all") }

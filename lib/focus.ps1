@@ -192,7 +192,7 @@ function Show-JkFocusLog {
     $sessions = @($d.sessions | Where-Object { [datetime]::Parse([string]$_.start, $script:Inv) -ge $since })
     $total = ($sessions | Measure-Object -Property actual -Sum).Sum
     if (-not $total) { $total = 0 }
-    Write-JkHeader 'Focus log' "last $Days days $($script:G.dot) $(Format-JkMinutes $total) $($script:G.dot) $($sessions.Count) sessions"
+    Write-JkHeader 'Focus log' "last $Days days $($script:G.dot) $(Format-JkMinutes $total) $($script:G.dot) $(Format-JkCount $sessions.Count 'session')"
     $perDay = @{}
     foreach ($s in $sessions) { $k = ([datetime]::Parse([string]$s.start, $script:Inv)).Date.ToString('yyyy-MM-dd'); $perDay[$k] = [double]$perDay[$k] + [double]$s.actual }
     $max = 60.0

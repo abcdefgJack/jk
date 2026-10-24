@@ -370,6 +370,13 @@ function Fit {
 
 function Say([string]$Line = '') { Write-Host $Line }
 
+# "1 file" / "3 files" ("1 copy" / "2 copies" with an explicit plural)
+function Format-JkCount([int]$N, [string]$Noun, [string]$Plural = '') {
+    if ($N -eq 1) { return "1 $Noun" }
+    if (-not $Plural) { $Plural = $Noun + 's' }
+    "$N $Plural"
+}
+
 function Get-JkWidth {
     if ($env:JK_WIDTH) { return [int]$env:JK_WIDTH }
     try {

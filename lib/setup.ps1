@@ -309,7 +309,7 @@ function Invoke-JkDoctor {
     if ($ts -eq 'Enabled') { & $ok 'notifications' "Windows toasts enabled $($script:G.dot) mode $mode" }
     else { & $ok 'notifications' "Windows toasts are off ($ts), jk uses its own popup $($script:G.dot) mode $mode" }
     $ev = @((Get-JkDueData).events)
-    if ($ev.Count) { & $ok 'deadlines' "$($ev.Count) events $($script:G.dot) $(@((Get-JkDueData).courses).Count) courses" } else { & $meh 'deadlines' 'none yet - jk due import <calendar.html> or jk due add' }
+    if ($ev.Count) { & $ok 'deadlines' "$(Format-JkCount $ev.Count 'event') $($script:G.dot) $(Format-JkCount @((Get-JkDueData).courses).Count 'course')" } else { & $meh 'deadlines' 'none yet - jk due import <calendar.html> or jk due add' }
     # the LEARN feed: the morning task syncs daily, so a stale stamp means it has been failing
     if (Get-JkConfig 'sync.url') {
         $lastDt = $null
@@ -328,7 +328,7 @@ function Invoke-JkDoctor {
     } else { & $meh 'backup mirror' 'off (optional): backups live inside the data folder - jk backup mirror <folder elsewhere>' }
     try {
         $jf = Find-JkJobsFile
-        if ($jf) { & $ok 'job tracker' "$(@(Get-JkJobs $jf).Count) rows $($script:G.dot) $jf" }
+        if ($jf) { & $ok 'job tracker' "$(Format-JkCount @(Get-JkJobs $jf).Count 'row') $($script:G.dot) $jf" }
         else { & $meh 'job tracker' 'none found (optional) - jk config set jobs.file <path>' }
     } catch { & $bad 'job tracker' $_.Exception.Message }
     # windowless timers and the morning task log failures here instead of showing them

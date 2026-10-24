@@ -223,7 +223,7 @@ function Show-JkDashboard {
         $size = ($files | Measure-Object Length -Sum).Sum
         $st = 'muted'; $hint = ''
         if ($files.Count -gt 150 -or $size -gt 5GB) { $st = 'orange'; $hint = Paint 'gray' " $($script:G.arrow) jk tidy" }
-        $sysBits += (Paint $st "Downloads $($files.Count) files / $(Format-JkSize $size)") + $hint
+        $sysBits += (Paint $st "Downloads $(Format-JkCount $files.Count 'file') / $(Format-JkSize $size)") + $hint
     } catch { }
     Say ('  ' + ($sysBits -join (Paint 'gray' "  $($script:G.dot)  ")))
 

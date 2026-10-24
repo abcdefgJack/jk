@@ -911,6 +911,22 @@ Test 'a damaged data file is replaced by the newest backup that reads' {
         Assert-True ($null -eq (Read-JkJson 'state.json' $null 3>$null)) 'state falls back'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'counts read "1 file", "2 files", "1 copy", "2 copies"' {
+    Assert-Eq (Format-JkCount 1 'file') '1 file'
+    Assert-Eq (Format-JkCount 2 'file') '2 files'
+    Assert-Eq (Format-JkCount 0 'session') '0 sessions'
+    Assert-Eq (Format-JkCount 1 'duplicate copy' 'duplicate copies') '1 duplicate copy'
+    Assert-Eq (Format-JkCount 3 'duplicate copy' 'duplicate copies') '3 duplicate copies'
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved ('plural-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    try {
+        $fd = Get-JkFocusData
+        $fd.sessions = @([pscustomobject]@{ label = 'x'; start = (Get-Date).ToString('s'); planned = 25; actual = 25; completed = $true })
+        Save-JkFocusData $fd
+        $log = (Show-JkFocusLog 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($log -match '\b1 session\b' -and $log -notmatch '1 sessions') 'focus log says "1 session"'
+    } finally { $env:JK_HOME = $saved }
+}
 Test 'background timers sleep before loading the module, then run in its scope' {
     $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-10-22T14:00:00'
     Assert-True ($cmd.IndexOf('while') -ge 0 -and $cmd.IndexOf('while') -lt $cmd.IndexOf('Import-Module')) 'waits first'

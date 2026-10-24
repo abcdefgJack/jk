@@ -156,7 +156,7 @@ function Show-JkJobs {
     $applied = @($rows | Where-Object { $_.State -eq 'applied' })
     $todo = @($rows | Where-Object { $_.State -eq 'todo' -and -not $_.Resolved })
     $skip = @($rows | Where-Object { $_.State -eq 'skip' })
-    $right = "$($rows.Count) rows"
+    $right = Format-JkCount $rows.Count 'row'
     if ($rows.Count) { $right += " $($script:G.dot) last entry $(Format-JkRelDay (@($rows | Sort-Object Date)[-1].Date) $now)" }
     Write-JkHeader 'Jobs' $right -Sub (Split-Path $path -Leaf)
     $fresh = @($todo | Where-Object { -not (Test-JkJobStale $_ $now) }).Count

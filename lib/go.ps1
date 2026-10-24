@@ -164,7 +164,7 @@ function Show-JkGoList {
         Say ''
     }
     $auto = @(Get-JkGoCandidates | Where-Object { $_.Source -eq 'auto' })
-    Say (' ' + (Paint 'bold white' 'Also matches') + (Paint 'gray' "  ($($auto.Count) folders)"))
+    Say (' ' + (Paint 'bold white' 'Also matches') + (Paint 'gray' "  ($(Format-JkCount $auto.Count 'folder'))"))
     $line = '  '
     foreach ($a in $auto) {
         if ((Get-JkVisibleLength $line) + $a.Alias.Length + 2 -gt $w) { Say $line; $line = '  ' }

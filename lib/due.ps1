@@ -384,7 +384,7 @@ function Show-JkDueAll {
     }
     if ($PastOnly) { $evs = @($evs | Where-Object { (Get-JkEventDue $_) -lt $now }); $title = 'Past deadlines' }
     $open = @($evs | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
-    Write-JkHeader $title "$($evs.Count) items $($script:G.dot) $open open" -Sub $sub
+    Write-JkHeader $title "$(Format-JkCount $evs.Count 'item') $($script:G.dot) $open open" -Sub $sub
     $lastMonth = ''
     foreach ($e in $evs) {
         $due = Get-JkEventDue $e
@@ -452,7 +452,7 @@ function Show-JkExams {
 function Show-JkCourses {
     $data = Get-JkDueData
     $now = Get-JkNow
-    Write-JkHeader 'Courses' "$(@($data.courses).Count) courses"
+    Write-JkHeader 'Courses' (Format-JkCount @($data.courses).Count 'course')
     foreach ($c in @($data.courses)) {
         $evs = @($data.events | Where-Object { $_.course -eq $c.key })
         $open = @($evs | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
@@ -756,7 +756,7 @@ function Import-JkDueHtml {
         $added++
     }
     Save-JkDueData $data
-    Say ((Paint 'green' "  imported $($script:G.check)") + "  $added events, $($courses.Count) courses" + $(if ($skipped) { " ($skipped already present)" } else { '' }) + $(if ($term) { " $($script:G.dot) term: $($term.name)" } else { '' }))
+    Say ((Paint 'green' "  imported $($script:G.check)") + "  $(Format-JkCount $added 'event'), $(Format-JkCount $courses.Count 'course')" + $(if ($skipped) { " ($skipped already present)" } else { '' }) + $(if ($term) { " $($script:G.dot) term: $($term.name)" } else { '' }))
 }
 
 # ---------------------------------------------------------------- HTML calendar & ICS
