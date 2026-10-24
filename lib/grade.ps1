@@ -17,7 +17,8 @@ function Save-JkGradeData($Data) {
 }
 
 function ConvertTo-JkPercent([string]$Text) {
-    $t = $Text.Trim().TrimEnd('%')
+    # "17 out of 20", "85 %"
+    $t = ($Text.Trim() -replace '(?i)\s*\bout\s+of\b\s*', '/').TrimEnd('%').Trim()
     if ($t -match '^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$') {
         $den = [double]::Parse($Matches[2], [Globalization.CultureInfo]::InvariantCulture)
         if ($den -le 0) { throw "bad score '$Text'" }
@@ -111,7 +112,50 @@ function Measure-JkGrade {
 function Get-JkTarget($GradeData, [string]$CourseKey) {
     $t = @($GradeData.targets | Where-Object { $_.course -eq $CourseKey })
     if ($t) { return [double]$t[0].target }
+    # jk grade target 85 with no course sets the default for all of them
+    $t = @($GradeData.targets | Where-Object { $_.course -eq '*' })
+    if ($t) { return [double]$t[0].target }
     80.0
+}
+
+# A mark typed at the end of the words: 17/20, 17 / 20, 85, 85 %, 18 out of 20.
+$script:JkScoreTailRx = '^(?<ref>.+?)\s+(?<score>\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?|\s+out\s+of\s+\d+(?:\.\d+)?)?\s*%?)$'
+
+# What "cs341 midterm 1", "cs370 a1" or "a2a sync" names among the gradable items: an optional
+# course first, then words of the title, where a1 / q2 also stand for "Assignment 1" / "Quiz 2".
+# Returns the item's key (deadline id or extra id); $null when nothing graded matches.
+function Resolve-JkGradeRef($DueData, $GradeData, [string[]]$Words) {
+    $w = @($Words | Where-Object { $_ })
+    $courses = @($DueData.courses)
+    foreach ($n in 2, 1) {
+        if ($w.Count -le $n) { continue }
+        if ($n -eq 2 -and $w[1] -notmatch '^\d') { continue }
+        $c = Resolve-JkCourse $DueData (($w[0..($n - 1)]) -join ' ')
+        if ($c) { $courses = @($c); $w = @($w[$n..($w.Count - 1)]); break }
+    }
+    if (-not $w.Count) { return $null }
+    $pool = foreach ($c in $courses) {
+        foreach ($it in @(Get-JkGradeItems $DueData $GradeData ([string]$c.key))) { $it | Add-Member -NotePropertyName Code -NotePropertyValue ([string]$c.code) -PassThru -Force }
+    }
+    $rx = foreach ($tok in $w) {
+        $t = [regex]::Escape($tok.ToLower())
+        if ($tok -match '^([a-zA-Z]+)(\d+)$') { "(?:$t(?!\d)|\b$([regex]::Escape($Matches[1].ToLower()))[a-z]*\s*$($Matches[2])(?!\d))" }
+        elseif ($tok -match '\d$') { "$t(?!\d)" }
+        else { $t }
+    }
+    $hits = @($pool | Where-Object { $title = ([string]$_.Title).ToLower(); -not @($rx | Where-Object { $title -notmatch $_ }).Count })
+    if ($hits.Count -gt 1) {
+        # marks come in after the fact: one past, unmarked match beats later ones
+        $today = (Get-JkNow).ToString('yyyy-MM-dd', $script:Inv)
+        $past = @($hits | Where-Object { $_.Date -and $_.Date -le $today -and $null -eq $_.Score })
+        if ($past.Count -eq 1) { $hits = $past }
+        else {
+            $list = $hits; if ($past.Count) { $list = $past }
+            throw ("'$($Words -join ' ')' matches several: " + (($list | ForEach-Object { "#$($_.Key) $($_.Code) $($_.Title)" }) -join ', ') + ' (use the number)')
+        }
+    }
+    if ($hits.Count -eq 1) { return [string]$hits[0].Key }
+    $null
 }
 
 function Format-JkPct($v, [int]$Digits = 1) {
@@ -212,12 +256,19 @@ function Show-JkGrade {
 }
 
 function Set-JkGrade {
-    param([Parameter(Position = 0)][string]$Ref, [Parameter(Position = 1)][string]$Score)
-    if (-not $Ref -or -not $Score) { throw 'usage: jk grade set <deadline id | extra id> <85 | 85% | 17/20>' }
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words)
+    $all = (@($Words | Where-Object { $_ }) -join ' ').Trim()
+    if ($all -notmatch $script:JkScoreTailRx) { throw 'usage: jk grade set <id | course and title> <85 | 85% | 17/20>   (jk grade set cs341 midterm 1 72%)' }
+    $Ref = $Matches['ref']; $Score = $Matches['score']
     $pct = ConvertTo-JkPercent $Score
     $gd = Get-JkGradeData
     $due = Get-JkDueData
     $key = $Ref.TrimStart('#')
+    if ($key -notmatch '^(\d+|x\d+)$') {
+        # course and title words; anything the gradable items don't cover goes by title as before
+        $k = Resolve-JkGradeRef $due $gd @($Ref -split '\s+')
+        if ($k) { $key = $k }
+    }
     if ($key -match '^x\d+$') {
         $x = @($gd.extras | Where-Object { $_.id -eq $key })
         if (-not $x) { throw "no extra component $key" }
@@ -226,7 +277,11 @@ function Set-JkGrade {
         $courseKey = $x[0].course
     } else {
         # marks usually arrive after the item is checked off, so search finished ones too
-        $e = @(Find-JkEvents $due @($key) -Any)[0]
+        try { $e = @(Find-JkEvents $due @($key) -Any)[0] }
+        catch {
+            if ($key -match '^\d+$' -or $_.Exception.Message -match 'several') { throw }
+            throw "nothing graded matches '$Ref' (jk grade <course> lists each item with its number)"
+        }
         $key = [string]$e.id
         $gd.scores = @($gd.scores | Where-Object { [string]$_.id -ne $key }) + [pscustomobject]@{ id = $key; score = $pct }
         $label = "$(Get-JkCourseLabel $e (Get-JkCourseMap $due)) $($e.title)"
@@ -336,6 +391,16 @@ function Add-JkGradeExtra {
 function Set-JkGradeTarget {
     param([Parameter(Position = 0)][string]$Course, [Parameter(Position = 1)][string]$Target)
     $due = Get-JkDueData
+    $isPct = { param($s) $s -match '^\d+(\.\d+)?\s*%?$' }
+    if ((& $isPct $Course) -and $Target -and -not (& $isPct $Target)) { $Course, $Target = $Target, $Course }   # target 85 cs350
+    if ((& $isPct $Course) -and -not $Target) {
+        # one target for every course that has none of its own
+        $gd = Get-JkGradeData
+        $gd.targets = @($gd.targets | Where-Object { $_.course -ne '*' }) + [pscustomobject]@{ course = '*'; target = (ConvertTo-JkPercent $Course) }
+        Save-JkGradeData $gd
+        Show-JkGradeOverview
+        return
+    }
     $c = Resolve-JkCourse $due $Course
     if (-not $c -or -not $Target) { throw 'usage: jk grade target <course> <percent>' }
     $gd = Get-JkGradeData
@@ -358,5 +423,7 @@ function Invoke-JkGrade {
         '^(fill|catchup|marks)$' { Invoke-JkGradeFill; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'grade'; return }
     }
+    # "jk grade cs370 a1 9/10": a mark at the end means set
+    if ($a.Count -ge 2 -and ($a -join ' ') -match $script:JkScoreTailRx) { Set-JkGrade @a; return }
     Show-JkGrade @a
 }
