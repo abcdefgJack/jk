@@ -68,6 +68,54 @@ function Get-JkSysSnapshot {
     }
 }
 
+# Battery wear: today's full charge against the design capacity (mWh). The full charge is read
+# live (WMI, no admin needed). The design figure only comes from powercfg's battery report, which
+# takes a second, so it is cached in battery.cache and re-read every 90 days (a new battery).
+function Get-JkBatteryHealth {
+    $full = 0.0
+    try { $full = [double](@(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -ErrorAction Stop) | Measure-Object FullChargedCapacity -Sum).Sum } catch { }
+    if ($full -le 0) { return $null }
+    $cache = Get-JkPath 'battery.cache'
+    $design = 0.0
+    try {
+        $c = [IO.File]::ReadAllText($cache).Trim() -split '\|'
+        if (((Get-Date) - [datetime]::Parse($c[1], $script:Inv)).TotalDays -lt 90) { $design = [double]$c[0] }
+    } catch { }
+    if ($design -le 0) {
+        $design = Get-JkBatteryDesign
+        if ($design -le 0) { return $null }
+        Write-JkText $cache ("$design|" + (Get-Date).ToString('s', $script:Inv))
+    }
+    [pscustomobject]@{ Design = $design; Full = $full; Health = [Math]::Min(1.0, $full / $design) }
+}
+
+function Get-JkBatteryDesign {
+    $x = Join-Path $env:TEMP "jk-battery-$PID.xml"
+    try {
+        $null = & powercfg.exe /batteryreport /xml /output $x 2>&1
+        if (-not (Test-Path -LiteralPath $x)) { return 0 }
+        ConvertFrom-JkBatteryReport ([IO.File]::ReadAllText($x))
+    } catch { 0 } finally { Remove-Item -LiteralPath $x -ErrorAction SilentlyContinue }
+}
+
+# Design capacity (mWh, summed over batteries) from a powercfg /batteryreport /xml file.
+function ConvertFrom-JkBatteryReport([string]$Xml) {
+    [xml]$doc = $Xml
+    $sum = 0.0
+    foreach ($b in @($doc.BatteryReport.Batteries.Battery)) { if ($b) { $sum += [double]$b.DesignCapacity } }
+    $sum
+}
+
+# "health 65% (holds 33.7 of 52.0 Wh)" plus a plain-words note once it is worn
+function Format-JkBatteryHealth($H) {
+    $pct = [int][Math]::Round($H.Health * 100)
+    $st = 'gray'; if ($H.Health -lt 0.5) { $st = 'red' } elseif ($H.Health -lt 0.7) { $st = 'orange' }
+    $txt = (Paint $st "health $pct%") + (Paint 'gray' ([string]::Format($script:Inv, ' (holds {0:N1} of {1:N1} Wh)', ($H.Full / 1000), ($H.Design / 1000))))
+    $note = ''
+    if ($H.Health -lt 0.7) { $note = "worn: a full charge lasts about $pct% as long as when it was new" }
+    @($txt, $note)
+}
+
 function Get-JkWifiName {
     try {
         $out = netsh wlan show interfaces 2>$null
@@ -100,7 +148,10 @@ function Invoke-JkSys {
         $plugged = $s.Battery.Plugged
         $st = 'green'; if ($pct -le 15) { $st = 'red' } elseif ($pct -le 35) { $st = 'orange' }
         $state = 'on battery'; if ($plugged) { $state = 'plugged in' }
-        Say ('  ' + (Paint 'bold white' (Fit 'Battery' 9)) + (Get-JkBar ($pct / 100) $barW $st) + '  ' + (Paint 'white' ("{0,3}%" -f $pct)) + (Paint 'gray' "  $state"))
+        $health = @('', '')
+        try { $h = Get-JkBatteryHealth; if ($h) { $health = @(Format-JkBatteryHealth $h); $health[0] = (Paint 'gray' "  $($script:G.dot)  ") + $health[0] } } catch { }
+        Say ('  ' + (Paint 'bold white' (Fit 'Battery' 9)) + (Get-JkBar ($pct / 100) $barW $st) + '  ' + (Paint 'white' ("{0,3}%" -f $pct)) + (Paint 'gray' "  $state") + $health[0])
+        if ($health[1]) { Say ('           ' + (Paint 'gray' $health[1])) }
     }
     $ips = @(Get-JkIPv4)
     $wifi = Get-JkWifiName
