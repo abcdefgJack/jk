@@ -104,6 +104,10 @@ function Complete-JkReminder {
             if ($due -ge $m.Start -and $due -lt $m.End) {
                 $lines += "$($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' })$(if ($e.weight) { ', ' + $e.weight }) in this class"
             }
+            # the course's exam later the same day: the lecture before a 4:30 pm midterm says so
+            elseif ($e.kind -eq 'exam' -and $due -ge $m.End -and [string]$e.title -notmatch '(?i)\s+opens?$') {
+                $lines += "$(([string]$e.title -replace '(?i)\s+closes?$', '').Trim()) later today at $(Format-JkTime $due.ToString('HH:mm', $script:Inv))$(if ($e.weight) { ', ' + $e.weight })"
+            }
         }
         $accent = Get-JkCourseColor $m.Class.course (Get-JkCourseMap $data)
     }

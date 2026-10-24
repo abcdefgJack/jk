@@ -699,6 +699,8 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         # an in-class quiz during the 10:00 lecture
         $dq = Get-JkDueData
         $null = New-JkEvent $dq -Course 'cs350' -Date ([datetime]'2026-10-22') -Time '10:00' -Title 'Quiz 1' -Kind 'exam' -Weight '5%'
+        # and the course's midterm that evening
+        $null = New-JkEvent $dq -Course 'cs350' -Date ([datetime]'2026-10-22') -Time '18:00' -Title 'Midterm' -Kind 'exam' -Weight '25%'
         Save-JkDueData $dq
         $now = [datetime]'2026-10-22T08:00'
         $r = Register-JkClassAlert -Now $now
@@ -711,6 +713,7 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         Assert-Eq $script:Shown.Count 1
         Assert-True ($script:Shown[0] -match 'Starts in 10m . MC 4040') "popup: $($script:Shown[0])"
         Assert-True ($script:Shown[0] -match 'Quiz 1 \(exam\), 5% in this class') "names the in-class quiz: $($script:Shown[0])"
+        Assert-True ($script:Shown[0] -match 'Midterm later today at 6:00 pm, 25%') "and the exam later that day: $($script:Shown[0])"
         Assert-Eq $script:ShownSeconds 1200 'closes itself 10 minutes into the class (20 minutes after a 9:50 alert)'
         $next = @((Get-JkReminderData).items)
         Assert-Eq "$($next.Count) $($next[0].at)" '1 2026-10-22T12:50:00' 'chained to the 1 pm class'
