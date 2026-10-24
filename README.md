@@ -134,8 +134,9 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
 ```
 
-The tests use a throwaway data folder and a pinned clock. CI runs them twice on GitHub's Windows runners,
-in UTC and in Pacific time, so nothing can quietly depend on the machine's time zone. A second CI job
+The tests use a throwaway data folder and a pinned clock. CI runs them three times on GitHub's Windows runners:
+in UTC, in Pacific time, and with German regional formats (decimal comma, day-first dates), so nothing can
+quietly depend on the machine's time zone or locale. A second CI job
 (`tests\smoke.ps1`, CI only) installs jk on a clean runner, uses it from a new shell and uninstalls
 it again. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build

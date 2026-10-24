@@ -18,6 +18,13 @@ jobs:
         run: |
           tzutil /s "Pacific Standard Time"
           powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
+      # dates and numbers must not depend on the regional format (decimal comma, day-first dates)
+      - name: Run it again with German regional formats
+        shell: powershell
+        run: |
+          Set-Culture de-DE
+          powershell -NoProfile -ExecutionPolicy Bypass -Command "'culture: ' + (Get-Culture).Name + ' ' + (1234.5).ToString('N1')"
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
 
   # install.ps1 on a clean machine, real commands in a new shell, then uninstall
   install-smoke:
