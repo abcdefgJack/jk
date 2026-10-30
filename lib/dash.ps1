@@ -305,7 +305,7 @@ function Show-JkDashboard {
         # a new term with nothing in it yet
         & $nudge 'jk due sync  +  jk class import' "bring in $($info.Name)'s deadlines (LEARN) and classes (Quest)"
     } elseif ($unpicked.Count) {
-        & $nudge 'jk class pick' "add your class sections ($($unpicked -join ', ') not on your timetable yet)"
+        & $nudge 'jk class pick' "add your class sections ($($unpicked -join ', ') not on your timetable yet), or jk class import copies them from Quest"
     } elseif (-not (Get-JkConfig 'sync.url') -and @($data.events).Count) {
         & $nudge 'jk due sync' 'keep deadlines current: in LEARN, Calendar > Subscribe, copy the link, then run it'
     } elseif ($now.DayOfWeek -eq 'Sunday') {

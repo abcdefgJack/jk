@@ -1433,6 +1433,40 @@ Test 'Quest list view parsing (continuation rows, tests)' {
     $o = @($p2.Classes)[1]
     Assert-Eq "$($o.Course) $($o.Kind) $(@($o.Days) -join ',') $($o.Start)-$($o.End) $($o.Room)" 'STAT 341 LEC Mon,Wed 14:30-15:50 EIT 1015'
 }
+Test 'class import with nothing copied: opens Quest, then reads the copied page' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'quest-home'
+    $script:JkConfigCache = $null
+    $quest = "CS 341 - Algorithms`nClass Nbr`tSection`tComponent`tDays & Times`tRoom`tInstructor`tStart/End Date`n5678`t001`tLEC`tTTh 10:00AM - 11:20AM`tMC 2065`tSome Prof`t09/08/2026 - 12/08/2026"
+    $script:Answers = New-Object System.Collections.Generic.Queue[string]
+    $script:Opened = @(); $script:Clip = ''
+    $origTI = ${function:Test-JkInteractive}; $origOpen = ${function:Open-JkUrl}; $origClip = ${function:Get-JkClipboardText}
+    function script:Read-Host { param($Prompt) $script:Answers.Dequeue() }
+    function script:Test-JkInteractive { $true }
+    function script:Open-JkUrl { param($Url) $script:Opened += $Url; $script:Clip = $quest }
+    function script:Get-JkClipboardText { $script:Clip }
+    try {
+        foreach ($x in '', '') { $script:Answers.Enqueue($x) }
+        $null = @(Import-JkClasses 6>&1)
+        Assert-Eq ($script:Opened -join ' ') $script:JkQuestUrl 'Quest opened'
+        $c = @((Get-JkClassData).items)
+        Assert-Eq "$($c.Count) $($c[0].course) $(@($c[0].days) -join ',') $($c[0].start) $($c[0].room)" '1 cs341 Tue,Thu 10:00 MC 2065' 'read off the clipboard after Enter'
+        # q cancels quietly; Enter with nothing copied still explains where to copy from
+        $script:Clip = ''; $script:Opened = @()
+        foreach ($x in 'n', 'q') { $script:Answers.Enqueue($x) }
+        $null = @(Import-JkClasses 6>&1)
+        Assert-Eq $script:Opened.Count 0 'n leaves the browser closed'
+        foreach ($x in 'n', '') { $script:Answers.Enqueue($x) }
+        $msg = ''; try { Import-JkClasses 6>$null } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg -match 'List View') "error: $msg"
+    } finally {
+        Remove-Item function:script:Read-Host -ErrorAction SilentlyContinue
+        Set-Item function:script:Test-JkInteractive $origTI
+        Set-Item function:script:Open-JkUrl $origOpen
+        Set-Item function:script:Get-JkClipboardText $origClip
+        $env:JK_HOME = $saved; $script:JkConfigCache = $null
+    }
+}
 Test 'meetings skip breaks and holidays; next class' {
     Add-JkClass cs350 @('tue', 'thu') '8:30am-9:50am' 'MC 2017'
     Add-JkClass cs350 mon '4-5:20pm' 'MC 1056' -From sep 9
@@ -1485,6 +1519,10 @@ Test 'section catalog: pick adds meetings, skips duplicates, flags clashes' {
             Assert-Eq (@(Read-JkSectionPicks -Course health) -join ' ') 'health 081'
             Assert-Eq $script:Prompts.Count 1 'one question, for that course'
             Assert-Eq @(Read-JkSectionPicks -Course cs350).Count 0 'a course already on the timetable is not asked about'
+            # q stops asking at once instead of reading "00q" as a section
+            $script:Answers.Enqueue('q'); $script:Prompts = @()
+            Assert-Eq @(Read-JkSectionPicks -Course health).Count 0 'q picks nothing'
+            Assert-Eq $script:Prompts.Count 1 'and asks nothing more'
         } finally { Remove-Item function:script:Read-Host }
     } finally { $env:JK_HOME = $saved }
 }
