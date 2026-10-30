@@ -2,8 +2,18 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File "<repo>\tests\run.ps1"
 # Uses a throwaway data folder and a pinned clock (Thu 2026-10-22 14:00), so it never
 # touches your real ~\.jk data.
+#   -Culture de-DE   run with another culture's formats (decimal comma, day-first dates) for this
+#                    process only; Windows' regional settings are left alone
+
+param([string]$Culture)
 
 $ErrorActionPreference = 'Stop'
+if ($Culture) {
+    $ci = [Globalization.CultureInfo]::GetCultureInfo($Culture)
+    [Threading.Thread]::CurrentThread.CurrentCulture = $ci
+    [Globalization.CultureInfo]::DefaultThreadCurrentCulture = $ci
+    Write-Host "culture: $($ci.Name)  (1234.5 -> $((1234.5).ToString('N1')))"
+}
 $root = Split-Path -Parent $PSScriptRoot
 $env:JK_HOME = Join-Path $env:TEMP ('jk-tests-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $env:JK_CACHE = "$env:JK_HOME-cache"   # beside the data folder: one test deletes that wholesale
