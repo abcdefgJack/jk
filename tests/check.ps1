@@ -35,7 +35,12 @@ foreach ($name in $jobs.Keys) {
         if (@($out | Where-Object { $_ -eq 'smoke test passed' }).Count) { $sum = "all $(@($out | Where-Object { $_ -match '^\s+ok\s' }).Count) install checks passed" }
         elseif (@($out | Where-Object { $_ -match 'smoke test failed' }).Count) { $sum = 'install round trip failed' }
     }
-    $fails = @($out | Where-Object { $_ -match '^\s+FAIL\s' } | ForEach-Object { $_.Trim() -replace '^FAIL\s+', '' })
+    # each failure with the reason printed on the line after it
+    $fails = @(for ($i = 0; $i -lt $out.Count; $i++) {
+            if ($out[$i] -notmatch '^\s+FAIL\s') { continue }
+            $why = ''; if ($i + 1 -lt $out.Count -and $out[$i + 1] -match '^\s{8}\S') { $why = ': ' + $out[$i + 1].Trim() }
+            ($out[$i].Trim() -replace '^FAIL\s+', '') + $why
+        })
     if (-not $sum) { $sum = 'did not finish'; $bad++ } elseif ($fails.Count -or $sum -notmatch '^all') { $bad++ }
     $color = 'Green'; if ($fails.Count -or $sum -notmatch '^all') { $color = 'Red' }
     Write-Host ('  {0,-16} {1}' -f $name, $sum) -ForegroundColor $color

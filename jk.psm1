@@ -10,7 +10,7 @@ $script:JkCommands = [ordered]@{
     'due'    = @{ Fn = 'Invoke-JkDue'; Aliases = @('d', 'deadlines'); Desc = 'course deadlines: upcoming, add, done, week grid, calendar, .ics, reminders' }
     'class'  = @{ Fn = 'Invoke-JkClass'; Aliases = @('classes', 'cls', 'timetable', 'schedule', 'sched'); Desc = 'class schedule: what is on today, the next class, a weekly timetable' }
     'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
-    'exams'  = @{ Fn = 'Show-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown (same as jk due exams)' }
+    'exams'  = @{ Fn = 'Invoke-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown (same as jk due exams)' }
     'plan'   = @{ Fn = 'Invoke-JkPlan'; Aliases = @('study'); Desc = 'split today''s study time across upcoming exams and assignments; jk plan start' }
     'review' = @{ Fn = 'Show-JkReview'; Aliases = @('weekly', 'retro'); Desc = 'last 7 days done and slipped, next 7 days load, where the marks are' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }

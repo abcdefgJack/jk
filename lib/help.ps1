@@ -6,6 +6,8 @@ jk due                         deadlines in the next 14 days, grouped by day, wi
 jk due 30                      ... the next 30 days
 jk due cs350                   everything for one course (past ones dimmed, done ones struck)
 jk due all | past | exams      whole term | what's behind you | every remaining exam
+jk exam cs370 [midterm]        one exam on a screen: when, worth, what you need on it, prep planned,
+                               what lands the week before, its files in the course folder (jk find -o 1)
 jk due week                    two-week grid (Mon-Sun columns)
 jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, fri, tomorrow, in 3 days, tonight, 8pm, 2026-12-02)
 jk due add cs341 Midterm 3 nov 30 7-9pm -Exam          quotes optional; 7-9pm sets the end time

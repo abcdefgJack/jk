@@ -290,6 +290,30 @@ Test 'an online exam window (opens + closes) shows as one exam' {
     $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($dash -match 'NEXT EXAM\s+HEALTH 105 Midterm  in 4 days . Mon Oct 26 6:00 am . Tue 11:59 pm') 'dashboard callout spans the window'
 }
+Test 'jk exam <course>: when, worth, prep, what lands the week before, and its files' {
+    $courses = Join-Path $env:JK_HOME 'exam-courses'
+    New-Item -ItemType Directory (Join-Path $courses 'CS350\review') -Force | Out-Null
+    foreach ($n in 'review\midterm-review.pdf', 'Midterm_2025_solutions.pdf', 'a2a.pdf') { Set-Content (Join-Path $courses "CS350\$n") 'x' }
+    $saved = Get-JkConfig 'tidy.courses'
+    Set-JkConfig 'tidy.courses' $courses
+    try {
+        $out = @(& { jk exam cs350 } 6>&1 | ForEach-Object { "$_" })
+        $text = $out -join "`n"
+        Assert-True ($text -match 'CS 350 MIDTERM') "header: $($out[1])"
+        Assert-True ($text -match 'when\s+Thu Oct 29, 4:30 pm') 'when'
+        Assert-True ($text -match 'worth\s+25% of CS 350') 'worth'
+        Assert-True ($text -match '(?s)before\s+.*CS 350 A2A Synchronization \(Wed 8:00 pm\)') 'the A2A due the day before (the row may wrap)'
+        Assert-True ($text -match 'prep\s+about \d+h') 'jk plan estimate'
+        $files = @($out | Where-Object { $_ -match '^\s+\d+\s{2}' })
+        Assert-Eq $files.Count 2 'the two midterm files, not a2a.pdf'
+        Assert-True (@(Get-JkFindLast).Count -eq 2) 'numbered for jk find -o'
+        # an online window reads as one exam with its opening and closing
+        $h = (& { jk exam health } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($h -match 'opens Mon Oct 26 6:00 am\s+.\s+closes Tue Oct 27 11:59 pm') 'window'
+        Assert-Throws { Show-JkExamBrief cs350 nonsense }
+        Assert-True (((Invoke-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'UPCOMING EXAMS') 'no words: the list'
+    } finally { Set-JkConfig 'tidy.courses' $saved }
+}
 Test 'weekly review renders, counts slipped items' {
     Show-JkReview
     $slipped = @((Get-JkDueData).events | Where-Object { -not $_.done -and $_.kind -eq 'due' -and (Get-JkEventDue $_) -lt (Get-JkNow) -and (Get-JkEventDue $_) -ge (Get-JkNow).Date.AddDays(-6) })

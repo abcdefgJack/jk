@@ -64,6 +64,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 |---|---|---|
 | School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick` asks for your sections (or `jk class pick cs341 003`); `jk class import` reads Quest's List View |
 | | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
+| | `jk exam cs370` | One exam on a screen: when and where, worth, what you need on it, the prep `jk plan` expects and has scheduled, what lands the week before, and its review files (`jk find -o 1` opens one) |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
 | | `jk due sync` | Pulls deadlines from LEARN's calendar feed (or any `.ics` link or file). The first time, it offers the link on your clipboard or asks you to paste it. Re-syncs update moved dates and keep your own edits, and the morning task syncs daily |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
