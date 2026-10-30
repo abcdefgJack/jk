@@ -148,13 +148,14 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1 -Culture de-DE
 ```
 
-The tests use a throwaway data folder and a pinned clock. CI runs them three times on GitHub's Windows runners:
-in UTC, in Pacific time, and with German regional formats (decimal comma, day-first dates), so nothing can
-quietly depend on the machine's time zone or locale. A second CI job
-(`tests\smoke.ps1`, CI only) installs jk on a clean runner, uses it from a new shell and uninstalls
-it again. Source files must stay pure ASCII,
+The tests use a throwaway data folder and a pinned clock. Run them twice before merging: as is, and with
+German regional formats (decimal comma, day-first dates), so nothing quietly depends on the locale.
+`-Culture` changes this process only, never Windows' regional settings. The GitHub Actions workflow
+(`.github/workflows/tests.yml`, which also ran a Pacific-time pass and `tests\smoke.ps1`, an install on a
+clean runner) is disabled: there is no Actions budget for this private repo. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build
 non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`). The suite also lints for
 two PowerShell traps: `'a', 'b' + $c` (comma binds tighter than `+`) and helper calls that get
