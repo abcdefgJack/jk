@@ -48,6 +48,41 @@ function Join-JkArgs([string[]]$List) {
         }) -join ' '
 }
 
+# bits/stdc++.h is most of a compile. A precompiled copy, one per compiler and set of flags in
+# %LOCALAPPDATA%\jk (about 150 MB each, so not in the backed-up data folder), takes a compile from
+# 1.7 s to 0.6 s. GCC uses it only when the flags match and quietly falls back otherwise.
+# Returns the folder to pass as -I, or $null when there is none (a failed build is not retried).
+function Get-JkCpPch($Gpp, [string[]]$Flags, [string]$Mode, [switch]$Quiet) {
+    $root = Join-Path (Get-JkCacheDir) "cp-pch\$Mode"
+    $cflags = @($Flags | Where-Object { $_ -notlike '-Wl,*' })
+    $stamp = (Get-Item -LiteralPath $Gpp.Source).LastWriteTimeUtc.Ticks
+    $key = "$($Gpp.Source)|$stamp|$($cflags -join ' ')"
+    $gch = Join-Path $root 'bits\stdc++.h.gch'
+    $keyFile = Join-Path $root 'key.txt'
+    $failFile = Join-Path $root 'failed.txt'
+    if ((Test-Path -LiteralPath $gch) -and (Test-Path -LiteralPath $keyFile) -and [IO.File]::ReadAllText($keyFile) -eq $key) { return $root }
+    if ((Test-Path -LiteralPath $failFile) -and [IO.File]::ReadAllText($failFile) -eq $key) { return $null }
+    New-Item -ItemType Directory -Path (Join-Path $root 'bits') -Force | Out-Null
+    $hdr = Join-Path $root 'pch.h'
+    [IO.File]::WriteAllText($hdr, "#include <bits/stdc++.h>`n")
+    if (-not $Quiet) { Write-Host (Paint 'gray' "  precompiling bits/stdc++.h for $Mode builds (once)$($script:G.ell)") -NoNewline }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    # built under another name and renamed: a compile running meanwhile never reads half a file
+    $tmp = "$gch.$PID.tmp"
+    $res = Invoke-JkProcess -Exe $Gpp.Source -ArgList ($cflags + @('-x', 'c++-header', $hdr, '-o', $tmp)) -InputText '' -TimeoutMs 180000 -WorkDir $root
+    if (-not $Quiet) { Write-Host "`r" -NoNewline }
+    if ($res.Code -ne 0 -or -not (Test-Path -LiteralPath $tmp)) {
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+        [IO.File]::WriteAllText($failFile, $key)
+        return $null
+    }
+    Move-Item -LiteralPath $tmp -Destination $gch -Force
+    [IO.File]::WriteAllText($keyFile, $key)
+    Remove-Item -LiteralPath $failFile -ErrorAction SilentlyContinue
+    if (-not $Quiet) { Say (Paint 'gray' "  precompiled bits/stdc++.h in $([Math]::Round($sw.Elapsed.TotalSeconds, 1))s $($script:G.dash) later $Mode compiles reuse it") }
+    $root
+}
+
 # Compiles when needed (cached by source hash + flags) and returns how to run it.
 function Build-JkCp {
     param([IO.FileInfo]$Src, [switch]$DebugBuild, [switch]$Quiet)
@@ -74,9 +109,14 @@ function Build-JkCp {
             if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $stampFile) -and ([IO.File]::ReadAllText($stampFile) -eq $hash)) {
                 return [pscustomobject]@{ Exe = $exe; Args = @(); Compiled = $false; Lang = 'cpp' }
             }
+            $pchArgs = @()
+            if ($ext -ne '.c' -and [IO.File]::ReadAllText($Src.FullName) -match '#\s*include\s*<bits/stdc\+\+\.h>') {
+                $pch = Get-JkCpPch $gpp $flags $(if ($DebugBuild) { 'debug' } else { 'release' }) -Quiet:$Quiet
+                if ($pch) { $pchArgs = @("-I$pch") }
+            }
             if (-not $Quiet) { Write-Host (Paint 'gray' "  compiling $($Src.Name)$($script:G.ell)") -NoNewline }
             $sw = [Diagnostics.Stopwatch]::StartNew()
-            $allArgs = $flags + @('-o', $exe, $Src.FullName)
+            $allArgs = $flags + $pchArgs + @('-o', $exe, $Src.FullName)
             $res = Invoke-JkProcess -Exe $gpp.Source -ArgList $allArgs -InputText '' -TimeoutMs 120000 -WorkDir $Src.DirectoryName
             $sw.Stop()
             if (-not $Quiet) { Write-Host "`r" -NoNewline }
@@ -521,6 +561,17 @@ function Invoke-JkCpStress {
 }
 
 function Clear-JkCp {
+    param([switch]$Pch)
+    if ($Pch) {
+        # the precompiled headers: rebuilt on the next compile that needs one
+        $p = Join-Path (Get-JkCacheDir) 'cp-pch'
+        if (Test-Path -LiteralPath $p) {
+            $size = (Get-ChildItem -LiteralPath $p -Recurse -File -Force | Measure-Object Length -Sum).Sum
+            Remove-Item -LiteralPath $p -Recurse -Force
+            Say (Paint 'green' "  removed the precompiled headers ($(Format-JkSize $size)); the next compile rebuilds what it needs")
+        } else { Say (Paint 'gray' '  no precompiled headers') }
+        return
+    }
     $here = (Get-Location).ProviderPath
     $removed = @()
     $dir = Join-Path $here $script:JkCpBuildDir
@@ -554,7 +605,7 @@ function Invoke-JkCp {
         '^(add|paste|sample)$' { Add-JkCpTest @rest; return }
         '^(stress|s)$' { Invoke-JkCpStress @rest; return }
         '^(open|edit|o)$' { $src = Get-JkCpSource; if ($src) { Open-JkInEditor $src.FullName } else { Open-JkInEditor (Get-Location).ProviderPath }; return }
-        '^(clean)$' { Clear-JkCp; return }
+        '^(clean)$' { Clear-JkCp -Pch:(@($rest | Where-Object { "$_" -match '^-?pch$' }).Count -gt 0); return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'cp'; return }
     }
     # jk cp main.cpp / jk cp -d / jk cp -Timeout 5

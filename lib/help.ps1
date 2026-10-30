@@ -113,6 +113,8 @@ jk cp run                      compile and run interactively
 jk cp open | jk cp clean       open the solution in your editor | delete the compiled cache (.jkcp)
 jk cp stress                   main vs brute.cpp|py on inputs from gen.cpp|py <seed>; stops at the first mismatch
 Compiled with -std=c++20 -O2 -Wall -DLOCAL and a 256 MB stack (deep recursion just works).
+bits/stdc++.h is precompiled once (~4 s, ~150 MB in %LOCALAPPDATA%\jk), then compiles take ~0.6 s;
+jk cp clean pch removes it.
 Floating-point answers match within 1e-6. Exit codes like 0xC0000005 are explained.
 '@
     'go'     = @'

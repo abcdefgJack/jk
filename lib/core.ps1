@@ -41,6 +41,14 @@ function Get-JkHome {
     $h
 }
 
+# Rebuildable bulk (precompiled headers) lives here, not in the data folder that gets backed up.
+function Get-JkCacheDir {
+    $c = $env:JK_CACHE
+    if (-not $c) { $c = Join-Path $env:LOCALAPPDATA 'jk' }
+    if (-not (Test-Path -LiteralPath $c)) { New-Item -ItemType Directory -Path $c -Force | Out-Null }
+    $c
+}
+
 function Get-JkPath([string]$Name) { Join-Path (Get-JkHome) $Name }
 
 function Get-JkRoot { Split-Path -Parent $PSScriptRoot }

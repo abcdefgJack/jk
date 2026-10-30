@@ -6,6 +6,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $env:JK_HOME = Join-Path $env:TEMP ('jk-tests-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$env:JK_CACHE = "$env:JK_HOME-cache"   # beside the data folder: one test deletes that wholesale
 $env:JK_NOW = '2026-10-22T14:00:00'
 $env:JK_COLOR = 'never'
 $env:JK_WIDTH = '100'
@@ -1723,6 +1724,29 @@ if (Get-Command g++ -ErrorAction SilentlyContinue) {
         $again = Build-JkCp $src -Quiet
         Assert-True (-not $again.Compiled) 'second build hits the cache'
     }
+    Test 'bits/stdc++.h is precompiled once per set of flags, outside the data folder; a failure is not retried' {
+        $gpp = Get-Command g++
+        $flags = @('-std=c++17', '-O2', '-DLOCAL', '-Wl,--stack,268435456')
+        $root = Get-JkCpPch $gpp $flags 'release' -Quiet
+        Assert-True ($root -and $root.StartsWith($env:JK_CACHE)) "pch under JK_CACHE: $root"
+        Assert-True (Test-Path (Join-Path $root 'bits\stdc++.h.gch')) 'the header is built'
+        Assert-True ([IO.File]::ReadAllText((Join-Path $root 'key.txt')) -notmatch '--stack') 'linker flags are not part of it'
+        $t = (Get-Item (Join-Path $root 'bits\stdc++.h.gch')).LastWriteTimeUtc
+        $null = Get-JkCpPch $gpp $flags 'release' -Quiet
+        Assert-Eq (Get-Item (Join-Path $root 'bits\stdc++.h.gch')).LastWriteTimeUtc $t 'reused, not rebuilt'
+        # GCC really picks it up (-H marks a used precompiled header with "!")
+        $src = Join-Path $env:JK_HOME 'cp-e2e\main.cpp'
+        $h = Invoke-JkProcess -Exe $gpp.Source -ArgList @('-std=c++17', '-O2', '-DLOCAL', "-I$root", '-H', '-fsyntax-only', $src) -InputText '' -TimeoutMs 60000 -WorkDir $root
+        $first = @($h.Err -split "`r?`n" | Where-Object { $_ })[0]
+        Assert-True ($first -match '^!.*stdc\+\+\.h\.gch') "used: $first"
+        # a set of flags the compiler rejects: no header, remembered, not tried again
+        $bad = @('-std=c++99nonsense')
+        Assert-Eq (Get-JkCpPch $gpp $bad 'broken' -Quiet) $null
+        $fail = Join-Path $env:JK_CACHE 'cp-pch\broken\failed.txt'
+        Assert-True (Test-Path $fail) 'failure remembered'
+        $sw = [Diagnostics.Stopwatch]::StartNew(); $null = Get-JkCpPch $gpp $bad 'broken' -Quiet; $sw.Stop()
+        Assert-True ($sw.ElapsedMilliseconds -lt 500) "not retried ($($sw.ElapsedMilliseconds) ms)"
+    }
 }
 
 Write-Host ''
@@ -2132,8 +2156,8 @@ Test 'jk help <command> names every action' {
 }
 
 Remove-Module jk
-Remove-Item $env:JK_HOME -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item env:JK_NOW, env:JK_HOME, env:JK_COLOR, env:JK_WIDTH, env:JK_NONINTERACTIVE -ErrorAction SilentlyContinue
+Remove-Item $env:JK_HOME, $env:JK_CACHE -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item env:JK_NOW, env:JK_HOME, env:JK_CACHE, env:JK_COLOR, env:JK_WIDTH, env:JK_NONINTERACTIVE -ErrorAction SilentlyContinue
 
 Write-Host ''
 if ($script:failed.Count) {
