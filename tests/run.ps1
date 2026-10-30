@@ -1614,6 +1614,42 @@ Test 'feed links are recognised on the clipboard or in a paste' {
         try { Invoke-JkDueSync } catch { $msg = $_.Exception.Message }
         Assert-True ($msg -match 'Calendar > Subscribe') "error: $msg"
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+    Assert-True ($null -eq (Find-JkFeedLink $script:JkLearnCalendarUrl)) 'the calendar page itself is not the feed'
+}
+Test 'first sync: opens LEARN''s calendar, then reads the copied link off the clipboard' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'firstsync-home'
+    $script:JkConfigCache = $null
+    $ics = Join-Path $saved 'firstsync.ics'
+    Set-Content $ics "BEGIN:VCALENDAR`r`nBEGIN:VEVENT`r`nUID:fs-1`r`nSUMMARY:Assignment 9 - Due`r`nDTSTART:20261105T235900`r`nDTEND:20261105T235900`r`nLOCATION:CS 350 - Operating Systems`r`nEND:VEVENT`r`nEND:VCALENDAR`r`n" -Encoding ascii
+    $script:Answers = New-Object System.Collections.Generic.Queue[string]
+    $script:Opened = @(); $script:Clip = $null
+    $origTI = ${function:Test-JkInteractive}; $origOpen = ${function:Open-JkUrl}; $origClip = ${function:Get-JkClipboardFeed}
+    function script:Read-Host { param($Prompt) $script:Answers.Dequeue() }
+    function script:Test-JkInteractive { $true }
+    function script:Open-JkUrl { param($Url) $script:Opened += $Url; $script:Clip = $ics }
+    function script:Get-JkClipboardFeed { $script:Clip }
+    try {
+        # Enter = open LEARN; Enter = "copied it": the link comes off the clipboard
+        foreach ($x in '', '') { $script:Answers.Enqueue($x) }
+        $null = @(Invoke-JkDueSync 6>&1)
+        Assert-Eq ($script:Opened -join ' ') $script:JkLearnCalendarUrl 'LEARN calendar opened'
+        Assert-True (@((Get-JkDueData).events | Where-Object { [string]$_.uid -eq 'fs-1' }).Count -eq 1) 'synced from the copied link'
+        # no browser, then q: nothing happens
+        $script:Opened = @(); $script:Clip = $null
+        foreach ($x in 'n', 'q') { $script:Answers.Enqueue($x) }
+        $null = @(Invoke-JkDueSync 6>&1)
+        Assert-Eq $script:Opened.Count 0 'n leaves the browser closed'
+        # Enter with nothing copied says so instead of syncing nothing
+        foreach ($x in 'n', '') { $script:Answers.Enqueue($x) }
+        Assert-Throws { Invoke-JkDueSync 6>$null }
+    } finally {
+        Remove-Item function:script:Read-Host -ErrorAction SilentlyContinue
+        Set-Item function:script:Test-JkInteractive $origTI
+        Set-Item function:script:Open-JkUrl $origOpen
+        Set-Item function:script:Get-JkClipboardFeed $origClip
+        $env:JK_HOME = $saved; $script:JkConfigCache = $null
+    }
 }
 Test 'sync round trip: jk''s own ics export reproduces the deadlines' {
     $saved = $env:JK_HOME
