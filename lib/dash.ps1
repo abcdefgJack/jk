@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'net'; Cmd = 'jk net'; Text = 'Wi-Fi up but nothing loads? says whether it is the signal, the router, DNS or a sign-in page' },
     @{ Id = 'todo-dates'; Cmd = 'jk todo pay rent nov 1'; Text = 'a date at the end becomes its due date (by fri, at 7pm, tomorrow), so the popup lists it' },
     @{ Id = 'grade-names'; Cmd = 'jk grade cs341 midterm 1 72%'; Text = 'marks by course and title (a1 = Assignment 1); 17 / 20 and 18 out of 20 work too' },
     @{ Id = 'port-exposed'; Cmd = 'jk port'; Text = 'flags a database other devices on your Wi-Fi can reach, and the setting that keeps it local' },

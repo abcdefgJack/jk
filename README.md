@@ -81,6 +81,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk cp stress` | `main` vs `brute` on `gen <seed>` inputs; a counterexample becomes a sample |
 | | `jk repos` / `jk repos -Fetch` | Every git repo under the Desktop: uncommitted, unpushed, behind (git runs for 8 repos at a time; a hung fetch is stopped after a minute) |
 | | `jk port 8080 -Kill` | Who holds a port, and free it |
+| | `jk net` | Is it the Wi-Fi or the internet? Address, router, internet, DNS and web checked in order, then one line on what is wrong (weak signal, no address, DNS, a sign-in page) |
 | Machine | `jk find co250 a3` / `jk find -o 1` | Any file on the Desktop, in Documents or Downloads whose name or folders hold every word, best first (a word like `pdf` picks the type). Walked live in about 0.2 s, so new files show up at once; `-o`, `-e`, `-c`, `-p` open, reveal in Explorer, edit or print a result |
 | | `jk clip` / `jk clip unwrap` | Word count of the clipboard (Chinese counted by character); `unwrap` fixes text copied from a PDF (wrapped lines rejoined, "optimi-zation" mended, bullets kept); `plain` drops formatting |
 | | `jk recent` / `jk recent 7` | The files you changed in the last 2 (or N) days, newest first, with the busiest folders on top; the numbers work with `jk find -o` |

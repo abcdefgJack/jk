@@ -725,6 +725,39 @@ Test 'databases open to the network: grouped ports, the setting and file that ke
     $sw = [Diagnostics.Stopwatch]::StartNew(); $null = Get-JkDbServiceInfo 'no-such-db-exe'; $sw.Stop()
     Assert-True ($sw.ElapsedMilliseconds -lt 1500) "registry walk took $($sw.ElapsedMilliseconds) ms"
 }
+Test 'jk net: Wi-Fi details in any language, and one verdict per kind of failure' {
+    $en = @('    Name                   : Wi-Fi', '    SSID                   : eduroam', '    BSSID                  : aa:bb', '    Radio type             : 802.11ax', '    Band                   : 5 GHz', '    Signal                 : 65% ')
+    $w = ConvertFrom-JkWlanText $en
+    Assert-Eq "$($w.Ssid)|$($w.Signal)|$($w.Band)" 'eduroam|65|5 GHz'
+    $zhSignal = [string][char]0x4FE1 + [char]0x53F7   # the Chinese label, built so this file stays ASCII
+    Assert-Eq (ConvertFrom-JkWlanText @('    SSID                   : Home', "    $zhSignal                   : 31%")).Signal 31 'signal found by its percent sign'
+    Assert-Eq (ConvertFrom-JkWlanText @('There is no wireless interface on the system.')) $null
+    $ping = { param($sent, $got, $ms) [pscustomobject]@{ Ok = $got -gt 0; Sent = $sent; Got = $got; Ms = $ms } }
+    $ok = [pscustomobject]@{ Ok = $true; Ms = 20; Captive = $false }
+    $fail = [pscustomobject]@{ Ok = $false; Ms = $null; Captive = $false }
+    $link = [pscustomobject]@{ Name = 'Wi-Fi'; Address = '10.0.0.5'; Apipa = $false; Gateway = '10.0.0.1'; Wireless = $true }
+    $wifi = [pscustomobject]@{ Ssid = 'eduroam'; Signal = 70 }
+    $mk = { param($l, $wf, $gw, $inet, $dns, $web) [pscustomobject]@{ Link = $l; Wifi = $wf; Vpn = $null; Gateway = $gw; Internet = $inet; Dns = $dns; Web = $web } }
+    $cases = @(
+        @((& $mk $null $null (& $ping 0 0 $null) (& $ping 0 0 $null) $fail $fail), 'bad', '^Not connected'),
+        @((& $mk ([pscustomobject]@{ Name = 'Wi-Fi'; Address = '169.254.3.4'; Apipa = $true; Gateway = $null }) $wifi (& $ping 0 0 $null) (& $ping 0 0 $null) $fail $fail), 'bad', "Joined 'eduroam', but the router handed out no address"),
+        @((& $mk $link $wifi (& $ping 3 3 4) (& $ping 2 2 9) $ok $ok), 'ok', '^Online: router 4 ms . internet 9 ms$'),
+        @((& $mk $link $wifi (& $ping 3 0 $null) (& $ping 2 0 $null) $ok $ok), 'ok', '^Online$'),
+        @((& $mk $link ([pscustomobject]@{ Ssid = 'x'; Signal = 30 }) (& $ping 3 2 90) (& $ping 2 2 30) $ok $ok), 'warn', 'weak \(signal 30%, 1 of 3 router pings lost, router 90 ms\)'),
+        @((& $mk $link $wifi (& $ping 3 3 4) (& $ping 2 0 $null) $ok ([pscustomobject]@{ Ok = $false; Ms = 30; Captive = $true })), 'warn', 'sign-in page'),
+        @((& $mk $link $wifi (& $ping 3 3 4) (& $ping 2 2 9) $fail $fail), 'bad', '^DNS is failing'),
+        @((& $mk $link $wifi (& $ping 3 3 4) (& $ping 2 2 9) $ok $fail), 'warn', 'web requests fail'),
+        @((& $mk $link $wifi (& $ping 3 3 4) (& $ping 2 0 $null) $fail $fail), 'bad', 'router answers, but nothing past it'),
+        @((& $mk $link ([pscustomobject]@{ Ssid = 'x'; Signal = 20 }) (& $ping 3 0 $null) (& $ping 2 0 $null) $fail $fail), 'bad', 'router does not answer \(signal 20%\)')
+    )
+    foreach ($c in $cases) {
+        $v = Get-JkNetVerdict $c[0]
+        Assert-Eq $v.Level $c[1] $v.Text
+        Assert-True ($v.Text -match $c[2]) "verdict: $($v.Text)"
+        Assert-True ($v.Level -eq 'ok' -or $v.Hint) "a problem comes with something to try: $($v.Text)"
+    }
+    $null = @(Get-JkNetLinks)   # the real adapters read without errors
+}
 Test 'jk sys: CPU load from GetSystemTimes, addresses from .NET' {
     $l = Get-JkCpuLoad 100
     Assert-True ($null -ne $l -and $l -ge 0 -and $l -le 100) "load: $l"

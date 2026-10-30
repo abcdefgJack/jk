@@ -155,6 +155,14 @@ jk port                        listening ports with the owning app (dev ports hi
                                other devices can reach is flagged with the setting that keeps it local
 jk port 8080                   who is on 8080;   jk port 8080 -Kill   frees it
 '@
+    'net'    = @'
+jk net                         is it the Wi-Fi or the internet? checks in order: an address, the router,
+                               the internet (1.1.1.1), DNS, and the page Windows fetches to decide it is
+                               online - then one line on what is wrong and what to try
+                               (weak signal, no address from the router, router down, DNS failing,
+                               a sign-in page in the way, or a VPN)
+Also: jk wifi, jk internet, jk online.
+'@
     'repos'  = @'
 jk repos                       every git repo under the Desktop: branch, changes, unpushed/behind, last commit
 jk repos -Fetch                fetch first so "behind" is current
