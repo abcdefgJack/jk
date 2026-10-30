@@ -327,12 +327,17 @@ function Write-JkSideBySide([string]$Expected, [string]$Actual, [int]$MaxLines =
     if ($n -gt $start + $MaxLines) { Say (Paint 'gray' "       $($n - $start - $MaxLines) more lines$($script:G.ell)") }
 }
 
+# Samples next to the solution, in tests\ or test\ (where online-judge-tools puts them): N.in with
+# N.out / .ans / .expected, and old USACO test data's I.N with O.N.
 function Get-JkCpTests([string]$Dir) {
-    $ins = @(Get-ChildItem -LiteralPath $Dir -File -Filter '*.in' -ErrorAction SilentlyContinue)
-    $sub = Join-Path $Dir 'tests'
-    if (Test-Path -LiteralPath $sub) { $ins += @(Get-ChildItem -LiteralPath $sub -File -Filter '*.in') }
-    $ins = @($ins | Where-Object { $_.BaseName -notmatch '^stress' } | Sort-Object { Get-JkNaturalKey $_.Name })
-    foreach ($i in $ins) {
+    $dirs = @($Dir) + @('tests', 'test' | ForEach-Object { Join-Path $Dir $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+    $ins = @(); $usaco = @()
+    foreach ($d in $dirs) {
+        $ins += @(Get-ChildItem -LiteralPath $d -File -Filter '*.in' -ErrorAction SilentlyContinue)
+        $usaco += @(Get-ChildItem -LiteralPath $d -File -Filter 'I.*' -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.\d+$' })
+    }
+    $ins = @($ins | Where-Object { $_.BaseName -notmatch '^stress' })
+    $out = foreach ($i in $ins) {
         $ans = $null
         foreach ($ext in '.out', '.ans', '.expected') {
             $p = Join-Path $i.DirectoryName ($i.BaseName + $ext)
@@ -340,6 +345,11 @@ function Get-JkCpTests([string]$Dir) {
         }
         [pscustomobject]@{ Name = $i.BaseName; In = $i.FullName; Ans = $ans }
     }
+    $out = @($out) + @(foreach ($i in $usaco) {
+            $p = Join-Path $i.DirectoryName ('O' + $i.Extension)
+            [pscustomobject]@{ Name = $i.Name; In = $i.FullName; Ans = $(if (Test-Path -LiteralPath $p) { $p } else { $null }) }
+        })
+    @($out | Where-Object { $_ } | Sort-Object { Get-JkNaturalKey ([IO.Path]::GetFileName($_.In)) })
 }
 
 function Get-JkVerdictText($Res, [int]$TimeoutMs) {
@@ -443,8 +453,9 @@ function New-JkCpProblem {
         foreach ($f in '1.in', '1.out') { $p = Join-Path $dir $f; if (-not (Test-Path $p)) { Write-JkText $p '' } }
     }
     Set-Location -LiteralPath $dir
-    if ($fresh) { Say ((Paint 'green' "  created $($script:G.check)") + "  $dir" + (Paint 'gray' "  ($outName, 1.in, 1.out)")) }
-    else { Say ((Paint 'yellow' '  exists') + "  $dir" + (Paint 'gray' ' - switched to it')) }
+    $shown = Resolve-JkLongPath $dir   # C:\Users\JACKWA~1\... from a short TEMP or cp.root
+    if ($fresh) { Say ((Paint 'green' "  created $($script:G.check)") + "  $shown" + (Paint 'gray' "  ($outName, 1.in, 1.out)")) }
+    else { Say ((Paint 'yellow' '  exists') + "  $shown" + (Paint 'gray' ' - switched to it')) }
     Say (Paint 'gray' "  paste samples: copy input $($script:G.arrow) jk cp add   $($script:G.dot)   test: jk cp   $($script:G.dot)   stress: add brute.cpp + gen.py, then jk cp stress")
     if (-not $NoOpen) { Open-JkInEditor $src }
 }

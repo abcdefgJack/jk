@@ -1747,6 +1747,37 @@ if (Get-Command g++ -ErrorAction SilentlyContinue) {
         $sw = [Diagnostics.Stopwatch]::StartNew(); $null = Get-JkCpPch $gpp $bad 'broken' -Quiet; $sw.Stop()
         Assert-True ($sw.ElapsedMilliseconds -lt 500) "not retried ($($sw.ElapsedMilliseconds) ms)"
     }
+    Test 'jk cp new templates compile cleanly (release, debug, judge) and dbg prints nested containers' {
+        foreach ($t in 'main.cpp', 'usaco.cpp') {
+            $dir = Join-Path $env:JK_HOME "cp-tpl-$($t -replace '\W', '')"
+            New-Item -ItemType Directory $dir -Force | Out-Null
+            $src = ([IO.File]::ReadAllText((Join-Path (Get-JkRoot) "templates\cp\$t"))).Replace('{{NAME}}', 'x').Replace('{{DATE}}', 'today')
+            # what a solution does with it: dbg on a container of pairs, a map of vectors, strings and literals
+            $src = $src -replace '(?m)^(\s*)return 0;', "`$1vector<pair<int,string>> v{{1,`"a`"}}; map<int,vector<int>> m{{2,{3,4}}}; string s=`"hi`"; dbg(v, m, s, `"lit`", 5); cout << `"ok`" << `"\n`";`n`$1return 0;"
+            [IO.File]::WriteAllText((Join-Path $dir 'main.cpp'), $src)
+            $f = Get-Item (Join-Path $dir 'main.cpp')
+            foreach ($dbgBuild in $false, $true) {
+                $run = Build-JkCp $f -Quiet -DebugBuild:$dbgBuild
+                $r = Invoke-JkProcess -Exe $run.Exe -InputText '' -WorkDir $dir
+                Assert-Eq $r.Out.Trim() 'ok' "$t debug=$dbgBuild"
+                Assert-True ($r.Err -match '\{\(2, \{3, 4\}\)\}' -and $r.Err -match '\{\(1, a\)\}') "$t dbg output: $($r.Err)"
+            }
+            # the judge compiles without -DLOCAL: dbg and the printers compile away, no warnings
+            $j = Invoke-JkProcess -Exe (Get-Command g++).Source -ArgList @('-std=c++20', '-O2', '-Wall', '-Wextra', '-o', (Join-Path $dir 'judge.exe'), $f.FullName) -InputText '' -TimeoutMs 120000 -WorkDir $dir
+            Assert-Eq $j.Code 0 "$t judge build: $($j.Err)"
+            Assert-True ($j.Err -notmatch 'warning:') "$t judge build warnings: $($j.Err)"
+        }
+    }
+}
+Test 'cp samples: N.in with .out/.ans, tests\ and test\ folders, old USACO I.N / O.N' {
+    $dir = Join-Path $env:JK_HOME 'cp-samples'
+    New-Item -ItemType Directory (Join-Path $dir 'test'), (Join-Path $dir 'tests') -Force | Out-Null
+    foreach ($n in '1.in', '1.out', '2.in', '2.ans', 'I.1', 'O.1', 'I.10', 'O.10', 'I.2', 'test\sample-1.in', 'test\sample-1.out', 'tests\big.in', 'stress.in', 'I.txt') { Set-Content (Join-Path $dir $n) 'x' }
+    $t = @(Get-JkCpTests $dir)
+    Assert-Eq (($t | ForEach-Object { $_.Name }) -join ' ') '1 2 big I.1 I.2 I.10 sample-1' 'natural order; stress inputs and I.txt are not samples'
+    Assert-Eq (Split-Path @($t | Where-Object { $_.Name -eq 'I.10' })[0].Ans -Leaf) 'O.10'
+    Assert-Eq @($t | Where-Object { $_.Name -eq 'I.2' })[0].Ans $null 'I.2 has no O.2'
+    Assert-Eq (Split-Path @($t | Where-Object { $_.Name -eq '2' })[0].Ans -Leaf) '2.ans'
 }
 
 Write-Host ''

@@ -3,9 +3,12 @@
 using namespace std;
 
 #ifdef LOCAL
+// declared before either body, so a pair can hold a container and a container can hold pairs
+template <class A, class B> ostream& operator<<(ostream& os, const pair<A, B>& p);
+template <class C, class = decltype(begin(declval<const C&>())), class = enable_if_t<!is_convertible_v<const C&, string_view>>>
+ostream& operator<<(ostream& os, const C& c);
 template <class A, class B> ostream& operator<<(ostream& os, const pair<A, B>& p) { return os << '(' << p.first << ", " << p.second << ')'; }
-template <class C, class = decltype(begin(declval<const C&>())), class = enable_if_t<!is_same_v<C, string>>>
-ostream& operator<<(ostream& os, const C& c) {
+template <class C, class, class> ostream& operator<<(ostream& os, const C& c) {
     os << '{';
     bool first = true;
     for (const auto& x : c) { if (!first) os << ", "; os << x; first = false; }
@@ -28,6 +31,8 @@ void setIO(const string& name) {
         freopen((name + ".in").c_str(), "r", stdin);
         freopen((name + ".out").c_str(), "w", stdout);
     }
+#else
+    (void)name;
 #endif
 }
 

@@ -106,6 +106,7 @@ jk cp new A                    make <cp.root>\A with main.cpp + 1.in/1.out, cd t
 jk cp new A -Lang py|java|usaco   -Here  (create in the current folder instead)
 jk cp add                      clipboard -> next N.in, then copy the expected output and press Enter
 jk cp | jk cp test             compile (cached) and run every *.in; diff with *.out / *.ans
+                               (also in tests\ or test\, and old USACO data: I.1 with O.1)
 jk cp -d                       debug build: _GLIBCXX_DEBUG bounds checks, -ftrapv overflow traps
 jk cp -v                       also show stderr (dbg(...) output) for passing tests
 jk cp -Timeout 5               per-test limit in seconds (default 3)
