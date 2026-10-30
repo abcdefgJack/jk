@@ -35,16 +35,21 @@ foreach ($name in $jobs.Keys) {
         if (@($out | Where-Object { $_ -eq 'smoke test passed' }).Count) { $sum = "all $(@($out | Where-Object { $_ -match '^\s+ok\s' }).Count) install checks passed" }
         elseif (@($out | Where-Object { $_ -match 'smoke test failed' }).Count) { $sum = 'install round trip failed' }
     }
-    # each failure with the reason printed on the line after it
+    # each failure with its reason: the lines after it, up to the next test's line (a message that
+    # quotes command output runs over several), at most 12
     $fails = @(for ($i = 0; $i -lt $out.Count; $i++) {
             if ($out[$i] -notmatch '^\s+FAIL\s') { continue }
-            $why = ''; if ($i + 1 -lt $out.Count -and $out[$i + 1] -match '^\s{8}\S') { $why = ': ' + $out[$i + 1].Trim() }
-            ($out[$i].Trim() -replace '^FAIL\s+', '') + $why
+            $why = @()
+            for ($j = $i + 1; $j -lt $out.Count -and $why.Count -lt 12; $j++) {
+                if ($out[$j] -match '^\s+(ok|FAIL)\s{2,}|^\S|^\s*$' -and $out[$j] -notmatch '^\s{8}') { break }
+                $why += $out[$j]
+            }
+            ($out[$i].Trim() -replace '^FAIL\s+', '') + $(if ($why.Count) { "`n" + ($why -join "`n") } else { '' })
         })
     if (-not $sum) { $sum = 'did not finish'; $bad++ } elseif ($fails.Count -or $sum -notmatch '^all') { $bad++ }
     $color = 'Green'; if ($fails.Count -or $sum -notmatch '^all') { $color = 'Red' }
     Write-Host ('  {0,-16} {1}' -f $name, $sum) -ForegroundColor $color
-    foreach ($f in $fails) { Write-Host "      $f" -ForegroundColor Red }
+    foreach ($f in $fails) { foreach ($l in ($f -split "`n")) { Write-Host "      $($l.TrimEnd())" -ForegroundColor Red } }
 }
 Write-Host ''
 Write-Host ("  {0:N0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor DarkGray

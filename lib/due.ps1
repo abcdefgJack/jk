@@ -555,7 +555,13 @@ function Show-JkExamBrief {
     $from = $x.Start.AddDays(-7); if ($from -lt $now) { $from = $now }
     $first = @($data.events | Where-Object { -not $_.done -and $_.id -ne $e.id -and -not ($x.Win -and $_.id -eq $x.Win.Open.id) -and ($d = Get-JkEventDue $_) -ge $from -and $d -lt $x.Start -and ([string]$_.title -notmatch '(?i)\sopens?$') } | Sort-Object { Get-JkEventDue $_ } | Select-Object -First 5)
     if ($first.Count) {
-        $txt = ($first | ForEach-Object { $dd = Get-JkEventDue $_; "$(Get-JkCourseLabel $_ $cmap) $($_.title) ($($dd.ToString('ddd', $script:Inv)) $(Format-JkTime $dd.ToString('HH:mm')))" }) -join "  $($script:G.dot)  "
+        $txt = ($first | ForEach-Object {
+                $dd = Get-JkEventDue $_
+                $t = [string]$_.title; $verb = ''
+                # the closing half of an online window reads as the quiz itself, open until then
+                if ($t -match '(?i)\s+closes?$' -and (Get-JkEventWindow $_ $data)) { $t = $t -replace '(?i)\s+closes?$', ''; $verb = 'closes ' }
+                "$(Get-JkCourseLabel $_ $cmap) $t ($verb$($dd.ToString('ddd', $script:Inv)) $(Format-JkTime $dd.ToString('HH:mm')))"
+            }) -join "  $($script:G.dot)  "
         & $wrapRow 'before' $txt 'muted'
     }
 

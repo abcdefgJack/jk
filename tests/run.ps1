@@ -303,6 +303,7 @@ Test 'jk exam <course>: when, worth, prep, what lands the week before, and its f
         Assert-True ($text -match 'when\s+Thu Oct 29, 4:30 pm') 'when'
         Assert-True ($text -match 'worth\s+25% of CS 350') 'worth'
         Assert-True ($text -match '(?s)before\s+.*CS 350 A2A Synchronization \(Wed 8:00 pm\)') 'the A2A due the day before (the row may wrap)'
+        Assert-True ($text -match 'HEALTH 105 Midterm \(closes Tue 11:59 pm\)' -and $text -notmatch 'Midterm closes') 'an online window reads as the quiz, open until it closes'
         Assert-True ($text -match 'prep\s+about \d+h') 'jk plan estimate'
         $files = @($out | Where-Object { $_ -match '^\s+\d+\s{2}' })
         Assert-Eq $files.Count 2 'the two midterm files, not a2a.pdf'
