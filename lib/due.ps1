@@ -542,6 +542,36 @@ function Show-JkDueWeek {
     $monday = $now.Date.AddDays(-(([int]$now.DayOfWeek + 6) % 7))
     $info = Get-JkTermInfo $data $now
     Write-JkHeader 'Week view' (Format-JkTermLine $info)
+    $dayStyle = { param($d) if ($d -eq $now.Date) { 'bold bg:white ink' } elseif ($d -lt $now.Date) { 'gray dim' } else { 'bold muted' } }
+    $itemStyle = { param($e)
+        $color = Get-JkCourseColor $e.course $cmap
+        if ($e.done) { 'gray strike' } elseif ((Get-JkEventDue $e) -lt $now) { 'gray dim' } elseif ($e.kind -eq 'exam') { "bold bg:#$color ink" } else { "#$color" }
+    }
+    # under ~100 columns a cell is too narrow to say anything ("HEALTH105..."): a line per day
+    # instead, the day's items in full, wrapping under themselves
+    if ($colW -lt 14) {
+        for ($wk = 0; $wk -lt $Weeks; $wk++) {
+            $start = $monday.AddDays(7 * $wk)
+            for ($i = 0; $i -lt 7; $i++) {
+                $d = $start.AddDays($i)
+                $key = $d.ToString('yyyy-MM-dd', $script:Inv)
+                $list = @($data.events | Where-Object { $_.date -eq $key } | Sort-Object { if ($_.kind -eq 'exam') { 0 } else { 1 } }, time)
+                $lead = ' ' + (Paint (& $dayStyle $d) ($d.ToString('ddd d', $script:Inv))) + (' ' * (8 - $d.ToString('ddd d', $script:Inv).Length))
+                if (-not $list.Count) { Say ($lead + (Paint 'gray' $script:G.dash)); continue }
+                $line = $lead; $used = 9
+                foreach ($e in $list) {
+                    $txt = "$(Get-JkCourseLabel $e $cmap) $($e.title)"
+                    $tw = Get-JkTextWidth $txt
+                    $sep = ''; if ($used -gt 9) { $sep = Paint 'gray' "  $($script:G.dot)  "; $sepW = 5 } else { $sepW = 0 }
+                    if ($used -gt 9 -and $used + $sepW + $tw -gt $w) { Say $line; $line = ' ' * 9; $used = 9; $sep = ''; $sepW = 0 }
+                    $line += $sep + (Paint (& $itemStyle $e) $txt); $used += $sepW + $tw
+                }
+                Say $line
+            }
+            Say ''
+        }
+        return
+    }
     for ($wk = 0; $wk -lt $Weeks; $wk++) {
         $start = $monday.AddDays(7 * $wk)
         $head = ' '
