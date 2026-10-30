@@ -54,6 +54,23 @@ $script:JkNews = @(
     @{ Id = 'review'; Cmd = 'jk review'; Text = 'the last 7 days (done, slipped, focus) and the next 7 (load, where the marks are)' }
 )
 
+# A tip line ("new  jk net  says whether..."): one line when it fits; otherwise the text wraps under
+# itself, or, when the lead leaves too little room, under the lead on lines of its own. $LeadW is the
+# lead's visible width (it carries colour codes).
+function Write-JkTip([string]$Lead, [int]$LeadW, [string]$Text, [string]$Style = 'gray', [int]$Indent = 7) {
+    $w = Get-JkWidth
+    $avail = $w - $LeadW - 1
+    if ((Get-JkTextWidth $Text) -le $avail) { Say ($Lead + (Paint $Style $Text)); return }
+    if ($avail -ge 30) {
+        $lines = @(Split-JkWords $Text $avail)
+        Say ($Lead + (Paint $Style $lines[0]))
+        foreach ($l in @($lines | Select-Object -Skip 1)) { Say ((' ' * $LeadW) + (Paint $Style $l)) }
+        return
+    }
+    Say $Lead.TrimEnd()
+    foreach ($l in @(Split-JkWords $Text ($w - $Indent - 1))) { Say ((' ' * $Indent) + (Paint $Style $l)) }
+}
+
 # Unseen news, marked seen as it is returned. A brand-new setup (no deadlines yet) has nothing
 # to catch up on: everything is marked seen silently.
 function Pop-JkNews([int]$Take = 3) {
@@ -267,7 +284,7 @@ function Show-JkDashboard {
     Say ''
     # features added since you last looked, each announced once
     try {
-        foreach ($n in @(Pop-JkNews)) { Say ('  ' + (Paint 'bold purple' 'new') + '  ' + (Paint 'white' $n.Cmd) + '  ' + (Paint 'gray' (Fit $n.Text ([Math]::Max(10, $w - $n.Cmd.Length - 10))).TrimEnd())) }
+        foreach ($n in @(Pop-JkNews)) { Write-JkTip ('  ' + (Paint 'bold purple' 'new') + '  ' + (Paint 'white' $n.Cmd) + '  ') (9 + (Get-JkTextWidth $n.Cmd)) $n.Text }
     } catch { }
     $unpicked = @()
     $phase = ''; if ($info) { $phase = $info.Phase }
@@ -276,7 +293,7 @@ function Show-JkDashboard {
     # one setup nudge at a time: sections first, then the LEARN feed, then next term. The command
     # comes first, so a narrow window that cuts the line still shows what to type.
     $upcoming = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
-    $nudge = { param([string]$Cmd, [string]$Why) Say ('  ' + (Paint 'cyan' "$($script:G.star) $Cmd") + '  ' + (Paint 'gray' $Why)) }
+    $nudge = { param([string]$Cmd, [string]$Why) Write-JkTip ('  ' + (Paint 'cyan' "$($script:G.star) $Cmd") + '  ') (6 + (Get-JkTextWidth $Cmd)) $Why -Indent 4 }
     if (-not @($data.events).Count -and $phase -ne 'next') {
         # a brand-new setup: the first thing worth doing
         & $nudge 'jk due sync' 'bring in your deadlines: in LEARN, Calendar > Subscribe, copy the link, then run it'

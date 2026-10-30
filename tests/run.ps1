@@ -2182,6 +2182,20 @@ Test 'narrow windows: lines are cut instead of wrapping; help rewraps without lo
         $out = @(& { jk; jk due; jk week; jk exams; jk help; jk plan; jk review; jk grade; jk grade cs350 } 6>&1 | ForEach-Object { "$_" })
         Assert-True ($out.Count -gt 40) 'the views printed'
         foreach ($l in $out) { Assert-True ((Get-JkVisibleLength $l) -le 60) "overflows 60: $l" }
+        # the week: a line per day with titles in full, not 10-column cells cut to "HEALTH105..."
+        $week = @(Show-JkDueWeek 6>&1 | ForEach-Object { "$_" })
+        $wed = @($week | Where-Object { $_ -match '^ Wed 28 ' })
+        Assert-True ($wed.Count -eq 1 -and $wed[0] -match 'CS 350 A2A Synchronization') "Wed 28: $($wed -join ' / ')"
+        Assert-True (@($week | Where-Object { $_ -match '^ Sat 24 ' }).Count -eq 1) 'every day has its line, empty ones too'
+        $dayLines = @($week | Where-Object { $_ -match '^ (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d|^ {9}\S' })
+        Assert-True (-not @($dayLines | Where-Object { $_.Contains($script:G.ell) }).Count) "nothing cut: $($dayLines -join ' / ')"
+        # a tip that does not fit wraps under itself instead of losing its end
+        $tip = @(Write-JkTip '  new  jk net  ' 15 'Wi-Fi up but nothing loads? says whether it is the signal, the router, DNS or a sign-in page' 6>&1 | ForEach-Object { "$_" })
+        Assert-True ($tip.Count -ge 2 -and -not @($tip | Select-Object -Skip 1 | Where-Object { -not $_.StartsWith(' ' * 15) }).Count -and -not ($tip -join '').Contains($script:G.ell)) "tip: $($tip -join ' / ')"
+        Assert-Eq (($tip | ForEach-Object { $_.Trim() }) -join ' ') 'new  jk net  Wi-Fi up but nothing loads? says whether it is the signal, the router, DNS or a sign-in page' 'every word kept'
+        $env:JK_WIDTH = '120'
+        Assert-Eq @(Write-JkTip '  new  jk net  ' 15 'short enough' 6>&1).Count 1 'one line when it fits'
+        Assert-True (@(Show-JkDueWeek 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^ Mon 26 +Tue 27' }).Count -eq 1) 'wide windows keep the grid'
     } finally { $env:JK_WIDTH = $saved }
 }
 Test 'tab completion engine' {
