@@ -33,4 +33,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fresh install, use, uninstall
         shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\smoke.ps1
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\smoke.ps1 -Real

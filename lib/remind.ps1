@@ -355,6 +355,7 @@ function Cancel-JkReminder {
 # The task's state through the Task Scheduler COM API: about 80 ms, where Get-ScheduledTask
 # first loads the ScheduledTasks CIM module (about 1.2 s). $null when it is not installed.
 function Get-JkTaskInfo {
+    if ($env:JK_SANDBOX) { return $null }   # a sandboxed install has no task (and must not report the real one)
     try {
         $svc = New-Object -ComObject Schedule.Service
         $svc.Connect()
@@ -389,6 +390,7 @@ function New-JkDailyTrigger([datetime]$At) {
 function Test-JkTriggerPinnedToUtc([string]$StartBoundary) { $StartBoundary -match '(Z|[+-]\d{2}:\d{2})$' }
 
 function Install-JkRemindTask {
+    if ($env:JK_SANDBOX) { Say (Paint 'gray' "  scheduled task skipped (sandbox $env:JK_SANDBOX)"); return $false }
     $time = Get-JkConfig 'remind.time'
     $ps = Get-JkPowerShellExe
     $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
@@ -416,6 +418,7 @@ function Install-JkRemindTask {
 }
 
 function Uninstall-JkRemindTask {
+    if ($env:JK_SANDBOX) { Say (Paint 'gray' '  scheduled task skipped (sandbox)'); return }
     if (Get-JkTaskInfo) {
         Unregister-ScheduledTask -TaskName $script:JkTaskName -Confirm:$false
         Say (Paint 'yellow' "  removed task '$($script:JkTaskName)'")

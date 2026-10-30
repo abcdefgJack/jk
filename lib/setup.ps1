@@ -207,7 +207,12 @@ function Update-Jk {
     Say (Paint 'gray' '  module reloaded')
 }
 
-function Get-JkModuleLink { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules\jk' }
+# JK_SANDBOX (tests\smoke.ps1): install and uninstall into that folder instead of the real module
+# path, profile and Task Scheduler, so the full round trip can run on a machine in daily use.
+function Get-JkModuleLink {
+    if ($env:JK_SANDBOX) { return Join-Path $env:JK_SANDBOX 'Modules\jk' }
+    Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules\jk'
+}
 
 # The hook prints the cached one-line brief without loading the module (new shells stay
 # fast) and registers a stub completer that imports jk on the first <Tab>.
@@ -231,7 +236,10 @@ Register-ArgumentCompleter -Native -CommandName jk, j -ScriptBlock {
 '@ -replace "`r?`n", "`r`n"
 }
 
-function Get-JkProfilePath { $PROFILE.CurrentUserCurrentHost }
+function Get-JkProfilePath {
+    if ($env:JK_SANDBOX) { return Join-Path $env:JK_SANDBOX 'profile.ps1' }
+    $PROFILE.CurrentUserCurrentHost
+}
 
 function Test-JkProfileHook {
     $p = Get-JkProfilePath
