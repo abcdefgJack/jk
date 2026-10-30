@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'shots'; Cmd = 'jk shots'; Text = 'your 4000+ screenshots by month, the newest one to open, the rest filed into month folders' },
     @{ Id = 'exam-brief'; Cmd = 'jk exam cs370'; Text = 'one exam on a screen: when, worth, what you need, prep planned, review files to open' },
     @{ Id = 'net'; Cmd = 'jk net'; Text = 'Wi-Fi up but nothing loads? says whether it is the signal, the router, DNS or a sign-in page' },
     @{ Id = 'todo-dates'; Cmd = 'jk todo pay rent nov 1'; Text = 'a date at the end becomes its due date (by fri, at 7pm, tomorrow), so the popup lists it' },

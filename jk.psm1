@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'clip', 'sys', 'net', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'clip', 'shots', 'sys', 'net', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -29,6 +29,7 @@ $script:JkCommands = [ordered]@{
     'recent' = @{ Fn = 'Invoke-JkRecent'; Aliases = @('changed', 'latest'); Desc = 'files you changed in the last 2 days (or N), newest first; jk find -o 1 opens one' }
     'repos'  = @{ Fn = 'Invoke-JkRepos'; Aliases = @('git'); Desc = 'status of every git repo on the Desktop: dirty, ahead, behind' }
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
+    'shots'  = @{ Fn = 'Invoke-JkShots'; Aliases = @('screenshots', 'shot'); Desc = 'the Screenshots folder: per month, the newest to open, file the rest into month folders' }
     'net'    = @{ Fn = 'Invoke-JkNet'; Aliases = @('wifi', 'internet', 'online'); Desc = 'is it the Wi-Fi or the internet? address, router, internet, DNS and web checked in order' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
     'space'  = @{ Fn = 'Invoke-JkSpace'; Aliases = @('disk', 'du'); Desc = 'what is filling the disk: caches, temp, Docker, node_modules (read-only report)' }
@@ -132,6 +133,7 @@ $script:JkParamTargets = @{
     'grade'        = 'Show-JkGrade'
     'grade set'    = 'Set-JkGrade'
     'repos'        = 'Invoke-JkRepos'
+    'shots old'    = 'Invoke-JkShotsOld'
 }
 
 $script:JkActions = @{
@@ -152,6 +154,7 @@ $script:JkActions = @{
     'space'  = @('clean', 'help')
     'port'   = @()
     'net'    = @()
+    'shots'  = @('file', 'old', 'help')
     'go'     = @()
     'find'   = @()
     'recent' = @()
