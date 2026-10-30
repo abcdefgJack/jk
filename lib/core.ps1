@@ -248,6 +248,7 @@ $script:JkConfigDefaults = [ordered]@{
     'tidy.path'     = ''          # empty = the Downloads folder
     'tidy.minAge'   = '2'
     'tidy.courses'  = ''          # where course folders live (a;b); empty = the Desktop, off = never file by course
+    'shots.path'    = ''          # screenshots folder for jk shots; empty = Pictures\Screenshots
     'focus.minutes' = '25'
     'plan.hours'    = '3'         # daily study budget for jk plan
     'plan.examHours' = '6'        # the same during the study break and the exam period (no classes)

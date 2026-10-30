@@ -1902,6 +1902,34 @@ Test 'tidy apply + undo round-trips exactly' {
     $after = (Get-ChildItem $dir -Recurse | ForEach-Object { $_.FullName.Substring($dir.Length) } | Sort-Object) -join '|'
     Assert-Eq $after $before
 }
+Test 'jk shots: per month and newest; file sorts older ones into month folders; tidy undo puts them back' {
+    $dir = Join-Path $env:JK_HOME 'Screenshots'
+    New-Item -ItemType Directory $dir -Force | Out-Null
+    $now = Get-Date
+    $mk = { param($name, $monthsAgo) $p = Join-Path $dir $name; Set-Content $p 'x'; (Get-Item $p).LastWriteTime = $now.AddMonths(-$monthsAgo).AddDays(-1); $p }
+    $null = & $mk 'Screenshot new.png' 0
+    $a = & $mk 'Screenshot a.png' 2
+    $null = & $mk 'Screenshot b.png' 2
+    $c = & $mk (([string][char]0x5C4F + [char]0x5E55) + ' c.png') 14   # a Chinese-named one, over a year old
+    Set-Content (Join-Path $dir 'notes.txt') 'not a screenshot'
+    (Get-Item (Join-Path $dir 'Screenshot new.png')).LastWriteTime = $now
+    Assert-Eq @(Get-JkShots $dir).Count 4 'images only'
+    $out = (Show-JkShots -Path $dir 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($out -match 'jk shots file sorts 3 older ones') "file tip: $out"
+    Assert-True ($out -match 'jk shots old: 1 older than a year') 'old tip'
+    Assert-Eq (Split-Path @(Get-JkFindLast)[0] -Leaf) 'Screenshot new.png' 'newest first, numbered for jk find -o'
+    $null = @(Invoke-JkShotsFile -Path $dir 6>&1)
+    $month = $now.AddMonths(-2).AddDays(-1).ToString('yyyy-MM')
+    Assert-True (Test-Path (Join-Path $dir "$month\Screenshot a.png")) 'filed by month'
+    Assert-True (Test-Path (Join-Path $dir 'Screenshot new.png')) "this month's stay loose"
+    Assert-True (Test-Path (Join-Path $dir 'notes.txt')) 'other files untouched'
+    Assert-Eq @(Get-JkShots $dir).Count 4 'still counted inside the month folders'
+    $null = @(Undo-JkTidy 6>&1)
+    Assert-True ((Test-Path $a) -and (Test-Path $c)) 'jk tidy undo puts them back'
+    Assert-True (-not (Test-Path (Join-Path $dir $month))) 'and removes the emptied month folder'
+    $old = (Invoke-JkShotsOld -Path $dir 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($old -match '1 file') "old: $old"
+}
 Test 'tidy: a partial download left for a week is offered by tidy old; nothing to move says so' {
     $dir = Join-Path $env:JK_HOME 'dl-partial'
     New-Item -ItemType Directory $dir -Force | Out-Null

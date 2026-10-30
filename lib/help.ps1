@@ -157,6 +157,15 @@ jk port                        listening ports with the owning app (dev ports hi
                                other devices can reach is flagged with the setting that keeps it local
 jk port 8080                   who is on 8080;   jk port 8080 -Kill   frees it
 '@
+    'shots'  = @'
+jk shots                       the Screenshots folder (Win+PrtScn, Snipping Tool): count per month for a year,
+                               the newest numbered (jk find -o 1 opens the latest)
+jk shots file                  move screenshots from before this month into YYYY-MM folders beside them;
+                               jk tidy undo puts them back
+jk shots old                   those older than a year by year and size; -Months 6 to choose, -Recycle to
+                               send them to the Recycle Bin (recoverable)
+jk config set shots.path D:\Shots   another folder (default: Pictures\Screenshots)
+'@
     'net'    = @'
 jk net                         is it the Wi-Fi or the internet? checks in order: an address, the router,
                                the internet (1.1.1.1), DNS, and the page Windows fetches to decide it is

@@ -16,6 +16,7 @@ function Invoke-JkConfig {
             'tidy.path'    = { & $short (Get-JkDownloadsPath) }
             'tidy.courses' = { "$(Format-JkCount @((Get-JkCourseFolders).Keys).Count 'course folder') found on the Desktop" }
             'find.roots'   = { (@(Get-JkFindRoots) | ForEach-Object { & $short $_ }) -join '; ' }
+            'shots.path'   = { & $short (Get-JkShotsPath) }
             'sync.url'     = { 'not connected yet - jk due sync' }
             'jobs.file'    = { $f = Find-JkJobsFile; if ($f) { "found $(& $short $f)" } else { 'none found on the Desktop' } }
         }
