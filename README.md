@@ -147,15 +147,16 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 ## Development
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1 -Culture de-DE
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1      # one run, about 2 minutes
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\check.ps1    # before merging
 ```
 
-The tests use a throwaway data folder and a pinned clock. Run them twice before merging: as is, and with
-German regional formats (decimal comma, day-first dates), so nothing quietly depends on the locale.
-`-Culture` changes this process only, never Windows' regional settings. The GitHub Actions workflow
-(`.github/workflows/tests.yml`, which also ran a Pacific-time pass and `tests\smoke.ps1`, an install on a
-clean runner) is disabled: there is no Actions budget for this private repo. Source files must stay pure ASCII,
+The tests use a throwaway data folder and a pinned clock. `tests\check.ps1` runs them four ways at once (as
+is, in UTC, in Pacific time, and with German regional formats: decimal comma, day-first dates) so nothing
+quietly depends on the machine's time zone or locale. `run.ps1 -TimeZone <id>` and `-Culture <name>` change
+only the test process, never Windows' settings. The GitHub Actions workflow (`.github/workflows/tests.yml`,
+which also ran `tests\smoke.ps1`, an install on a clean runner) is disabled: there is no Actions budget for
+this private repo. Source files must stay pure ASCII,
 because Windows PowerShell 5.1 reads BOM-less files as ANSI; the suite enforces this. Build
 non-ASCII glyphs from code points (see `$script:G` in `lib\core.ps1`). The suite also lints for
 two PowerShell traps: `'a', 'b' + $c` (comma binds tighter than `+`) and helper calls that get

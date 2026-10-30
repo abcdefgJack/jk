@@ -4,8 +4,11 @@
 # touches your real ~\.jk data.
 #   -Culture de-DE   run with another culture's formats (decimal comma, day-first dates) for this
 #                    process only; Windows' regional settings are left alone
+#   -TimeZone UTC    run as if this machine were in another time zone ('Pacific Standard Time'), for
+#                    this process only; the system's zone is left alone
+# tests\check.ps1 runs all of these side by side.
 
-param([string]$Culture)
+param([string]$Culture, [string]$TimeZone)
 
 $ErrorActionPreference = 'Stop'
 if ($Culture) {
@@ -13,6 +16,21 @@ if ($Culture) {
     [Threading.Thread]::CurrentThread.CurrentCulture = $ci
     [Globalization.CultureInfo]::DefaultThreadCurrentCulture = $ci
     Write-Host "culture: $($ci.Name)  (1234.5 -> $((1234.5).ToString('N1')))"
+}
+if ($TimeZone) {
+    # .NET Framework keeps the local zone, and this year's offset and DST rule, in a private cache
+    # (TimeZoneInfo.s_cachedData). Replacing both makes DateTime.Now, Get-Date and every local/UTC
+    # conversion in this process act as that zone. Processes the tests start see the real zone.
+    $tz = [TimeZoneInfo]::FindSystemTimeZoneById($TimeZone)
+    $bf = [Reflection.BindingFlags]'NonPublic,Instance'
+    $cd = [TimeZoneInfo].GetField('s_cachedData', [Reflection.BindingFlags]'NonPublic,Static').GetValue($null)
+    $cd.GetType().GetField('m_localTimeZone', $bf).SetValue($cd, $tz)
+    $year = [DateTime]::UtcNow.Year
+    $rule = $null
+    foreach ($r in $tz.GetAdjustmentRules()) { if ($r.DateStart.Year -le $year -and $r.DateEnd.Year -ge $year) { $rule = $r } }
+    $ctor = [TimeZoneInfo].GetNestedType('OffsetAndRule', [Reflection.BindingFlags]'NonPublic').GetConstructors($bf + [Reflection.BindingFlags]'Public')[0]
+    $cd.GetType().GetField('m_oneYearLocalFromUtc', $bf).SetValue($cd, $ctor.Invoke([object[]]@([int]$year, $tz.BaseUtcOffset, $rule)))
+    Write-Host "time zone: $([TimeZoneInfo]::Local.Id)  (now $((Get-Date).ToString('HH:mm zzz')))"
 }
 $root = Split-Path -Parent $PSScriptRoot
 $env:JK_HOME = Join-Path $env:TEMP ('jk-tests-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
