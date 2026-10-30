@@ -39,6 +39,7 @@ jk class pick                  every section of your courses (from the outlines)
 jk class pick cs350            just that course: its sections, then which one is yours
 jk class pick cs341 003 cs350 002 cs370 001     adds them with days, times and rooms; warns on clashes
 jk class import                Quest > Class Schedule > List View: select all, copy, run this
+                               (nothing copied yet? it opens Quest and waits for the copy)
 jk class import page.txt       ... or from a saved copy. Midterm (TST) slots fill in deadline times.
                                Also reads TTh / MoWe day codes and outline.uwaterloo.ca rows like
                                CS 350 001 [LEC] Monday, Wednesday - 04:00PM - 05:20PM MC 1056

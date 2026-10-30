@@ -379,6 +379,8 @@ function ConvertFrom-JkQuestText([string]$Text) {
     [pscustomobject]@{ Classes = $classes; Tests = $tests }
 }
 
+$script:JkQuestUrl = 'https://quest.uwaterloo.ca'
+
 function Import-JkClasses {
     param([Parameter(Position = 0)][string]$Path, [switch]$Replace)
     if ($Path) {
@@ -387,6 +389,16 @@ function Import-JkClasses {
     }
     else { $text = Get-JkClipboardText }
     $parsed = ConvertFrom-JkQuestText $text
+    if (-not $Path -and @($parsed.Classes).Count -eq 0 -and @($parsed.Tests).Count -eq 0 -and (Test-JkInteractive)) {
+        # nothing copied yet: open Quest, then read the page once it is on the clipboard
+        Say (Paint 'gray' '  jk reads your classes from Quest''s Class Schedule, copied as text: every section, time and room.')
+        $ans = [string](Read-Host '  Open Quest in your browser now? [Y/n]')
+        if ($ans.Trim() -match '^(|y|yes)$') { Open-JkUrl $script:JkQuestUrl }
+        Say (Paint 'gray' '  There: Class Schedule, choose List View, select all (Ctrl+A), copy (Ctrl+C), and come back.')
+        $go = [string](Read-Host '  Press Enter once it is copied (q cancels)')
+        if ($go.Trim() -match '^(?i)(q|quit|cancel)$') { return }
+        $parsed = ConvertFrom-JkQuestText (Get-JkClipboardText)
+    }
     if (@($parsed.Classes).Count -eq 0 -and @($parsed.Tests).Count -eq 0) {
         throw "found no class meetings. In Quest open Class Schedule, choose List View, select all (Ctrl+A), copy, then run: jk class import"
     }
@@ -511,6 +523,7 @@ function Read-JkSectionPicks {
             if ($first) {
                 Say ''
                 Say ('  ' + (Paint 'bold white' 'Which sections are you in?') + (Paint 'gray' '  type the number (3 or 003); Enter skips'))
+                Say (Paint 'gray' "  (not sure? q, then jk class import reads your sections, times and rooms from Quest)")
                 $first = $false
             }
             $choices = @($kg.Group | ForEach-Object { [string]$_.section } | Sort-Object)
@@ -518,6 +531,7 @@ function Read-JkSectionPicks {
             while ($true) {
                 $ans = ([string](Read-Host "  $label ($($choices -join '/'))")).Trim()
                 if (-not $ans) { break }
+                if ($ans -match '^(?i)(q|quit|stop)$') { return $pairs }   # keeps the ones already picked
                 $sec = $ans.PadLeft(3, '0')
                 if ($choices -contains $sec) { $pairs += @($g.Name, $sec); break }
                 Say (Paint 'orange' "    no $($kg.Name) $sec; one of $($choices -join ', '), or Enter to skip")
