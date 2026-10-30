@@ -127,9 +127,18 @@ function Get-JkTitleKey([string]$Title) {
 function Find-JkFeedLink([string]$Text) {
     $t = ([string]$Text).Trim().Trim('"', "'", '<', '>')
     if ($t -notmatch '^(?i)(https?|webcal)://\S+$') { return $null }
+    # LEARN's calendar page itself (the address bar) is not the feed Subscribe hands out
+    if ($t -match '(?i)/d2l/le/calendar/\d+/?(\?|$)') { return $null }
     if ($t -match '^(?i)webcal://' -or $t -match '(?i)\.ics(\?|$)|/calendar|/ical|/feed') { return $t }
     $null
 }
+
+# LEARN's calendar, where Subscribe hands out the feed link (6606 is Waterloo's LEARN home)
+$script:JkLearnCalendarUrl = 'https://learn.uwaterloo.ca/d2l/le/calendar/6606'
+
+function Open-JkUrl([string]$Url) { Start-Process $Url }
+
+function Get-JkClipboardFeed { try { Find-JkFeedLink ([string](Get-Clipboard -Raw -ErrorAction Stop)) } catch { $null } }
 
 function Invoke-JkDueSync {
     param([Parameter(Position = 0)][string]$Source, [switch]$Quiet, [int]$PastDays = 7, [int]$AheadDays = 200)
@@ -137,20 +146,28 @@ function Invoke-JkDueSync {
     if (-not $Source) { $Source = $saved }
     if (-not $Source -and -not $Quiet -and (Test-JkInteractive)) {
         # first time: the link was most likely just copied from LEARN, so offer the clipboard
-        # (after a yes: it becomes the feed the morning task syncs every day), else ask for a paste
-        $clip = $null
-        try { $clip = Find-JkFeedLink ([string](Get-Clipboard -Raw -ErrorAction Stop)) } catch { }
+        # (after a yes: it becomes the feed the morning task syncs every day)
+        $clip = Get-JkClipboardFeed
         if ($clip) {
             $hostName = ([Uri]($clip -replace '^(?i)webcal://', 'https://')).Host
             $ans = [string](Read-Host "  Use the calendar link on your clipboard ($hostName)? [Y/n]")
             if ($ans.Trim() -match '^(|y|yes)$') { $Source = $clip }
         }
         if (-not $Source) {
-            Say (Paint 'gray' '  In LEARN open Calendar > Subscribe and copy the link.')
-            $pasted = [string](Read-Host '  Paste it here (Enter to cancel)')
+            # not copied yet: open LEARN's calendar, then read the link off the clipboard once it is
+            # copied there (or take a paste)
+            Say (Paint 'gray' '  jk reads your deadlines from LEARN''s calendar feed: a private link under Calendar > Subscribe.')
+            $ans = [string](Read-Host '  Open LEARN''s calendar in your browser now? [Y/n]')
+            if ($ans.Trim() -match '^(|y|yes)$') { Open-JkUrl $script:JkLearnCalendarUrl }
+            Say (Paint 'gray' '  There: Subscribe (under the calendar), copy the link it shows, and come back.')
+            $pasted = [string](Read-Host '  Press Enter once it is copied, or paste it here (q cancels)')
+            if ($pasted.Trim() -match '^(q|quit|cancel)$') { return }
             if ($pasted.Trim()) {
                 $Source = Find-JkFeedLink $pasted
                 if (-not $Source) { throw "that is not a calendar link (expected webcal:// or an https link to the feed)" }
+            } else {
+                $Source = Get-JkClipboardFeed
+                if (-not $Source) { throw 'no calendar link on the clipboard yet: copy it from Subscribe, then run jk due sync again' }
             }
         }
     }
