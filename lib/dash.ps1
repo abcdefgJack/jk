@@ -30,7 +30,13 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
-    @{ Id = 'due-files'; Cmd = 'jk due files cs341 a2'; Text = 'the files in the course folder for that deadline (A2.tex, A2\...), numbered for jk find -o' },
+    @{ Id = 'todo-dates'; Cmd = 'jk todo pay rent nov 1'; Text = 'a date at the end becomes its due date (by fri, at 7pm, tomorrow), so the popup lists it' },
+    @{ Id = 'grade-names'; Cmd = 'jk grade cs341 midterm 1 72%'; Text = 'marks by course and title (a1 = Assignment 1); 17 / 20 and 18 out of 20 work too' },
+    @{ Id = 'port-exposed'; Cmd = 'jk port'; Text = 'flags a database other devices on your Wi-Fi can reach, and the setting that keeps it local' },
+    @{ Id = 'due-words'; Cmd = 'jk due done cs341 midterm 2'; Text = 'deadlines by course and title words; jk due add needs no quotes, and 7-9pm sets an exam''s end' },
+    @{ Id = 'class-add-words'; Cmd = 'jk class add cs350 tue thu 4pm-5:20pm MC 1056'; Text = 'no quotes or commas needed; tth, mwf and 220pm work too' },
+    @{ Id = 'spoken-lengths'; Cmd = 'jk in an hour call mom'; Text = 'jk in and jk focus take "an hour", "half an hour" and "for 30 minutes"' },
+    @{ Id = 'due-files';Cmd = 'jk due files cs341 a2'; Text = 'the files in the course folder for that deadline (A2.tex, A2\...), numbered for jk find -o' },
     @{ Id = 'clip'; Cmd = 'jk clip'; Text = 'word count of the clipboard; jk clip unwrap fixes text copied from a PDF' },
     @{ Id = 'grade-fill'; Cmd = 'jk grade fill'; Text = 'type the marks for everything already handed in, one after another (Enter skips)' },
     @{ Id = 'recent'; Cmd = 'jk recent'; Text = 'the files you changed in the last 2 days, newest first (jk find -o 1 opens one)' },
