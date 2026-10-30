@@ -465,6 +465,114 @@ function Show-JkDueAll {
     if ($Course -and $c.final) { Say ''; Say ('  ' + (Paint 'bold' 'Final: ') + [string]$c.final) }
 }
 
+# jk exams: every remaining exam; jk exam cs370 [words]: one exam's brief.
+function Invoke-JkExams {
+    $a = @($args | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    if ($a.Count) { Show-JkExamBrief @a } else { Show-JkExams }
+}
+
+# Everything about one coming exam on a screen: when and where, what it is worth and what you need on
+# it, the prep jk plan expects and has scheduled before it, what else is due first, and the files in
+# the course folder named after it (numbered for jk find -o).
+function Show-JkExamBrief {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words)
+    $data = Get-JkDueData
+    $cmap = Get-JkCourseMap $data
+    $now = Get-JkNow
+    $w = @($Words | Where-Object { $_ })
+    $course = $null
+    if ($w.Count -eq 1) { $course = Resolve-JkCourse $data $w[0]; if ($course) { $w = @() } }
+    elseif ($w.Count) { $sp = Split-JkCourseWords $data $w; $course = $sp[0]; $w = @($sp[1]) }
+    $rx = @(Get-JkTitleWordRx $w)
+    # an online window is one exam, at its opening while that is ahead
+    $seen = @{}
+    $cands = foreach ($e in @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done } | Sort-Object { Get-JkEventDue $_ }, id)) {
+        if ($seen.ContainsKey([string]$e.id)) { continue }
+        $win = Get-JkEventWindow $e $data
+        if ($win) { $seen[[string]$win.Open.id] = $true; $seen[[string]$win.Close.id] = $true; $e = $win.Close }
+        $end = Get-JkEventDue $e
+        if ($end -lt $now) { continue }
+        if ($course -and $e.course -ne $course.key) { continue }
+        $title = $(if ($win) { $win.Title } else { [string]$e.title })
+        if ($rx.Count -and -not (Test-JkTitleWords $title $rx)) { continue }
+        [pscustomobject]@{ E = $e; Win = $win; Title = $title; Start = $(if ($win) { $win.Opens } else { $end }); End = $end }
+    }
+    $x = @($cands | Sort-Object Start)[0]
+    if (-not $x) { throw "no coming exam matches '$($Words -join ' ')' (jk exams lists them)" }
+    $e = $x.E
+    $label = "$(Get-JkCourseLabel $e $cmap) $($x.Title)"
+    $left = $x.Start - $now
+    $rel = $(if ($left.TotalSeconds -le 0) { 'open now' } elseif ($left.TotalHours -lt 24) { "in $(Format-JkDuration $left)" } else { Format-JkRelDay $x.Start $now })
+    $c = @($data.courses | Where-Object { $_.key -eq $e.course })[0]
+    Write-JkHeader $label $rel -Sub ([string]$c.name)
+    $row = { param($k, $v) Say ('  ' + (Paint 'bold white' (Fit $k 9)) + $v) }
+    $wrapRow = { param($k, $text, $style) Write-JkTip ('  ' + (Paint 'bold white' (Fit $k 9))) 11 $text $style -Indent 11 }
+
+    $when = $x.Start.ToString('ddd MMM d', $script:Inv)
+    if ($x.Win) { $when = "opens $when $(Format-JkTime $x.Start.ToString('HH:mm'))  $($script:G.dot)  closes $($x.End.ToString('ddd MMM d', $script:Inv)) $(Format-JkTime $x.End.ToString('HH:mm'))" }
+    elseif ($e.time) {
+        $when += ', ' + (Format-JkTime $e.time)
+        $endT = [string](Get-JkProp $e 'end' ''); if ($endT) { $when += " $($script:G.dash) $(Format-JkTime $endT)" }
+    }
+    & $row 'when' (Paint 'white' $when)
+    $notes = @(@([string]$e.note) + $(if ($x.Win) { @([string]$x.Win.Open.note) } else { @() }) | Where-Object { $_ } | Select-Object -Unique)
+    foreach ($n in $notes) { & $wrapRow 'notes' $n 'muted' }
+
+    # what it is worth and what it needs
+    $wt = Get-JkWeightValue ([string]$e.weight)
+    $gd = Get-JkGradeData
+    $m = Measure-JkGrade (Get-JkGradeItems $data $gd $e.course) (Get-JkGradeRules $data $e.course)
+    $target = Get-JkTarget $gd $e.course
+    if ($wt -gt 0) {
+        $share = ''
+        if ($m.Graded -gt 0 -and $m.Remaining -gt 0) { $share = "  ($([Math]::Round($wt / $m.Remaining * 100))% of the marks still to come)" }
+        & $row 'worth' ((Paint 'white' "$(Format-JkPct $wt 0) of $(Get-JkCourseLabel $e $cmap)") + (Paint 'gray' $share))
+    }
+    if ($m.Graded -gt 0) {
+        $need = Get-JkNeededText $target $m
+        & $wrapRow 'marks' "$(Format-JkPct $m.Average) on the $(Format-JkPct $m.Graded 0) graded so far; to finish at $(Format-JkPct $target 0) you need $($need[0]) on the rest, this exam included" 'muted'
+    } else {
+        & $wrapRow 'marks' "none recorded for this course yet $($script:G.dash) jk grade fill, then this says what you need on it" 'gray'
+    }
+
+    # prep: jk plan's estimate for it, focus already credited, and the blocks scheduled before it
+    try {
+        $p = Get-JkPlanToday
+        $it = $null
+        if ($p) { $it = @($p.Items | Where-Object { $_.Key -eq "$($e.course)|#$($e.id)" })[0] }
+        if ($it) {
+            $before = 0.0; $today = 0.0
+            foreach ($d in @($p.Schedule)) { $mins = [double]$d.Alloc[$it.Key]; $before += $mins; if ($d.Day -eq $now.Date) { $today = $mins } }
+            $txt = "about $(Format-JkMinutes $it.Effort) of prep for $(Format-JkPct $wt 0)"
+            if ($it.Done -gt 0) { $txt += ", $(Format-JkMinutes $it.Done) of it logged" }
+            $sched = "; jk plan has $(Format-JkMinutes $before) before it"
+            if ($today -gt 0) { $sched += " ($(Format-JkMinutes $today) today)" }
+            & $wrapRow 'prep' ($txt + $sched) 'muted'
+        }
+    } catch { }
+
+    # what else lands in the week before it (competing for the same study days)
+    $from = $x.Start.AddDays(-7); if ($from -lt $now) { $from = $now }
+    $first = @($data.events | Where-Object { -not $_.done -and $_.id -ne $e.id -and -not ($x.Win -and $_.id -eq $x.Win.Open.id) -and ($d = Get-JkEventDue $_) -ge $from -and $d -lt $x.Start -and ([string]$_.title -notmatch '(?i)\sopens?$') } | Sort-Object { Get-JkEventDue $_ } | Select-Object -First 5)
+    if ($first.Count) {
+        $txt = ($first | ForEach-Object { $dd = Get-JkEventDue $_; "$(Get-JkCourseLabel $_ $cmap) $($_.title) ($($dd.ToString('ddd', $script:Inv)) $(Format-JkTime $dd.ToString('HH:mm')))" }) -join "  $($script:G.dot)  "
+        & $wrapRow 'before' $txt 'muted'
+    }
+
+    # the course folder's files named after it
+    $f = $null
+    try { $f = Get-JkDueFileHits $data $e } catch { }
+    Say ''
+    if ($f -and @($f.Hits).Count) {
+        $show = @($f.Hits | Select-Object -First 6)
+        Save-JkFindLast $show
+        Say (' ' + (Paint 'bold white' 'Files') + (Paint 'gray' "  named after it in $(Get-JkShortPath $f.Dir)"))
+        Write-JkFindRows $show
+    } elseif ($f) { Say (Paint 'gray' "  no files named after it in $(Get-JkShortPath $f.Dir) yet") }
+    $key = Get-JkNormKey ([string]$c.code)
+    Say (Paint 'gray' "  jk focus 50 $key $(($x.Title -replace '\s+', ' ').ToLower())  $($script:G.dot)  jk find -o 1 opens a file  $($script:G.dot)  jk grade $key")
+}
+
 function Show-JkExams {
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
