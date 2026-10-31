@@ -419,7 +419,15 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
         # only the A2A alert from here on
         $rd = Get-JkReminderData; $rd.items = @($r); Save-JkReminderData $rd
         Assert-Eq (Register-JkTodayAlerts -Now $now) 0 'a second morning run adds nothing'
-        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-28T19:00')) 0 'too late to warn 2 hours ahead'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-28T19:00')) 0 'already set that morning'
+        # first awake at 7 pm (asleep through the morning run): the 8 pm A2A is warned about in a minute,
+        # not skipped; 5 minutes before is too late to be useful
+        $rd = Get-JkReminderData; $keep = @($rd.items); $keepAlerted = @(Get-JkProp $rd 'alerted' @())
+        $rd.items = @(); Set-JkProp $rd 'alerted' @(); Save-JkReminderData $rd
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-28T19:55')) 0 'five minutes before: no alert'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-28T19:00')) 1 'a late wake still warns'
+        Assert-Eq @((Get-JkReminderData).items)[0].at '2026-10-28T19:01:00' 'in a minute'
+        $rd = Get-JkReminderData; $rd.items = $keep; Set-JkProp $rd 'alerted' $keepAlerted; Save-JkReminderData $rd
         $script:PopupCalls = 0
         $origNotify = ${function:Show-JkNotify}
         function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:PopupLines = $Lines; $script:PopupCalls++; 'stub' }
