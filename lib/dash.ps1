@@ -31,6 +31,7 @@ $script:JkTips = @(
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
     @{ Id = 'cp-links'; Cmd = 'jk cp new <AtCoder/USACO/CSES link>'; Text = 'the problem''s folder with every sample downloaded; jk cp tests them' },
+    @{ Id = 'cp-listen'; Cmd = 'jk cp listen'; Text = 'Codeforces too: press Competitive Companion''s green + and the problem (or contest) arrives' },
     @{ Id = 'grade-import'; Cmd = 'jk grade import cs341'; Text = 'copy a course''s Grades page in LEARN: every mark matched to its deadline and recorded at once' },
     @{ Id = 'shots'; Cmd = 'jk shots'; Text = 'your 4000+ screenshots by month, the newest one to open, the rest filed into month folders' },
     @{ Id = 'exam-brief'; Cmd = 'jk exam cs370'; Text = 'one exam on a screen: when, worth, what you need, prep planned, review files to open' },

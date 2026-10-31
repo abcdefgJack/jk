@@ -433,12 +433,14 @@ function New-JkCpProblem {
         [Parameter(Position = 0)][string]$Name,
         [ValidateSet('cpp', 'py', 'java', 'usaco', '')][string]$Lang = '',
         [switch]$Here,
-        [switch]$NoOpen
+        [switch]$NoOpen,
+        $Samples   # samples already in hand (from jk cp listen): objects with In and Out
     )
     if (-not $Name) { throw 'usage: jk cp new <name or problem link> [-Lang cpp|py|java|usaco] [-Here]' }
     # a problem link: the folder is named after it and the page's samples become 1.in/1.out, 2.in...
     $fetched = $null; $judge = ''
-    if ($Name -match '^(?i)https?://') {
+    if ($null -ne $Samples) { $fetched = [pscustomobject]@{ Tests = @($Samples); FileIO = '' } }
+    elseif ($Name -match '^(?i)https?://') {
         $link = Get-JkJudgeLink $Name
         if (-not $link) { throw 'jk reads problem links from AtCoder, USACO, CSES and Codeforces; for another judge: jk cp new <name>, then jk cp add per sample' }
         $url = $Name; $Name = $link.Name; $judge = $link.Judge
@@ -484,9 +486,9 @@ function New-JkCpProblem {
     Set-Location -LiteralPath $dir
     $shown = Resolve-JkLongPath $dir   # C:\Users\JACKWA~1\... from a short TEMP or cp.root
     $what = "($outName, 1.in, 1.out)"
-    if ($got) { $what = "($outName, $(Format-JkCount $got 'sample') from the page)" }
+    if ($got) { $what = "($outName, $(Format-JkCount $got 'sample'))" }
     if ($fresh) { Say ((Paint 'green' "  created $($script:G.check)") + "  $shown" + (Paint 'gray' "  $what")) }
-    else { Say ((Paint 'yellow' '  exists') + "  $shown" + (Paint 'gray' $(if ($got) { " - switched to it, $(Format-JkCount $got 'sample') from the page" } else { ' - switched to it' }))) }
+    else { Say ((Paint 'yellow' '  exists') + "  $shown" + (Paint 'gray' $(if ($got) { " - switched to it, $(Format-JkCount $got 'sample')" } else { ' - switched to it' }))) }
     if ($judge -eq 'codeforces') { Say (Paint 'gray' "  Codeforces turns away scripts: copy each sample's input, jk cp add, then its output") }
     if ($got) { Say (Paint 'gray' "  test: jk cp   $($script:G.dot)   stress: add brute.cpp + gen.py, then jk cp stress") }
     else { Say (Paint 'gray' "  paste samples: copy input $($script:G.arrow) jk cp add   $($script:G.dot)   test: jk cp   $($script:G.dot)   stress: add brute.cpp + gen.py, then jk cp stress") }
@@ -559,6 +561,91 @@ function Get-JkJudgeLink([string]$Url) {
         return [pscustomobject]@{ Judge = 'codeforces'; Name = $n }
     }
     $null
+}
+
+# ---- jk cp listen: problems sent by the Competitive Companion browser extension (the green + on a
+# problem page), which works on Codeforces too: the browser has the page, no script has to fetch it.
+
+# One HTTP request off a stream: the method, and the body as UTF-8 (Content-Length bytes).
+function Read-JkHttpRequest([IO.Stream]$Stream) {
+    $buf = New-Object byte[] 65536
+    $data = New-Object System.Collections.Generic.List[byte]
+    $headEnd = -1; $length = 0
+    while ($true) {
+        $n = $Stream.Read($buf, 0, $buf.Length)
+        if ($n -le 0) { break }
+        $data.AddRange([byte[]]($buf[0..($n - 1)]))
+        if ($headEnd -lt 0) {
+            $text = [Text.Encoding]::ASCII.GetString($data.ToArray())
+            $headEnd = $text.IndexOf("`r`n`r`n")
+            if ($headEnd -ge 0) {
+                $m = [regex]::Match($text.Substring(0, $headEnd), '(?im)^Content-Length:\s*(\d+)')
+                if ($m.Success) { $length = [int]$m.Groups[1].Value }
+            }
+        }
+        if ($headEnd -ge 0 -and $data.Count -ge $headEnd + 4 + $length) { break }
+    }
+    if ($headEnd -lt 0) { return $null }
+    $all = $data.ToArray()
+    $head = [Text.Encoding]::ASCII.GetString($all, 0, $headEnd)
+    $body = [Text.Encoding]::UTF8.GetString($all, $headEnd + 4, [Math]::Min($length, $all.Length - $headEnd - 4))
+    [pscustomobject]@{ Method = ($head -split ' ')[0]; Body = $body }
+}
+
+# A Competitive Companion problem (its JSON) as a jk problem: the folder name from the link (or the
+# title), the samples, and the USACO template when the judge reads and writes files.
+function ConvertFrom-JkCompanion($Json) {
+    $p = $Json
+    if ($p -is [string]) { $p = $p | ConvertFrom-Json }
+    $name = $null
+    $link = Get-JkJudgeLink ([string]$p.url)
+    if ($link) { $name = $link.Name }
+    if (-not $name) {
+        # "A. Watermelon" -> watermelon; the group keeps contests apart only by its folder name
+        $name = (([string]$p.name -replace '^[A-Z0-9]{1,3}[.:)]\s+', '') -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLower()
+        if (-not $name) { $name = 'problem' }
+    }
+    $lang = ''
+    if ($p.input -and [string]$p.input.type -eq 'file' -and [string]$p.input.fileName -match '^([A-Za-z0-9_]+)\.in$') { $lang = 'usaco'; $name = $Matches[1] }
+    $tests = @(foreach ($t in @($p.tests)) { [pscustomobject]@{ In = ConvertFrom-JkPreHtml ([Net.WebUtility]::HtmlEncode([string]$t.input)); Out = ConvertFrom-JkPreHtml ([Net.WebUtility]::HtmlEncode([string]$t.output)) } })
+    $size = 1; if ($p.batch -and [int]$p.batch.size -gt 0) { $size = [int]$p.batch.size }
+    [pscustomobject]@{ Name = $name; Lang = $lang; Tests = $tests; Title = [string]$p.name; Group = [string]$p.group; BatchSize = $size; Interactive = [bool]$p.interactive }
+}
+
+function Invoke-JkCpListen {
+    param([int]$Port = 0, [int]$Timeout = 300, [switch]$NoOpen)
+    if (-not $Port) { $Port = [int](Get-JkConfig 'cp.port') }
+    $listener = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, $Port)
+    try { $listener.Start() } catch { throw "port $Port is taken (another tool listening for Competitive Companion?): jk cp listen -Port 10046, and add that port in the extension's options" }
+    $made = @(); $want = 1; $deadline = (Get-Date).AddSeconds($Timeout)
+    Say (Paint 'gray' "  waiting on port ${Port}: press Competitive Companion's green + on the problem or contest (Ctrl+C stops)")
+    try {
+        while ($made.Count -lt $want -and (Get-Date) -lt $deadline) {
+            if (-not $listener.Pending()) { Start-Sleep -Milliseconds 100; continue }
+            $client = $listener.AcceptTcpClient()
+            try {
+                $stream = $client.GetStream()
+                $stream.ReadTimeout = 5000
+                $req = Read-JkHttpRequest $stream
+                $ok = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+                $stream.Write($ok, 0, $ok.Length)
+            } finally { $client.Close() }
+            if (-not $req -or $req.Method -ne 'POST' -or -not $req.Body.Trim()) { continue }
+            $prob = ConvertFrom-JkCompanion $req.Body
+            $want = [Math]::Max($want, $prob.BatchSize)
+            # a contest arrives one problem at a time: each beside the others, the editor once at the end
+            $here = (Get-Location).ProviderPath
+            New-JkCpProblem $prob.Name -Lang $prob.Lang -Samples $prob.Tests -NoOpen 6>&1 | Where-Object { "$_" -match 'created|exists' } | ForEach-Object { Say "$_" }
+            if ($prob.Interactive) { Say (Paint 'yellow' "    interactive: the samples show one exchange, so jk cp can only compare the output") }
+            $made += (Get-Location).ProviderPath
+            if ($made.Count -lt $want) { Set-Location -LiteralPath $here }
+        }
+    } finally { $listener.Stop() }
+    if (-not $made.Count) { throw "nothing arrived in $Timeout s. Is the extension on, and does it send to port $Port? (its options: custom ports)" }
+    if ($made.Count -lt $want) { Say (Paint 'yellow' "  $($made.Count) of $want problems arrived before the time ran out") }
+    Set-Location -LiteralPath $made[0]
+    Say (Paint 'gray' "  test: jk cp   $($script:G.dot)   $(if ($made.Count -gt 1) { 'cd ..\<next> for the others' } else { 'stress: add brute.cpp + gen.py, then jk cp stress' })")
+    if (-not $NoOpen) { $src = Get-JkCpSource; if ($src) { Open-JkInEditor $src.FullName } }
 }
 
 function Open-JkInEditor([string]$Path) {
@@ -712,6 +799,7 @@ function Invoke-JkCp {
     if ($a.Count -gt 1) { $rest = @($a[1..($a.Count - 1)]) }
     switch -Regex ($first) {
         '^(new|init|make)$' { New-JkCpProblem @rest; return }
+        '^(listen|get|companion|cc)$' { Invoke-JkCpListen @rest; return }
         '^(test|t|check)$' { Invoke-JkCpTest @rest; return }
         '^(run|r)$' { Invoke-JkCpRun @rest; return }
         '^(add|paste|sample)$' { Add-JkCpTest @rest; return }

@@ -245,6 +245,7 @@ $script:JkConfigDefaults = [ordered]@{
     'cp.lang'       = 'cpp'
     'cp.std'        = 'c++20'
     'cp.timeout'    = '3'
+    'cp.port'       = '10043'     # where jk cp listen waits for Competitive Companion
     'tidy.path'     = ''          # empty = the Downloads folder
     'tidy.minAge'   = '2'
     'tidy.courses'  = ''          # where course folders live (a;b); empty = the Desktop, off = never file by course

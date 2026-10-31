@@ -2091,6 +2091,43 @@ Test 'jk cp new <problem link>: AtCoder, USACO (both page styles), CSES samples;
         Assert-True ($cf -match 'jk cp add' -and (Test-Path (Join-Path $root 'cf4A\main.cpp'))) 'Codeforces: the folder, and how to paste'
     } finally { Set-Item function:script:Invoke-JkWebText $origWeb; Set-Location $here }
 }
+Test 'jk cp listen: Competitive Companion problems, one or a whole contest, over localhost' {
+    # the request reader: headers, then exactly Content-Length bytes of UTF-8
+    $body = '{"name":"A. Caf' + [char]0xE9 + '"}'
+    $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+    $raw = [Text.Encoding]::ASCII.GetBytes("POST / HTTP/1.1`r`nHost: localhost`r`nContent-Type: application/json`r`nContent-Length: $($bytes.Length)`r`n`r`n") + $bytes
+    $req = Read-JkHttpRequest (New-Object IO.MemoryStream (, [byte[]]$raw))
+    Assert-Eq "$($req.Method) $($req.Body)" "POST $body"
+    # the JSON: named by its link, by its title without one, the USACO template for file I/O
+    $cf = ConvertFrom-JkCompanion '{"name":"A. Watermelon","url":"https://codeforces.com/problemset/problem/4/A","tests":[{"input":"8\n","output":"YES\n"}],"input":{"type":"stdin"},"batch":{"id":"x","size":3}}'
+    Assert-Eq "$($cf.Name) $($cf.BatchSize) $($cf.Tests[0].Out.Trim())" 'cf4A 3 YES'
+    Assert-Eq (ConvertFrom-JkCompanion '{"name":"C. Two Sums & More","url":"https://judge.example/x","tests":[]}').Name 'two-sums-more'
+    $us = ConvertFrom-JkCompanion '{"name":"Hay","url":"","tests":[],"input":{"type":"file","fileName":"haybales.in"}}'
+    Assert-Eq "$($us.Name) $($us.Lang)" 'haybales usaco'
+    # end to end: a background job posts a two-problem contest to the listener, like the extension
+    $root = Join-Path $env:JK_HOME 'cc-root'
+    New-Item -ItemType Directory $root -Force | Out-Null
+    $savedRoot = Get-JkConfig 'cp.root'
+    Set-JkConfig 'cp.root' $root
+    $here = Get-Location
+    $port = Get-Random -Minimum 20000 -Maximum 50000
+    $job = Start-Job -ArgumentList $port -ScriptBlock { param($p)
+        $mk = { param($l, $in, $out) '{"name":"' + $l + '. X","url":"https://codeforces.com/contest/2000/problem/' + $l + '","tests":[{"input":"' + $in + '","output":"' + $out + '"}],"input":{"type":"stdin"},"batch":{"id":"b","size":2}}' }
+        for ($try = 0; $try -lt 50; $try++) {
+            try { $null = Invoke-WebRequest -Uri "http://127.0.0.1:$p/" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes((& $mk 'A' '1 2\n' '3\n'))) -ContentType 'application/json' -UseBasicParsing; break } catch { Start-Sleep -Milliseconds 200 }
+        }
+        $null = Invoke-WebRequest -Uri "http://127.0.0.1:$p/" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes((& $mk 'B' '5\n' '25\n'))) -ContentType 'application/json' -UseBasicParsing
+    }
+    try {
+        $null = @(Invoke-JkCpListen -Port $port -Timeout 60 -NoOpen 6>&1)
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $root 'cf2000A\1.in'))) "1 2`n" 'first problem and its sample'
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $root 'cf2000B\1.out'))) "25`n" 'the whole contest arrives'
+        Assert-Eq (Resolve-JkLongPath (Get-Location).ProviderPath) (Resolve-JkLongPath (Join-Path $root 'cf2000A')) 'left in the first problem'
+    } finally {
+        Receive-Job $job -Wait -ErrorAction SilentlyContinue | Out-Null; Remove-Job $job -Force
+        Set-JkConfig 'cp.root' $savedRoot; Set-Location $here
+    }
+}
 Test 'cp samples: N.in with .out/.ans, tests\ and test\ folders, old USACO I.N / O.N' {
     $dir = Join-Path $env:JK_HOME 'cp-samples'
     New-Item -ItemType Directory (Join-Path $dir 'test'), (Join-Path $dir 'tests') -Force | Out-Null
