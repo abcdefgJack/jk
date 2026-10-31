@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'grade-import'; Cmd = 'jk grade import cs341'; Text = 'copy a course''s Grades page in LEARN: every mark matched to its deadline and recorded at once' },
     @{ Id = 'shots'; Cmd = 'jk shots'; Text = 'your 4000+ screenshots by month, the newest one to open, the rest filed into month folders' },
     @{ Id = 'exam-brief'; Cmd = 'jk exam cs370'; Text = 'one exam on a screen: when, worth, what you need, prep planned, review files to open' },
     @{ Id = 'net'; Cmd = 'jk net'; Text = 'Wi-Fi up but nothing loads? says whether it is the signal, the router, DNS or a sign-in page' },

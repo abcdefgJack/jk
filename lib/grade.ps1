@@ -188,7 +188,7 @@ function Show-JkGradeOverview {
     }
     Say ''
     $unmarked = @(Get-JkUnmarkedItems).Count
-    if ($unmarked) { Say ('  ' + (Paint 'amber' "$(Format-JkCount $unmarked 'past item') with no mark yet") + (Paint 'gray' "  $($script:G.arrow) ") + (Paint 'cyan' 'jk grade fill') + (Paint 'gray' ' goes through them')) }
+    if ($unmarked) { Say ('  ' + (Paint 'amber' "$(Format-JkCount $unmarked 'past item') with no mark yet") + (Paint 'gray' "  $($script:G.arrow) ") + (Paint 'cyan' 'jk grade import <course>') + (Paint 'gray' ' reads a copied LEARN Grades page, or ') + (Paint 'cyan' 'jk grade fill') + (Paint 'gray' ' asks')) }
     Say (Paint 'gray' "  jk grade <course>  $($script:G.dot)  jk grade set <id> 17/20  $($script:G.dot)  jk grade target <course> 85")
 }
 
@@ -348,6 +348,133 @@ function Invoke-JkGradeFill {
     Say (Paint 'gray' "  $(Format-JkCount $n 'mark') recorded; jk grade for the averages")
 }
 
+# Rows of a LEARN Grades page copied as text ("Assignment 1  9 / 10  4 / 5  90 %"): the title, and
+# the first score on the line (points, or a percentage). "- / 10" is not graded yet (Pct $null).
+function ConvertFrom-JkGradesText([string]$Text) {
+    foreach ($line in ([string]$Text -split "`r?`n")) {
+        $l = $line.Trim()
+        if (-not $l) { continue }
+        $fr = [regex]::Match($l, '(?<num>\d+(?:\.\d+)?|-+)\s*/\s*(?<den>\d+(?:\.\d+)?)')
+        $pc = [regex]::Match($l, '(?<p>\d+(?:\.\d+)?)\s*%')
+        $at = -1; $pct = $null; $shown = ''
+        if ($fr.Success -and (-not $pc.Success -or $fr.Index -le $pc.Index)) {
+            $at = $fr.Index
+            $num = $fr.Groups['num'].Value; $den = $fr.Groups['den'].Value
+            $shown = "$num / $den"
+            $d = [double]::Parse($den, $script:Inv)
+            if ($num -notmatch '^-' -and $d -gt 0) { $pct = [Math]::Round(100 * [double]::Parse($num, $script:Inv) / $d, 2) }
+        } elseif ($pc.Success) {
+            $at = $pc.Index; $pct = [double]::Parse($pc.Groups['p'].Value, $script:Inv); $shown = "$($pc.Groups['p'].Value)%"
+        } else { continue }
+        $title = $l.Substring(0, $at).Trim(" `t:-")
+        if ($title -notmatch '[A-Za-z]') { continue }
+        # LEARN's next column, "Weight Achieved 2 / 2", carries the item's weight
+        $weight = $null
+        if ($fr.Success) {
+            $w2 = [regex]::Match($l.Substring($fr.Index + $fr.Length), '(?:\d+(?:\.\d+)?|-+)\s*/\s*(?<w>\d+(?:\.\d+)?)')
+            if ($w2.Success) { $weight = [double]::Parse($w2.Groups['w'].Value, $script:Inv) }
+        }
+        [pscustomobject]@{ Title = $title; Shown = $shown; Pct = $pct; Weight = $weight }
+    }
+}
+
+# The graded item a LEARN row is about: the same title; else the one item whose title words all
+# appear in the row's ("Assignment 1" in "Assignment 1 - Sorting"; the longest when several do);
+# else the one whose title has all the row's words ("A1" for "Assignment 1"). $null when unsure.
+function Find-JkGradeRowItem($Row, $Items) {
+    # "Assignment 01" is "Assignment 1"
+    $norm = { param($s) ((([string]$s -replace '(?i)\s+(opens?|closes?)$', '') -replace '\s+', ' ') -replace '\b0+(\d)', '$1').Trim().ToLower() }
+    $rt = & $norm $Row.Title
+    $same = @($Items | Where-Object { (& $norm $_.Title) -eq $rt })
+    if ($same.Count -eq 1) { return $same[0] }
+    $hits = @($Items | Where-Object { $rx = @(Get-JkTitleWordRx @((& $norm $_.Title) -split ' ')); $rx.Count -and (Test-JkTitleWords $rt $rx) })
+    if ($hits.Count -gt 1) { $max = ($hits | ForEach-Object { ([string]$_.Title).Length } | Measure-Object -Maximum).Maximum; $hits = @($hits | Where-Object { ([string]$_.Title).Length -eq $max }) }
+    if ($hits.Count -eq 1) { return $hits[0] }
+    $rx2 = @(Get-JkTitleWordRx @($rt -split ' '))
+    $hits = @($Items | Where-Object { Test-JkTitleWords (& $norm $_.Title) $rx2 })
+    if ($hits.Count -eq 1) { return $hits[0] }
+    $null
+}
+
+$script:JkLearnHomeUrl = 'https://learn.uwaterloo.ca/d2l/home'
+
+# jk grade import cs341: the course's LEARN Grades page, copied, becomes marks. Shows what matched
+# and what did not, then records on a yes (-Yes skips the question); handed-in items are checked off.
+function Import-JkGrades {
+    param([Parameter(Position = 0)][string]$Course, [string]$Path, [switch]$Yes)
+    if (-not $Course) { throw 'usage: jk grade import <course>   (copy the course''s Grades page in LEARN first)' }
+    $due = Get-JkDueData
+    $c = Resolve-JkCourse $due $Course
+    if (-not $c) { throw "unknown course '$Course'" }
+    $read = { if ($Path) { [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).ProviderPath) } else { Get-JkClipboardText } }
+    $rows = @(ConvertFrom-JkGradesText (& $read))
+    if (-not $Path -and -not @($rows | Where-Object { $null -ne $_.Pct }).Count -and (Test-JkInteractive)) {
+        # nothing copied yet: open LEARN, then read the page once it is on the clipboard
+        $ans = [string](Read-Host "  Open LEARN in your browser to copy $($c.code)'s grades? [Y/n]")
+        if ($ans.Trim() -match '^(|y|yes)$') { Open-JkUrl $script:JkLearnHomeUrl }
+        Say (Paint 'gray' "  There: open $($c.code), then Grades; select all (Ctrl+A), copy (Ctrl+C), and come back.")
+        $go = [string](Read-Host '  Press Enter once it is copied (q cancels)')
+        if ($go.Trim() -match '^(?i)(q|quit|cancel)$') { return }
+        $rows = @(ConvertFrom-JkGradesText (& $read))
+    }
+    if (-not $rows.Count) { throw "found no marks. In LEARN open $($c.code) > Grades, select all (Ctrl+A), copy, then: jk grade import $($c.key)" }
+    $gd = Get-JkGradeData
+    $items = @(Get-JkGradeItems $due $gd ([string]$c.key))
+    $taken = @{}
+    $plan = foreach ($r in $rows) {
+        $it = Find-JkGradeRowItem $r $items
+        $state = 'new'
+        if ($null -eq $r.Pct) { $state = 'ungraded' }
+        elseif (-not $it) { $state = 'unmatched' }
+        elseif ($taken.ContainsKey($it.Key)) { $state = 'twice' }
+        elseif ($null -ne $it.Score -and [Math]::Abs([double]$it.Score - $r.Pct) -lt 0.01) { $state = 'same' }
+        elseif ($null -ne $it.Score) { $state = 'change' }
+        if ($it -and $state -in 'new', 'change') { $taken[$it.Key] = $true }
+        [pscustomobject]@{ Row = $r; Item = $it; State = $state }
+    }
+    $todo = @($plan | Where-Object { $_.State -in 'new', 'change' })
+    Write-JkHeader 'Marks from LEARN' "$(Format-JkCount $todo.Count 'mark') to record" -Sub ([string]$c.code)
+    foreach ($p in $plan) {
+        $what = ''; $st = 'gray'
+        switch ($p.State) {
+            'new' { $what = "$($script:G.arrow) #$($p.Item.Key) $($p.Item.Title)"; $st = 'green' }
+            'change' { $what = "$($script:G.arrow) #$($p.Item.Key) $($p.Item.Title) (was $(Format-JkPct $p.Item.Score))"; $st = 'yellow' }
+            'same' { $what = 'already recorded' }
+            'twice' { $what = 'another row already gives this item a mark' }
+            'ungraded' { $what = 'not graded yet' }
+            'unmatched' { $what = 'not a deadline here (below)' }
+        }
+        $pct = $(if ($null -ne $p.Row.Pct) { Format-JkPct $p.Row.Pct } else { '' })
+        Say ('  ' + (Paint 'white' (Fit $p.Row.Title 28)) + (Paint 'muted' (Fit $p.Row.Shown 12 -Right)) + (Paint 'white' (Fit $pct 9 -Right)) + '  ' + (Paint $st $what))
+    }
+    # rows that are no deadline (participation, bonus): the command that adds each as a part of the grade
+    $extra = @($plan | Where-Object { $_.State -eq 'unmatched' })
+    if ($extra.Count) {
+        Say ''
+        Say (Paint 'gray' '  parts of the grade that are no deadline - add them with:')
+        foreach ($p in $extra) {
+            $wt = '<weight>'; if ($p.Row.Weight) { $wt = ([double]$p.Row.Weight).ToString('0.##', $script:Inv) }
+            Say (Paint 'cyan' "    jk grade add $($c.key) `"$($p.Row.Title)`" -Weight $wt -Score $($p.Row.Shown -replace '\s', '')")
+        }
+    }
+    Say ''
+    if (-not $todo.Count) { Say (Paint 'green' "  Nothing new to record. $($script:G.check)"); return }
+    if (-not $Yes) {
+        if (-not (Test-JkInteractive)) { Say (Paint 'gray' "  jk grade import $($c.key) -Yes records them"); return }
+        $ok = [string](Read-Host "  Record $(Format-JkCount $todo.Count 'mark')? [Y/n]")
+        if ($ok.Trim() -notmatch '^(|y|yes)$') { Say (Paint 'gray' '  nothing recorded'); return }
+    }
+    foreach ($p in $todo) {
+        $key = [string]$p.Item.Key
+        if ($key -match '^x\d+$') { @($gd.extras | Where-Object { $_.id -eq $key })[0].score = $p.Row.Pct }
+        else { $gd.scores = @($gd.scores | Where-Object { [string]$_.id -ne $key }) + [pscustomobject]@{ id = $key; score = $p.Row.Pct } }
+    }
+    Save-JkGradeData $gd
+    foreach ($p in $todo) { if ([string]$p.Item.Key -notmatch '^x') { Complete-JkMarkedItem ([string]$p.Item.Key) } }
+    $m = Measure-JkGrade (Get-JkGradeItems $due $gd ([string]$c.key)) (Get-JkGradeRules $due ([string]$c.key))
+    Say ((Paint 'green' "  recorded $(Format-JkCount $todo.Count 'mark') $($script:G.check)") + (Paint 'gray' "  $($c.code) average now $(Format-JkPct $m.Average) over $(Format-JkPct $m.Graded 1) graded"))
+}
+
 function Clear-JkGrade {
     param([Parameter(Position = 0)][string]$Ref)
     $gd = Get-JkGradeData
@@ -411,6 +538,7 @@ function Invoke-JkGrade {
         '^(add|extra)$' { Add-JkGradeExtra @rest; return }
         '^(target|goal)$' { Set-JkGradeTarget @rest; return }
         '^(fill|catchup|marks)$' { Invoke-JkGradeFill; return }
+        '^(import|learn|paste)$' { Import-JkGrades @rest; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'grade'; return }
     }
     # "jk grade cs370 a1 9/10": a mark at the end means set
