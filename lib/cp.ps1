@@ -435,7 +435,23 @@ function New-JkCpProblem {
         [switch]$Here,
         [switch]$NoOpen
     )
-    if (-not $Name) { throw 'usage: jk cp new <name> [-Lang cpp|py|java|usaco] [-Here]' }
+    if (-not $Name) { throw 'usage: jk cp new <name or problem link> [-Lang cpp|py|java|usaco] [-Here]' }
+    # a problem link: the folder is named after it and the page's samples become 1.in/1.out, 2.in...
+    $fetched = $null; $judge = ''
+    if ($Name -match '^(?i)https?://') {
+        $link = Get-JkJudgeLink $Name
+        if (-not $link) { throw 'jk reads problem links from AtCoder, USACO, CSES and Codeforces; for another judge: jk cp new <name>, then jk cp add per sample' }
+        $url = $Name; $Name = $link.Name; $judge = $link.Judge
+        if ($judge -ne 'codeforces') {
+            try { $fetched = ConvertFrom-JkJudgeHtml $judge (Invoke-JkWebText $url) }
+            catch { Say (Paint 'yellow' "  could not read the page ($($_.Exception.Message)); the samples will have to be pasted: jk cp add") }
+            # USACO: the old file-I/O problems get the USACO template under their file name; newer
+            # ones read standard input like anywhere else
+            if ($judge -eq 'usaco' -and $fetched -and -not $Lang) {
+                if ($fetched.FileIO) { $Lang = 'usaco'; $Name = $fetched.FileIO } else { $Lang = 'cpp' }
+            }
+        }
+    }
     if (-not $Lang) { $Lang = Get-JkConfig 'cp.lang' }
     $root = (Get-Location).ProviderPath
     if (-not $Here) { $root = [Environment]::ExpandEnvironmentVariables((Get-JkConfig 'cp.root')) }
@@ -452,12 +468,97 @@ function New-JkCpProblem {
         Write-JkText $src $text
         foreach ($f in '1.in', '1.out') { $p = Join-Path $dir $f; if (-not (Test-Path $p)) { Write-JkText $p '' } }
     }
+    # the page's samples, into files that are missing or still empty (never over ones you filled in)
+    $got = 0
+    if ($fetched) {
+        $i = 0
+        foreach ($t in @($fetched.Tests)) {
+            $i++
+            foreach ($pair in @(@("$i.in", $t.In), @("$i.out", $t.Out))) {
+                $p = Join-Path $dir $pair[0]
+                if (-not (Test-Path -LiteralPath $p) -or (Get-Item -LiteralPath $p).Length -eq 0) { Write-JkText $p $pair[1] }
+            }
+            $got++
+        }
+    }
     Set-Location -LiteralPath $dir
     $shown = Resolve-JkLongPath $dir   # C:\Users\JACKWA~1\... from a short TEMP or cp.root
-    if ($fresh) { Say ((Paint 'green' "  created $($script:G.check)") + "  $shown" + (Paint 'gray' "  ($outName, 1.in, 1.out)")) }
-    else { Say ((Paint 'yellow' '  exists') + "  $shown" + (Paint 'gray' ' - switched to it')) }
-    Say (Paint 'gray' "  paste samples: copy input $($script:G.arrow) jk cp add   $($script:G.dot)   test: jk cp   $($script:G.dot)   stress: add brute.cpp + gen.py, then jk cp stress")
+    $what = "($outName, 1.in, 1.out)"
+    if ($got) { $what = "($outName, $(Format-JkCount $got 'sample') from the page)" }
+    if ($fresh) { Say ((Paint 'green' "  created $($script:G.check)") + "  $shown" + (Paint 'gray' "  $what")) }
+    else { Say ((Paint 'yellow' '  exists') + "  $shown" + (Paint 'gray' $(if ($got) { " - switched to it, $(Format-JkCount $got 'sample') from the page" } else { ' - switched to it' }))) }
+    if ($judge -eq 'codeforces') { Say (Paint 'gray' "  Codeforces turns away scripts: copy each sample's input, jk cp add, then its output") }
+    if ($got) { Say (Paint 'gray' "  test: jk cp   $($script:G.dot)   stress: add brute.cpp + gen.py, then jk cp stress") }
+    else { Say (Paint 'gray' "  paste samples: copy input $($script:G.arrow) jk cp add   $($script:G.dot)   test: jk cp   $($script:G.dot)   stress: add brute.cpp + gen.py, then jk cp stress") }
     if (-not $NoOpen) { Open-JkInEditor $src }
+}
+
+# ---- problems from a judge's page: jk cp new https://atcoder.jp/contests/abc300/tasks/abc300_a
+
+function Invoke-JkWebText([string]$Url) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 20 -UserAgent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) jk' -ErrorAction Stop
+    [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
+}
+
+# A <pre> block's text: tags out, entities decoded, Windows line ends trimmed per line, one final newline.
+function ConvertFrom-JkPreHtml([string]$Html) {
+    $t = [Net.WebUtility]::HtmlDecode(($Html -replace '(?i)<br\s*/?>', "`n" -replace '<[^>]+>', ''))
+    $lines = @(($t -replace "`r", '') -split "`n" | ForEach-Object { $_.TrimEnd() })
+    ($lines -join "`n").Trim("`n") + "`n"
+}
+
+# The samples on a judge's problem page, by judge: AtCoder ("Sample Input 1", or the Japanese
+# headings when there is no English), USACO (<pre class='in'> / 'out', and the file name of the
+# older file-I/O problems), CSES ("Input:" / "Output:").
+function ConvertFrom-JkJudgeHtml([string]$Judge, [string]$Html) {
+    $tests = @(); $io = ''
+    $pair = { param($ins, $outs) for ($i = 0; $i -lt [Math]::Min(@($ins).Count, @($outs).Count); $i++) { [pscustomobject]@{ In = (ConvertFrom-JkPreHtml $ins[$i]); Out = (ConvertFrom-JkPreHtml $outs[$i]) } } }
+    switch ($Judge) {
+        'atcoder' {
+            $part = $Html
+            $en = [regex]::Match($Html, '(?s)<span class="lang-en">(.*)')
+            if ($en.Success) { $part = $en.Groups[1].Value }
+            $inH = 'Sample Input'; $outH = 'Sample Output'
+            if ($part -notmatch $inH) { $inH = [string][char]0x5165 + [char]0x529B + [char]0x4F8B; $outH = [string][char]0x51FA + [char]0x529B + [char]0x4F8B }
+            $ins = @([regex]::Matches($part, "(?s)<h3>$inH\s*\d+</h3>\s*<pre>(.*?)</pre>") | ForEach-Object { $_.Groups[1].Value })
+            $outs = @([regex]::Matches($part, "(?s)<h3>$outH\s*\d+</h3>\s*<pre>(.*?)</pre>") | ForEach-Object { $_.Groups[1].Value })
+            $tests = @(& $pair $ins $outs)
+        }
+        'usaco' {
+            $ins = @([regex]::Matches($Html, "(?s)<pre class=['""]in['""]>(.*?)</pre>") | ForEach-Object { $_.Groups[1].Value })
+            $outs = @([regex]::Matches($Html, "(?s)<pre class=['""]out['""]>(.*?)</pre>") | ForEach-Object { $_.Groups[1].Value })
+            $tests = @(& $pair $ins $outs)
+            $f = [regex]::Match($Html, '(?i)SAMPLE INPUT \(file ([A-Za-z0-9_]+)\.in\)')
+            if ($f.Success) { $io = $f.Groups[1].Value }
+            if (-not $tests.Count) {
+                # the oldest problems are plain text: "SAMPLE INPUT (file x.in):", the data, then the next
+                # capitalised heading ("INPUT DETAILS:", "SAMPLE OUTPUT ...") after a blank line
+                $plain = ($Html -replace "`r", '')
+                $grab = { param($what) $m = [regex]::Match($plain, "(?s)SAMPLE $what(?: \(file [^)]*\))?:[ \t]*\n(.*?)\n[ \t]*\n(?=[ \t]*([A-Z][A-Z ]+[A-Z]:|SAMPLE |<|$))"); if ($m.Success) { $m.Groups[1].Value } }
+                $i1 = & $grab 'INPUT'; $o1 = & $grab 'OUTPUT'
+                if ($i1 -and $o1) { $tests = @([pscustomobject]@{ In = (ConvertFrom-JkPreHtml $i1); Out = (ConvertFrom-JkPreHtml $o1) }) }
+            }
+        }
+        'cses' {
+            foreach ($m in [regex]::Matches($Html, '(?s)<p>Input:</p>\s*<pre>(.*?)</pre>\s*<p>Output:</p>\s*<pre>(.*?)</pre>')) {
+                $tests += [pscustomobject]@{ In = (ConvertFrom-JkPreHtml $m.Groups[1].Value); Out = (ConvertFrom-JkPreHtml $m.Groups[2].Value) }
+            }
+        }
+    }
+    [pscustomobject]@{ Tests = @($tests); FileIO = $io }
+}
+
+# Which judge a link is, and a folder name for it. $null when it is no problem link jk knows.
+function Get-JkJudgeLink([string]$Url) {
+    if ($Url -match '(?i)atcoder\.jp/contests/[^/]+/tasks/([A-Za-z0-9_]+)') { return [pscustomobject]@{ Judge = 'atcoder'; Name = $Matches[1].ToLower() } }
+    if ($Url -match '(?i)usaco\.org/.*cpid=(\d+)') { return [pscustomobject]@{ Judge = 'usaco'; Name = "usaco$($Matches[1])" } }
+    if ($Url -match '(?i)cses\.fi/problemset/task/(\d+)') { return [pscustomobject]@{ Judge = 'cses'; Name = "cses$($Matches[1])" } }
+    if ($Url -match '(?i)codeforces\.com/(?:contest|gym)/(\d+)/problem/([A-Za-z0-9]+)|codeforces\.com/problemset/problem/(\d+)/([A-Za-z0-9]+)') {
+        $n = "cf$($Matches[1])$($Matches[3])$($Matches[2])$($Matches[4])"
+        return [pscustomobject]@{ Judge = 'codeforces'; Name = $n }
+    }
+    $null
 }
 
 function Open-JkInEditor([string]$Path) {
