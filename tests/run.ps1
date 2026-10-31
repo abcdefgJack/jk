@@ -290,6 +290,25 @@ Test 'an online exam window (opens + closes) shows as one exam' {
     $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($dash -match 'NEXT EXAM\s+HEALTH 105 Midterm  in 4 days . Mon Oct 26 6:00 am . Tue 11:59 pm') 'dashboard callout spans the window'
 }
+Test 'the shell-start brief: today''s items carry their time; a week out is a date, not today''s weekday' {
+    $savedNow = $env:JK_NOW; $savedHome = $env:JK_HOME
+    try {
+        # Thu Oct 29: the CS 350 midterm at 4:30 pm today
+        $env:JK_NOW = '2026-10-29T09:00:00'
+        $l = (Get-JkBriefLine) -replace "$([char]27)\[[0-9;]*m", ''
+        Assert-True ($l -match 'CS350 Midterm today 4:30 pm') "today: $l"
+        # Thu Oct 22, in a data folder of its own: Wed Oct 28 is "Wed"; Thu Oct 29 is "Oct 29", not "Thu"
+        $env:JK_HOME = Join-Path $savedHome 'brief-home'
+        $env:JK_NOW = '2026-10-22T09:00:00'
+        $d = Get-JkDueData
+        $null = New-JkEvent -Data $d -Course 'cs350' -Date ([datetime]'2026-10-28') -Time '20:00' -Title 'Soon thing' -Kind 'due'
+        $null = New-JkEvent -Data $d -Course 'cs350' -Date ([datetime]'2026-10-29') -Time '23:00' -Title 'Week-out thing' -Kind 'due'
+        Save-JkDueData $d
+        $l = (Get-JkBriefLine) -replace "$([char]27)\[[0-9;]*m", ''
+        Assert-True ($l -match 'Soon thing Wed') "weekday within the week: $l"
+        Assert-True ($l -match 'Week-out thing Oct 29') "a week out is its date, never today's weekday: $l"
+    } finally { $env:JK_NOW = $savedNow; $env:JK_HOME = $savedHome }
+}
 Test 'jk exam <course>: when, worth, prep, what lands the week before, and its files' {
     $courses = Join-Path $env:JK_HOME 'exam-courses'
     New-Item -ItemType Directory (Join-Path $courses 'CS350\review') -Force | Out-Null

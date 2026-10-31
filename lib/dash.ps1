@@ -346,8 +346,12 @@ function Get-JkBriefLine {
         $due = Get-JkEventDue $e
         $n = [int]($due.Date - $now.Date).TotalDays
         $when = $due.ToString('ddd', [Globalization.CultureInfo]::InvariantCulture)
+        # a week out is that weekday again: on a Monday, "Mon" would read as today
+        if ($n -ge 7) { $when = $due.ToString('MMM d', [Globalization.CultureInfo]::InvariantCulture) }
         $st = 'muted'
-        if ($n -eq 0) { $when = 'today'; $st = 'bold red' } elseif ($n -eq 1) { $when = 'tmrw'; $st = 'orange' }
+        # today's carry their time (the line is cached for the hour, so a clock time, not "in 30m")
+        if ($n -eq 0) { $when = 'today'; if ($e.time) { $when += ' ' + ((Format-JkTime ([string]$e.time)) -replace ':00 ', ' ') }; $st = 'bold red' }
+        elseif ($n -eq 1) { $when = 'tmrw'; $st = 'orange' }
         $color = Get-JkCourseColor $e.course $cmap
         $label = (Get-JkCourseLabel $e $cmap) -replace '\s', ''
         $parts += (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when)
