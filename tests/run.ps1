@@ -1745,6 +1745,55 @@ Test 'needed-on-the-rest math' {
     Assert-Eq (Get-JkNeededText 99 $m)[1] 'red' 'needs more than 100%'
     Show-JkGrade cs350; Show-JkGradeOverview
 }
+Test 'grade import: a copied LEARN Grades page becomes marks, matched by title, on a yes' {
+    $page = "Grades`nFinal Calculated Grade`t-`nGrade Item`tPoints`tWeight Achieved`tGrade`nAssignments`t `t `t`nAssignment 01 - Stigma`t9 / 10`t9 / 10`t90 %`nAssignment 2`t- / 10`t- / 10`nMidterm`t27 / 30`t27 / 30`t90 %`tView feedback`nParticipation`t5 / 5`t2 / 2`t100 %"
+    $rows = @(ConvertFrom-JkGradesText $page)
+    Assert-Eq (($rows | ForEach-Object { $_.Title }) -join '|') 'Assignment 01 - Stigma|Assignment 2|Midterm|Participation' 'headers and category rows skipped'
+    Assert-Eq "$($rows[0].Pct) $($rows[1].Pct) $($rows[3].Weight)" '90  2' 'points to percent; "- / 10" ungraded; the weight column'
+    Assert-Eq @(ConvertFrom-JkGradesText "Quiz 3`t85 %")[0].Pct 85 'a percentage alone'
+    $items = @(Get-JkGradeItems (Get-JkDueData) (Get-JkGradeData) 'health')
+    $find = { param($t) $i = Find-JkGradeRowItem ([pscustomobject]@{ Title = $t }) $items; if ($i) { $i.Title } else { '-' } }
+    Assert-Eq (& $find 'Assignment 01 - Stigma') 'Assignment 1' 'padded number, extra words'
+    Assert-Eq (& $find 'A3') 'Assignment 3' 'shorthand'
+    Assert-Eq (& $find 'Assignment 10') '-' 'no Assignment 10 here, and not Assignment 1'
+    Assert-Eq (& $find 'Midterm') 'Midterm' 'the online window'
+    $grades = Join-Path $env:JK_HOME 'grades.json'; $dl = Get-JkPath 'deadlines.json'
+    $savedG = [IO.File]::ReadAllText($grades); $savedD = [IO.File]::ReadAllText($dl)
+    $file = Join-Path $env:JK_HOME 'health-grades.txt'; [IO.File]::WriteAllText($file, $page)
+    try {
+        Clear-JkGrade (@($items | Where-Object { $_.Title -eq 'Assignment 1' })[0].Key) 6>$null
+        $pre = (Import-JkGrades health -Path $file 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($pre -match '-Yes records them') 'without -Yes (and no prompt) it only shows'
+        Assert-True ($pre -match 'jk grade add health "Participation" -Weight 2 -Score 5/5') "unmatched hint: $pre"
+        $null = @(Import-JkGrades health -Path $file -Yes 6>&1)
+        $after = @(Get-JkGradeItems (Get-JkDueData) (Get-JkGradeData) 'health')
+        Assert-Eq @($after | Where-Object { $_.Title -eq 'Assignment 1' })[0].Score 90
+        Assert-Eq @($after | Where-Object { $_.Title -eq 'Midterm' })[0].Score 90
+        $a1 = @((Get-JkDueData).events | Where-Object { $_.course -eq 'health' -and $_.title -eq 'Assignment 1' })[0]
+        Assert-True $a1.done 'a marked item is checked off'
+        $again = (Import-JkGrades health -Path $file -Yes 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($again -match 'Nothing new to record') 'a second import changes nothing'
+        # nothing copied, prompts on: LEARN opens and the copied page is read after Enter
+        $script:Answers = New-Object System.Collections.Generic.Queue[string]
+        $script:Opened = @(); $script:Clip = ''
+        $origTI = ${function:Test-JkInteractive}; $origOpen = ${function:Open-JkUrl}; $origClip = ${function:Get-JkClipboardText}
+        function script:Read-Host { param($Prompt) $script:Answers.Dequeue() }
+        function script:Test-JkInteractive { $true }
+        function script:Open-JkUrl { param($Url) $script:Opened += $Url; $script:Clip = "Assignment 3`t7 / 10`t7 / 10`t70 %" }
+        function script:Get-JkClipboardText { $script:Clip }
+        try {
+            foreach ($x in '', '', '') { $script:Answers.Enqueue($x) }   # open LEARN, copied, yes record
+            $null = @(Import-JkGrades health 6>&1)
+            Assert-Eq ($script:Opened -join ' ') $script:JkLearnHomeUrl 'LEARN opened'
+            Assert-Eq @(Get-JkGradeItems (Get-JkDueData) (Get-JkGradeData) 'health' | Where-Object { $_.Title -eq 'Assignment 3' })[0].Score 70
+        } finally {
+            Remove-Item function:script:Read-Host -ErrorAction SilentlyContinue
+            Set-Item function:script:Test-JkInteractive $origTI
+            Set-Item function:script:Open-JkUrl $origOpen
+            Set-Item function:script:Get-JkClipboardText $origClip
+        }
+    } finally { [IO.File]::WriteAllText($grades, $savedG); [IO.File]::WriteAllText($dl, $savedD) }
+}
 Test 'marks by course and title words, scores with spaces, one target for every course' {
     $file = Join-Path $env:JK_HOME 'grades.json'
     $saved = [IO.File]::ReadAllText($file)

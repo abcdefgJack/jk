@@ -85,6 +85,8 @@ jk config set alert.class 5m   or   off
 jk grade                       every course: graded so far, average, and what you need on the rest
 jk grade cs350                 one course in detail, with a "to finish with X you need Y" table
 jk grade fill                  go through every past graded item with no mark: type it, Enter skips
+jk grade import cs341          copy the course's Grades page in LEARN (Ctrl+A, Ctrl+C) first: every row
+                               is matched to a deadline, shown, then recorded on a yes (-Yes skips asking)
 jk grade set 23 17/20          record a mark for deadline #23 (85, 85%, 17/20, 17 out of 20 all work)
 jk grade cs341 midterm 1 72%   or name it by course and title words (a1 = Assignment 1, q2 = Quiz 2)
 jk grade clear 23

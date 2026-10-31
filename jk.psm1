@@ -132,6 +132,7 @@ $script:JkParamTargets = @{
     'week'         = 'Show-JkDueWeek'
     'grade'        = 'Show-JkGrade'
     'grade set'    = 'Set-JkGrade'
+    'grade import' = 'Import-JkGrades'
     'repos'        = 'Invoke-JkRepos'
     'shots old'    = 'Invoke-JkShotsOld'
 }
@@ -142,7 +143,7 @@ $script:JkActions = @{
     'class'  = @('week', 'list', 'next', 'pick', 'add', 'rm', 'import', 'help')
     'focus'  = @('25', '50', '15', 'status', 'stop', 'log', 'help')
     'remind' = @('list', 'now', 'cancel', 'install', 'uninstall', 'status', 'test', 'help')
-    'grade'  = @('fill', 'set', 'clear', 'add', 'target', 'help')
+    'grade'  = @('fill', 'import', 'set', 'clear', 'add', 'target', 'help')
     'tidy'   = @('scan', 'apply', 'undo', 'dupes', 'old', 'help')
     'cp'     = @('new', 'test', 'run', 'add', 'stress', 'open', 'clean', 'help')
     'config' = @('set', 'reset', 'edit', 'path', 'help')
