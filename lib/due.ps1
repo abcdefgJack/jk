@@ -465,6 +465,19 @@ function Show-JkDueAll {
     if ($Course -and $c.final) { Say ''; Say ('  ' + (Paint 'bold' 'Final: ') + [string]$c.final) }
 }
 
+# When an exam is over: its end time when known, else two hours after the start (a typical
+# midterm); one with no time at all lasts the day.
+function Get-JkExamEnd($e) {
+    $start = Get-JkEventDue $e
+    if (-not $e.time) { return $start }
+    $end = [string](Get-JkProp $e 'end' '')
+    if ($end -match '^(\d{1,2}):(\d{2})$') {
+        $t = $start.Date.AddHours([int]$Matches[1]).AddMinutes([int]$Matches[2])
+        if ($t -gt $start) { return $t }
+    }
+    $start.AddHours(2)
+}
+
 # jk exams: every remaining exam; jk exam cs370 [words]: one exam's brief.
 function Invoke-JkExams {
     $a = @($args | ForEach-Object { [string]$_ } | Where-Object { $_ })
@@ -584,7 +597,8 @@ function Show-JkExams {
     $cmap = Get-JkCourseMap $data
     $now = Get-JkNow
     $w = Get-JkWidth
-    $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkEventDue $_) -ge $now.Date } | Sort-Object { Get-JkEventDue $_ })
+    # an exam stays until it is over (not until midnight): the evening after it is no longer "0d"
+    $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkExamEnd $_) -ge $now } | Sort-Object { Get-JkEventDue $_ })
     # an online window ("X opens" + "X closes") is one exam: one row
     $rows = New-Object System.Collections.Generic.List[object]
     $merged = @{}
@@ -620,6 +634,7 @@ function Show-JkExams {
         $days = [int]($due.Date - $now.Date).TotalDays
         $color = Get-JkCourseColor $e.course $cmap
         $countTxt = "{0,3}d" -f $days
+        if (-not $win -and $due -le $now) { $countTxt = ' now' }
         $style = 'gray'
         if ($days -le 3) { $style = 'bold red' } elseif ($days -le 7) { $style = 'orange' } elseif ($days -le 14) { $style = 'yellow' }
         $line = '  ' + (Paint $style $countTxt) + '  ' + (Paint "bold #$color" (Fit (Get-JkCourseLabel $e $cmap) 11)) + (Paint 'bold white' (Fit $title 22)) + ' ' + (Paint 'muted' (Fit $when 22)) + (Paint 'gray' (Fit ([string]$e.weight) 6 -Right))
