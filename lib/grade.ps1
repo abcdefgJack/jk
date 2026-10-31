@@ -421,10 +421,20 @@ function Import-JkGrades {
     $gd = Get-JkGradeData
     $items = @(Get-JkGradeItems $due $gd ([string]$c.key))
     $taken = @{}
+    # LEARN's own totals: the final grade, and a category's subtotal ("Assignments 8.5 / 10") above
+    # the rows it sums, which would be counted twice as an extra part of the grade
+    $titles = @($rows | ForEach-Object { ([string]$_.Title).ToLower() })
+    $isTotal = { param($t)
+        $lt = ([string]$t).ToLower().Trim()
+        if ($lt -match '^(final (calculated|adjusted) grade|total|course total|overall)\b') { return $true }
+        $stem = $lt -replace 'zzes$', 'z' -replace '(e?s)$', ''   # quizzes, labs, midterms
+        $stem.Length -ge 3 -and @($titles | Where-Object { $_ -ne $lt -and $_.StartsWith($stem) }).Count -gt 0
+    }
     $plan = foreach ($r in $rows) {
         $it = Find-JkGradeRowItem $r $items
         $state = 'new'
-        if ($null -eq $r.Pct) { $state = 'ungraded' }
+        if (-not $it -and (& $isTotal $r.Title)) { $state = 'total' }
+        elseif ($null -eq $r.Pct) { $state = 'ungraded' }
         elseif (-not $it) { $state = 'unmatched' }
         elseif ($taken.ContainsKey($it.Key)) { $state = 'twice' }
         elseif ($null -ne $it.Score -and [Math]::Abs([double]$it.Score - $r.Pct) -lt 0.01) { $state = 'same' }
@@ -442,6 +452,7 @@ function Import-JkGrades {
             'same' { $what = 'already recorded' }
             'twice' { $what = 'another row already gives this item a mark' }
             'ungraded' { $what = 'not graded yet' }
+            'total' { $what = 'a total LEARN adds up (skipped)' }
             'unmatched' { $what = 'not a deadline here (below)' }
         }
         $pct = $(if ($null -ne $p.Row.Pct) { Format-JkPct $p.Row.Pct } else { '' })
