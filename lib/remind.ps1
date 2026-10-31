@@ -169,7 +169,12 @@ function Register-JkTodayAlerts {
         $due = Get-JkEventDue $e
         if ($due.Date -ne $Now.Date -or $due -le $Now) { continue }
         $at = $due.AddSeconds(-$secs)
-        if ($at -le $Now) { continue }
+        if ($at -le $Now) {
+            # the morning run happens on the first wake after 7:45, and a laptop asleep until 6 pm
+            # is past the 5 pm warning for a 7 pm exam: warn now while there is time to act on it
+            if (($due - $Now).TotalMinutes -lt 10) { continue }
+            $at = $Now.AddMinutes(1)
+        }
         $key = "due:$($e.id):$($e.date)"
         if ($known -contains $key) { continue }
         $text = "$(Get-JkCourseLabel $e $cmap) $($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' }) at $(Format-JkTime $e.time)"
