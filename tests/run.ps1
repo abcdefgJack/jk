@@ -2041,6 +2041,56 @@ if (Get-Command g++ -ErrorAction SilentlyContinue) {
         }
     }
 }
+Test 'jk cp new <problem link>: AtCoder, USACO (both page styles), CSES samples; Codeforces named only' {
+    # page shapes as the judges serve them (trimmed)
+    $jaIn = [string][char]0x5165 + [char]0x529B + [char]0x4F8B; $jaOut = [string][char]0x51FA + [char]0x529B + [char]0x4F8B
+    $pages = @{
+        'atcoder' = "<span class=""lang-ja""><h3>$jaIn 1</h3><pre>9 9</pre></span><span class=""lang-en""><h3>Input</h3><pre><var>N</var></pre><h3>Sample Input 1</h3><pre>3 125 175`n200 300 400`n</pre><h3>Sample Output 1</h3><pre>2`n</pre><p>We &lt;have&gt;</p><h3>Sample Input 2</h3><pre>1 1 1`n2`n</pre><h3>Sample Output 2</h3><pre>1`n</pre></span>"
+        'usaco'   = "<h4>SAMPLE INPUT:</h4><pre class='in'>`n2 4`n7 9`n</pre><h4>SAMPLE OUTPUT:</h4> <pre class='out'>`n7`n</pre>"
+        'usacoold' = "range 1...10,000).`n`nSAMPLE INPUT (file haybales.in):`n`n4`n2`n10`n7`n1`n`nINPUT DETAILS:`n`nThere are 4 piles.`n`nSAMPLE OUTPUT (file haybales.out):`n`n7`n`nOUTPUT DETAILS:`n`nBy moving"
+        'cses'    = "<h1 id=""example"">Example</h1> <p>Input:</p> <pre>3`n</pre> <p>Output:</p> <pre>3 10 5 16 8 4 2 1`n</pre></div>"
+    }
+    $at = ConvertFrom-JkJudgeHtml 'atcoder' $pages.atcoder
+    Assert-Eq $at.Tests.Count 2 'English samples only, not the input format block'
+    Assert-Eq $at.Tests[0].In "3 125 175`n200 300 400`n"
+    Assert-Eq $at.Tests[1].Out "1`n"
+    Assert-Eq (ConvertFrom-JkJudgeHtml 'atcoder' "<h3>$jaIn 1</h3><pre>5</pre><h3>$jaOut 1</h3><pre>6</pre>").Tests[0].Out "6`n" 'a Japanese-only page'
+    $us = ConvertFrom-JkJudgeHtml 'usaco' $pages.usaco
+    Assert-Eq "$($us.Tests.Count) $($us.FileIO)|$($us.Tests[0].In)" "1 |2 4`n7 9`n" 'leading newline dropped; standard input'
+    $old = ConvertFrom-JkJudgeHtml 'usaco' $pages.usacoold
+    Assert-Eq "$($old.FileIO)|$($old.Tests[0].In)|$($old.Tests[0].Out)" "haybales|4`n2`n10`n7`n1`n|7`n" 'plain-text samples and the file name'
+    Assert-Eq (ConvertFrom-JkJudgeHtml 'cses' $pages.cses).Tests[0].Out "3 10 5 16 8 4 2 1`n"
+    Assert-Eq (Get-JkJudgeLink 'https://atcoder.jp/contests/abc300/tasks/abc300_a').Name 'abc300_a'
+    Assert-Eq (Get-JkJudgeLink 'https://codeforces.com/problemset/problem/4/A').Name 'cf4A'
+    Assert-Eq (Get-JkJudgeLink 'https://codeforces.com/contest/1900/problem/C2').Name 'cf1900C2'
+    Assert-Eq (Get-JkJudgeLink 'https://example.com/x') $null
+    # end to end with the page fetch stubbed: folder, samples, the USACO template only for file I/O
+    $root = Join-Path $env:JK_HOME 'cp-links'
+    New-Item -ItemType Directory $root -Force | Out-Null
+    $origWeb = ${function:Invoke-JkWebText}
+    $here = Get-Location
+    try {
+        function script:Invoke-JkWebText { param($Url) if ($Url -match 'cpid=94') { $script:Pg.usacoold } elseif ($Url -match 'usaco') { $script:Pg.usaco } else { $script:Pg.atcoder } }
+        $script:Pg = $pages
+        Set-Location $root
+        $null = @(New-JkCpProblem 'https://atcoder.jp/contests/abc300/tasks/abc300_a' -Here -NoOpen 6>&1)
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $root 'abc300_a\2.in'))) "1 1 1`n2`n" 'samples written'
+        Set-Location $root
+        $null = @(New-JkCpProblem 'https://usaco.org/index.php?page=viewproblem2&cpid=94' -Here -NoOpen 6>&1)
+        Assert-True ([IO.File]::ReadAllText((Join-Path $root 'haybales\main.cpp')) -match 'setIO\("haybales"\)') 'file I/O: the USACO template, under its file name'
+        Set-Location $root
+        $null = @(New-JkCpProblem 'https://usaco.org/index.php?page=viewproblem2&cpid=1301' -Here -NoOpen 6>&1)
+        Assert-True ([IO.File]::ReadAllText((Join-Path $root 'usaco1301\main.cpp')) -notmatch 'freopen') 'standard input: the plain template'
+        # a sample already filled in is never overwritten
+        Set-Content (Join-Path $root 'abc300_a\1.out') 'mine'
+        Set-Location $root
+        $null = @(New-JkCpProblem 'https://atcoder.jp/contests/abc300/tasks/abc300_a' -Here -NoOpen 6>&1)
+        Assert-Eq ((Get-Content (Join-Path $root 'abc300_a\1.out')) -join '') 'mine'
+        Set-Location $root
+        $cf = (New-JkCpProblem 'https://codeforces.com/contest/4/problem/A' -Here -NoOpen 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($cf -match 'jk cp add' -and (Test-Path (Join-Path $root 'cf4A\main.cpp'))) 'Codeforces: the folder, and how to paste'
+    } finally { Set-Item function:script:Invoke-JkWebText $origWeb; Set-Location $here }
+}
 Test 'cp samples: N.in with .out/.ans, tests\ and test\ folders, old USACO I.N / O.N' {
     $dir = Join-Path $env:JK_HOME 'cp-samples'
     New-Item -ItemType Directory (Join-Path $dir 'test'), (Join-Path $dir 'tests') -Force | Out-Null
