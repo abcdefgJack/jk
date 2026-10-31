@@ -81,6 +81,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk in 20m "laundry"` / `jk at 5pm "leave"` | One-off reminders (re-armed after a restart) |
 | Code | `jk cp new A` / `jk cp add` / `jk cp` | Scaffold, paste samples from the clipboard, compile + test with diffs |
 | | `jk cp new <problem link>` | AtCoder, USACO and CSES links: the folder named after the problem with every sample downloaded (old USACO file-I/O problems get the USACO template under their file name). Codeforces blocks scripts: folder only, paste with `jk cp add` |
+| | `jk cp listen` | Any judge, Codeforces included: run it, then press the [Competitive Companion](https://github.com/jmerle/competitive-companion) extension's green + on a problem or contest page; each problem arrives as a folder with its samples (port 10043, `jk config set cp.port`) |
 | | `jk cp stress` | `main` vs `brute` on `gen <seed>` inputs; a counterexample becomes a sample |
 | | `jk repos` / `jk repos -Fetch` | Every git repo under the Desktop: uncommitted, unpushed, behind (git runs for 8 repos at a time; a hung fetch is stopped after a minute) |
 | | `jk port 8080 -Kill` | Who holds a port, and free it |

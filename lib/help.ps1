@@ -112,6 +112,9 @@ jk cp new A                    make <cp.root>\A with main.cpp + 1.in/1.out, cd t
 jk cp new <problem link>       AtCoder, USACO, CSES: the folder named after it, every sample downloaded;
                                old USACO file-I/O problems get the USACO template under their file name.
                                Codeforces turns scripts away: the folder only, then jk cp add per sample
+jk cp listen                   for any judge, Codeforces too: run it, then press the green + of the
+                               Competitive Companion browser extension on the problem (or contest) page;
+                               each problem arrives with its samples (port 10043, jk config set cp.port)
 jk cp new A -Lang py|java|usaco   -Here  (create in the current folder instead)
 jk cp add                      clipboard -> next N.in, then copy the expected output and press Enter
 jk cp | jk cp test             compile (cached) and run every *.in; diff with *.out / *.ans
