@@ -1747,6 +1747,13 @@ Test 'needed-on-the-rest math' {
 }
 Test 'grade import: a copied LEARN Grades page becomes marks, matched by title, on a yes' {
     $page = "Grades`nFinal Calculated Grade`t-`nGrade Item`tPoints`tWeight Achieved`tGrade`nAssignments`t `t `t`nAssignment 01 - Stigma`t9 / 10`t9 / 10`t90 %`nAssignment 2`t- / 10`t- / 10`nMidterm`t27 / 30`t27 / 30`t90 %`tView feedback`nParticipation`t5 / 5`t2 / 2`t100 %"
+    # LEARN's own totals must never be offered as extra parts of the grade (they would count twice)
+    $totals = "Assignments`t9 / 10`t9 / 20`t90 %`nAssignment 1`t9 / 10`t9 / 10`t90 %`nQuizzes`t4 / 5`t8 / 10`t80 %`nQuiz 1`t4 / 5`t8 / 10`t80 %`nFinal Calculated Grade`t88 / 100`t`t88 %"
+    $tf = Join-Path $env:JK_HOME 'totals.txt'; [IO.File]::WriteAllText($tf, $totals)
+    $tout = (Import-JkGrades health -Path $tf 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($tout -match 'Assignments\s.*a total LEARN adds up' -and $tout -match 'Final Calculated Grade\s.*a total LEARN adds up') "totals: $tout"
+    Assert-True ($tout -match 'Quizzes\s.*a total LEARN adds up') 'quizzes is the plural of quiz'
+    Assert-True ($tout -notmatch 'jk grade add health "(Assignments|Quizzes|Final Calculated Grade)"') 'no add command for a total'
     $rows = @(ConvertFrom-JkGradesText $page)
     Assert-Eq (($rows | ForEach-Object { $_.Title }) -join '|') 'Assignment 01 - Stigma|Assignment 2|Midterm|Participation' 'headers and category rows skipped'
     Assert-Eq "$($rows[0].Pct) $($rows[1].Pct) $($rows[3].Weight)" '90  2' 'points to percent; "- / 10" ungraded; the weight column'
