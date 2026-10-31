@@ -959,6 +959,15 @@ Test 'class alerts: 10 minutes before, one timer at a time, chained, quiet if dr
         Assert-Eq @((Get-JkReminderData).items).Count 0
         # a later sign-in the same morning does not re-arm an alert that already fired
         Assert-True ($null -eq (Register-JkClassAlert -Now ([datetime]'2026-10-22T09:00'))) 'remembered for the day'
+        # a week later, both classes back, woken at 9:55: the 10:00 class still gets "starts in 5m"
+        Save-JkClassData ([pscustomobject]@{ nextId = 3; items = @((& $mkc 1 'cs350' '10:00' '11:20' 'MC 4040'), (& $mkc 2 'health' '13:00' '14:20' 'online')) })
+        $late = Register-JkClassAlert -Now ([datetime]'2026-10-29T09:55')
+        Assert-Eq $late.at '2026-10-29T09:55:30' 'inside the lead time: alert now'
+        $rd = Get-JkReminderData; $rd.items = @(); Set-JkProp $rd 'alerted' @(); Save-JkReminderData $rd
+        # woken at 9:58: too close to help, so the chain moves on to the 1 pm class
+        $late = Register-JkClassAlert -Now ([datetime]'2026-10-29T09:58')
+        Assert-Eq $late.at '2026-10-29T12:50:00' 'under three minutes: the next class instead'
+        $rd = Get-JkReminderData; $rd.items = @(); Set-JkProp $rd 'alerted' @(); Save-JkReminderData $rd
         Set-JkConfig 'alert.class' 'off'
         Assert-True ($null -eq (Register-JkClassAlert -Now ([datetime]'2026-10-29T08:00'))) 'turned off'
     } finally {

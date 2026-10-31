@@ -215,7 +215,11 @@ function Register-JkClassAlert {
         $cmap = Get-JkCourseMap (Get-JkDueData -Cached)
         foreach ($m in @(Get-JkClassesOn $Now.Date)) {
             $at = $m.Start.AddSeconds(-$secs)
-            if ($at -le $Now) { continue }
+            if ($at -le $Now) {
+                # woken (or signed in) inside the lead time: "starts in 5m" still helps, under 3 does not
+                if (($m.Start - $Now).TotalMinutes -lt 3) { continue }
+                $at = $Now.AddSeconds(30)
+            }
             $key = "class:${today}:$($m.Start.ToString('HH:mm', $script:Inv)):$($m.Class.course):$($m.Class.kind)"
             if ($alerted -contains $key) { continue }
             $text = "$(Format-JkClassLabel $m.Class $cmap) at $(Format-JkTime $m.Start.ToString('HH:mm'))"
