@@ -123,7 +123,8 @@ function Show-JkDashboard {
     Say (Paint 'gray dim' (' ' + ($script:G.hline * ($w - 1))))
 
     # next exam callout
-    $nextExam = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkEventDue $_) -ge $now } | Sort-Object { Get-JkEventDue $_ } | Select-Object -First 1)
+    # (one being written now stays the callout until it is over)
+    $nextExam = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkExamEnd $_) -ge $now } | Sort-Object { Get-JkEventDue $_ } | Select-Object -First 1)
     if ($nextExam) {
         $e = $nextExam[0]
         $due = Get-JkEventDue $e
@@ -133,6 +134,9 @@ function Show-JkDashboard {
         $title = [string]$e.title
         $when = & $stamp $e 'ddd MMM d'
         $cd = "in $days days"; if ($days -eq 0) { $cd = 'TODAY' } elseif ($days -eq 1) { $cd = 'tomorrow' }
+        if ($days -eq 0 -and $e.time) {
+            if ($due -le $now) { $cd = 'NOW' } else { $cd = "TODAY, in $(Format-JkDuration ($due - $now))" }
+        }
         # an online window: one callout for the pair ("Mon Oct 26 6:00 am - Tue 11:59 pm")
         $win = Get-JkEventWindow $e $data
         if ($win) {

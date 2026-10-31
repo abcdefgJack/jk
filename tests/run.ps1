@@ -290,6 +290,26 @@ Test 'an online exam window (opens + closes) shows as one exam' {
     $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($dash -match 'NEXT EXAM\s+HEALTH 105 Midterm  in 4 days . Mon Oct 26 6:00 am . Tue 11:59 pm') 'dashboard callout spans the window'
 }
+Test 'an exam is "in 30m", then "now" until it ends, then gone (end time known, or two hours)' {
+    $savedNow = $env:JK_NOW
+    $line = { ((Show-JkExams 6>&1 | ForEach-Object { "$_" }) | Where-Object { $_ -match 'CS 350\s+Midterm' }) -join '' }
+    $dash = { ((Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) | Where-Object { $_ -match 'NEXT EXAM' }) -join '' }
+    try {
+        # the CS 350 midterm: Thu Oct 29, 4:30 - 6:20 pm
+        $env:JK_NOW = '2026-10-29T16:00:00'
+        Assert-True ((& $line) -match '^\s+0d') 'later today: 0d'
+        Assert-True ((& $dash) -match 'CS 350 Midterm\s+TODAY, in 30m') "dashboard: $(& $dash)"
+        $env:JK_NOW = '2026-10-29T17:00:00'
+        Assert-True ((& $line) -match '^\s+now\s') "under way: $(& $line)"
+        Assert-True ((& $dash) -match 'CS 350 Midterm\s+NOW') 'the dashboard keeps it while it is on'
+        $env:JK_NOW = '2026-10-29T18:45:00'
+        Assert-Eq (& $line) '' 'over at 6:20 pm, so gone from the list'
+        Assert-True ((& $dash) -notmatch 'CS 350 Midterm') 'and from the callout'
+        # no end time: two hours
+        $e = [pscustomobject]@{ date = '2026-11-02'; time = '19:00'; end = '' }
+        Assert-Eq (Get-JkExamEnd $e).ToString('HH:mm') '21:00'
+    } finally { $env:JK_NOW = $savedNow }
+}
 Test 'the shell-start brief: today''s items carry their time; a week out is a date, not today''s weekday' {
     $savedNow = $env:JK_NOW; $savedHome = $env:JK_HOME
     try {
