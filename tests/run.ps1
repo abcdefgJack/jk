@@ -1815,6 +1815,22 @@ Test 'needed-on-the-rest math' {
     Assert-Eq (Get-JkNeededText 99 $m)[1] 'red' 'needs more than 100%'
     Show-JkGrade cs350; Show-JkGradeOverview
 }
+Test 'jk grade <course> if <item> <mark>: the course as it would stand, nothing saved' {
+    $file = Join-Path $env:JK_HOME 'grades.json'
+    $before = [IO.File]::ReadAllText($file)
+    $out = (& { jk grade cs350 if midterm 70 } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    # [.,]: the German-formats run writes 25,0%
+    Assert-True ($out -match 'Midterm\s+25[.,]0%\s+70[.,]0%') "assumed row: $out"
+    Assert-True ($out -match 'then: average 70[.,]0% over 25[.,]0%') 'the average with that mark'
+    Assert-True ($out -match 'to finish with' -and $out -match 'you need') 'what the rest would need'
+    Assert-Eq ([IO.File]::ReadAllText($file)) $before 'nothing recorded (the "mark at the end means set" rule does not apply)'
+    # two at once, the way PowerShell hands over "a2a 9/10, midterm 70" (the comma made an array)
+    $two = (Show-JkGradeWhatIf cs350 @('a2a', '9/10', 'midterm', '70') 6>&1 | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($two -match 'A2A Synchronization\s+8[.,]0%\s+90[.,]0%' -and $two -match 'Midterm\s+25[.,]0%\s+70[.,]0%') "both: $two"
+    Assert-True ($two -match 'then: average 74[.,]8% over 33[.,]0%') "weighted together: (7.2 + 17.5) / 33 = 74.8: $two"
+    Assert-Throws { Show-JkGradeWhatIf cs350 @('bonus', '5') }
+    Assert-Eq ([IO.File]::ReadAllText($file)) $before 'still nothing saved'
+}
 Test 'grade import: a copied LEARN Grades page becomes marks, matched by title, on a yes' {
     $page = "Grades`nFinal Calculated Grade`t-`nGrade Item`tPoints`tWeight Achieved`tGrade`nAssignments`t `t `t`nAssignment 01 - Stigma`t9 / 10`t9 / 10`t90 %`nAssignment 2`t- / 10`t- / 10`nMidterm`t27 / 30`t27 / 30`t90 %`tView feedback`nParticipation`t5 / 5`t2 / 2`t100 %"
     # LEARN's own totals must never be offered as extra parts of the grade (they would count twice)

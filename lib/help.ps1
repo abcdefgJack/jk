@@ -89,6 +89,8 @@ jk grade import cs341          copy the course's Grades page in LEARN (Ctrl+A, C
                                is matched to a deadline, shown, then recorded on a yes (-Yes skips asking)
 jk grade set 23 17/20          record a mark for deadline #23 (85, 85%, 17/20, 17 out of 20 all work)
 jk grade cs341 midterm 1 72%   or name it by course and title words (a1 = Assignment 1, q2 = Quiz 2)
+jk grade cs370 if midterm 70   what if: the average with that mark and what the rest would need;
+                               several: if midterm 70, a2 85. Nothing is saved
 jk grade clear 23
 jk grade target cs350 85       default target is 80%; jk grade target 85 changes it for every course
 jk grade add cs350 "Participation" -Weight 5 -Score 100     parts that are not deadlines
