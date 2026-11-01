@@ -1060,6 +1060,20 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
         Assert-True ((Get-JkMorningWeather ([datetime]'2026-11-03T08:00')) -match '^Weather: 4. now, high 12.; rain 2.6 pm \(80%\) . umbrella$') 'morning popup line'
         Assert-True ((Get-JkExamWeather ([datetime]'2026-11-03T16:30')) -match '^8., rain at 4:30 pm; rain around then \(80%\), take an umbrella$') "exam: $(Get-JkExamWeather ([datetime]'2026-11-03T16:30'))"
         Assert-True ((Get-JkDashWeather ([datetime]'2026-11-03T08:00')) -match 'rain 2.6 pm') 'dashboard line from the kept forecast'
+        # the "starts in 2h" alert of an exam says what it will be like on the way there
+        $d = Get-JkDueData
+        $c = Resolve-JkCourse $d 'cs350' -Create
+        $null = New-JkEvent -Data $d -Course $c.key -Date ([datetime]'2026-11-03') -Time '16:30' -Title 'Midterm' -Kind 'exam'
+        Save-JkDueData $d
+        $ev = @((Get-JkDueData).events | Where-Object { $_.title -eq 'Midterm' })[0]
+        $env:JK_NOW = '2026-11-03T14:30:00'
+        $origN = ${function:Show-JkNotify}
+        try {
+            function script:Show-JkNotify { param([string]$Title, [string[]]$Lines, $Accent, [int]$Seconds) $script:WxShown = $Lines -join ' | '; 'stub' }
+            $r = New-JkReminder -At ([datetime]'2026-11-03T14:30') -Text 'CS 350 Midterm' -Key "due:$($ev.id):2026-11-03" -DueId ([int]$ev.id)
+            Complete-JkReminder -Id $r.id
+            Assert-True ($script:WxShown -match 'Weather: 8., rain at 4:30 pm; rain around then \(80%\), take an umbrella') "exam alert: $script:WxShown"
+        } finally { Set-Item function:script:Show-JkNotify $origN; $env:JK_NOW = '2026-11-03T08:00:00' }
         # the brief speaks up only for rain, snow or a bitter wind chill in the next 12 hours
         Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-03T08:00')) "rain 2$($script:G.dash)6 pm" 'brief: rain today'
         Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-05T20:00')) "snow 9 pm$($script:G.dash)3 am" 'brief: snow tonight'

@@ -129,6 +129,8 @@ function Complete-JkReminder {
             # an exam or an interview is something to get to, not to hand in: when, and where
             $lines += "Starts $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             if ($e.note) { $lines += [string]$e.note }
+            # what it will be like on the way there
+            if ([string]$e.note -notmatch '(?i)\bonline\b') { try { $wx = Get-JkExamWeather $due; if ($wx) { $lines += "Weather: $wx" } } catch { } }
         } else {
             $lines += "Due $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             $lines += "Finished? jk due done $dueId"
