@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'time'; Cmd = 'jk time'; Text = 'the time in Beijing (from your Chinese keyboard), 8pm beijing in your time, and when you are both up to call' },
     @{ Id = 'grep'; Cmd = 'jk grep cs370 condition number'; Text = 'the lecture pages that cover it, with a snippet; jk find -o 1 opens the PDF at that page' },
     @{ Id = 'weather'; Cmd = 'jk weather'; Text = 'rain or snow from when, what to take, and the weather at your exam; a line of it on the dashboard' },
     @{ Id = 'grade-whatif'; Cmd = 'jk grade cs370 if midterm 70'; Text = 'what the rest of the course would need with that mark; nothing is saved' },

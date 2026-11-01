@@ -17,6 +17,7 @@ function Invoke-JkConfig {
             'tidy.courses' = { "$(Format-JkCount @((Get-JkCourseFolders).Keys).Count 'course folder') found on the Desktop" }
             'find.roots'   = { (@(Get-JkFindRoots) | ForEach-Object { & $short $_ }) -join '; ' }
             'shots.path'   = { & $short (Get-JkShotsPath) }
+            'time.zones'   = { $p = @(Get-JkClockPlaces); if ($p.Count) { (@($p | ForEach-Object { $_.Name }) -join ', ') + ' (from your languages)' } else { 'none' } }
             'weather.place' = { $p = Get-JkWeatherPlace -NoLookup; if ($p) { $p.Name } else { 'off' } }
             'sync.url'     = { 'not connected yet - jk due sync' }
             'jobs.file'    = { $f = Find-JkJobsFile; if ($f) { "found $(& $short $f)" } else { 'none found on the Desktop' } }

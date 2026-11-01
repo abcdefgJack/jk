@@ -939,6 +939,56 @@ Test 'jk grep: words inside course files by page, phrase first, one course or al
         Set-JkConfig 'tidy.courses' $saved
     }
 }
+Test 'jk time: the gap and when it changes, call windows, places from languages, conversions' {
+    $cn = [TimeZoneInfo]::FindSystemTimeZoneById('China Standard Time')
+    $et = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $uk = [TimeZoneInfo]::FindSystemTimeZoneById('GMT Standard Time')
+    $U = { param([string]$s) [datetime]::SpecifyKind([datetime]::Parse($s, $script:Inv), 'Utc') }
+    Assert-Eq (Get-JkClockGap $cn $et (& $U '2026-10-31T12:00:00')) 12 'Beijing 12h ahead before the fall back'
+    Assert-Eq (Get-JkClockGap $cn $et (& $U '2026-11-02T12:00:00')) 13 'then 13h'
+    $ch = Get-JkClockGapChange $cn $et (& $U '2026-10-31T12:00:00')
+    Assert-Eq "$($ch.Utc.ToString('yyyy-MM-ddTHH:mm', $script:Inv)) $($ch.Before)>$($ch.After) $($ch.Side)" '2026-11-01T06:00 12>13 here' 'Waterloo falls back at 2 am EDT'
+    $ch = Get-JkClockGapChange $uk $et (& $U '2026-10-20T12:00:00')
+    Assert-Eq "$($ch.Utc.ToString('yyyy-MM-ddTHH:mm', $script:Inv)) $($ch.Before)>$($ch.After) $($ch.Side)" '2026-10-25T01:00 5>4 there' 'London falls back a week earlier'
+    Assert-True ($null -eq (Get-JkClockGapChange $cn $cn (& $U '2026-10-31T12:00:00'))) 'no change, no note'
+    $win = @(Get-JkCallWindows $cn $et (& $U '2026-11-01T03:00:00'))
+    Assert-Eq "$($win[0].Start.ToString('MM-dd HH:mm', $script:Inv))-$($win[0].End.ToString('HH:mm', $script:Inv))" '11-01 08:00-09:00' 'after 11 pm here: 8-9 am, their 9-10 pm'
+    Assert-Eq "$($win[1].Start.ToString('HH:mm', $script:Inv))" '20:00' 'then from 8 pm, their 9 am'
+    Assert-Eq (Format-JkCallWindows $win ([datetime]'2026-10-31T23:00')) "8$($script:G.dash)9 am tomorrow, 8$($script:G.dash)10 pm tomorrow"
+    $places = @(Get-JkClockAutoPlaces @('en-US', 'zh-Hans-CN', 'en-CA') 'CA')
+    Assert-Eq "$($places.Name)|$($places.Zone.Id)" 'Beijing|China Standard Time' 'a Chinese (PRC) keyboard means Beijing'
+    Assert-Eq (@(Get-JkClockAutoPlaces @('ko-KR', 'zh-Hant-TW', 'fr-CA') 'CA').Name -join ',') 'Seoul,Taipei' 'home country and English ones aside'
+    foreach ($c in 'Shanghai', 'hong kong', 'China Standard Time', 'Urumqi') { Assert-Eq (Resolve-JkClockZone $c).Id 'China Standard Time' $c }
+    Assert-True ($null -eq (Resolve-JkClockZone 'nowhereville')) 'unknown city'
+    Assert-Eq "$(Format-JkClockGap 13)|$(Format-JkClockGap -5)|$(Format-JkClockGap 5.5)|$(Format-JkClockGap 0)" '13h ahead|5h behind|5h 30m ahead|same time'
+
+    $savedNow = $env:JK_NOW; $savedZones = [string](Get-JkConfig 'time.zones')
+    try {
+        Set-JkConfig 'time.zones' 'Beijing=China Standard Time'
+        $env:JK_NOW = '2026-10-31T22:00:00'
+        $text = @(& { jk time } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($text -match 'Beijing\s+\w{3} \d{1,2}:\d{2} [ap]m\s+\d+h ahead') "row: $text"
+        $utc = ([datetime]'2026-10-31T22:00:00').ToUniversalTime()
+        if (Get-JkClockGapChange $cn ([TimeZoneInfo]::Local) $utc) { Assert-True ($text -match '\d+h ahead from 2 am tonight, when the clocks here go back an hour') 'the change, as the clock reads before it' }
+        else { Assert-True ($text -notmatch 'when the clocks') 'no change in this zone' }
+        # 8pm there, in my time
+        $rows = @(Convert-JkClockTime @('8pm', 'beijing'))
+        $there = [TimeZoneInfo]::ConvertTimeFromUtc($utc, $cn)
+        $t8 = $there.Date.AddHours(20); if ($t8 -le $there) { $t8 = $t8.AddDays(1) }
+        $mine = [TimeZoneInfo]::ConvertTimeFromUtc([TimeZoneInfo]::ConvertTimeToUtc([datetime]::SpecifyKind($t8, 'Unspecified'), $cn), [TimeZoneInfo]::Local)
+        Assert-Eq $rows[0].To "$($mine.ToString('ddd', $script:Inv)) $(Format-JkTime $mine.ToString('HH:mm', $script:Inv)) here" 'there -> here'
+        Assert-Eq (@(Convert-JkClockTime @('beijing', '8pm'))[0].To) $rows[0].To 'the place first works too'
+        $rows = @(Convert-JkClockTime @('9am'))
+        Assert-True ($rows[0].To -match ' in Beijing$' -and $rows[0].From -match '9:00 am here$') "here -> there: $($rows[0].From) / $($rows[0].To)"
+        jk time add london
+        Assert-Eq ([string](Get-JkConfig 'time.zones')) 'Beijing=China Standard Time;London=GMT Standard Time' 'added'
+        jk time rm beijing
+        jk time rm london
+        Assert-Eq ([string](Get-JkConfig 'time.zones')) 'off' 'emptied by hand stays empty (not refilled from languages)'
+        Assert-Eq @(Get-JkClockPlaces).Count 0 'off'
+        Assert-Throws { Invoke-JkTime add nowhereville } 'an unknown city is refused'
+    } finally { $env:JK_NOW = $savedNow; Set-JkConfig 'time.zones' $savedZones }
+}
 Test 'jk weather: rain or snow from when, what to take, the exam, kept for an hour' {
     $savedNow = $env:JK_NOW; $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'weather-home'; $script:JkConfigCache = $null
