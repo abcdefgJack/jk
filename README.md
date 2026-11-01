@@ -62,11 +62,11 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 
 | Area | Command | What it does |
 |---|---|---|
-| School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick` asks for your sections (or `jk class pick cs341 003`); `jk class import` reads Quest's List View |
+| School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick` asks for your sections (or `jk class pick cs341 003`); `jk class import` reads Quest's List View (nothing copied yet: it opens Quest and waits for the copy) |
 | | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
 | | `jk exam cs370` | One exam on a screen: when and where, worth, what you need on it, the prep `jk plan` expects and has scheduled, what lands the week before, and its review files (`jk find -o 1` opens one) |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
-| | `jk due sync` | Pulls deadlines from LEARN's calendar feed (or any `.ics` link or file). The first time, it offers the link on your clipboard or asks you to paste it. Re-syncs update moved dates and keep your own edits, and the morning task syncs daily |
+| | `jk due sync` | Pulls deadlines from LEARN's calendar feed (or any `.ics` link or file). The first time, it offers a link already on your clipboard, or opens LEARN's calendar and reads the link once you copy it from Subscribe. Re-syncs update moved dates and keep your own edits, and the morning task syncs daily |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due files cs341 a2` | The files in that course's folder named after the deadline (`A2.tex`, `A2\...`, `a2a.pdf`), or its newest files; `jk find -o 1` opens one |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
@@ -84,17 +84,21 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk cp listen` | Any judge, Codeforces included: run it, then press the [Competitive Companion](https://github.com/jmerle/competitive-companion) extension's green + on a problem or contest page; each problem arrives as a folder with its samples (port 10043, `jk config set cp.port`) |
 | | `jk cp stress` | `main` vs `brute` on `gen <seed>` inputs; a counterexample becomes a sample |
 | | `jk repos` / `jk repos -Fetch` | Every git repo under the Desktop: uncommitted, unpushed, behind (git runs for 8 repos at a time; a hung fetch is stopped after a minute) |
-| | `jk port 8080 -Kill` | Who holds a port, and free it |
-| | `jk shots` | The Screenshots folder: count per month, the newest numbered (`jk find -o 1` opens the latest); `jk shots file` sorts older ones into month folders (`jk tidy undo` reverses it), `jk shots old -Recycle` bins those over a year old |
+| | `jk port 8080 -Kill` | Who holds a port, and free it; a database other devices on the network can reach is flagged with the setting that keeps it local |
+| Machine | `jk shots` | The Screenshots folder: count per month, the newest numbered (`jk find -o 1` opens the latest); `jk shots file` sorts older ones into month folders (`jk tidy undo` reverses it), `jk shots old -Recycle` bins those over a year old |
 | | `jk net` | Is it the Wi-Fi or the internet? Address, router, internet, DNS and web checked in order, then one line on what is wrong (weak signal, no address, DNS, a sign-in page) |
-| Machine | `jk find co250 a3` / `jk find -o 1` | Any file on the Desktop, in Documents or Downloads whose name or folders hold every word, best first (a word like `pdf` picks the type). Walked live in about 0.2 s, so new files show up at once; `-o`, `-e`, `-c`, `-p` open, reveal in Explorer, edit or print a result |
+| | `jk find co250 a3` / `jk find -o 1` | Any file on the Desktop, in Documents or Downloads whose name or folders hold every word, best first (a word like `pdf` picks the type). Walked live in about 0.2 s, so new files show up at once; `-o`, `-e`, `-c`, `-p` open, reveal in Explorer, edit or print a result |
 | | `jk clip` / `jk clip unwrap` | Word count of the clipboard (Chinese counted by character); `unwrap` fixes text copied from a PDF (wrapped lines rejoined, "optimi-zation" mended, bullets kept); `plain` drops formatting |
 | | `jk recent` / `jk recent 7` | The files you changed in the last 2 (or N) days, newest first, with the busiest folders on top; the numbers work with `jk find -o` |
 | | `jk tidy` / `jk tidy apply` / `jk tidy undo` | Sort Downloads (dry run first, fully undoable). Files named after a course with a folder (`CS245-F25-A05.pdf`, `STAT_230_002_27.pdf`) go to that folder, e.g. `Desktop\Waterloo course\CS245`, unless a copy is already filed there; `jk config set tidy.courses off` turns that off. `jk tidy dupes` and `jk tidy old` report duplicates and stale installers; `-Recycle` sends them to the Recycle Bin, looking only at loose downloads and jk's category folders, never inside unzipped programs or repos |
-| | `j co250`, `j co250/final`, `j jobs`, `j -` | Fuzzy jump (Chinese folder names work too); `jk mark` bookmarks the current folder |
+| | `j co250` (`jk go co250`), `j co250/final`, `j jobs`, `j -` | Fuzzy jump (Chinese folder names work too); `jk mark` bookmarks the current folder |
 | | `jk sys` | CPU, memory, disks, battery and its wear (today's full charge against the design capacity), Wi-Fi, apps using the most RAM |
 | | `jk space` / `jk space clean conda` | What fills the disk (caches, temp, Docker, `node_modules`), with the right cleanup for each |
 | | `jk speed` / `jk speed fix` | Times shell startup per profile file; makes the `conda init` hook instant (about 2.4 s to 0.3 s) |
+| jk | `jk doctor` | Checks the module link, profile hook, morning task, LEARN feed, backups, background errors, databases open to the network and the compilers |
+| | `jk remind` / `jk remind install` | Pending reminders (cancel by id) and the morning task's state; `install` sets up or repairs the task |
+| | `jk config` / `jk backup` | Every setting, with what an empty default comes to here / the daily snapshots of your data, `jk backup restore <day>` |
+| | `jk update` / `jk brief` | Pulls the latest jk from GitHub and reloads it / the one-line summary shown when PowerShell starts |
 
 ## Notable details
 

@@ -2560,6 +2560,11 @@ Test 'tab completion engine' {
     Assert-Eq ((& $names '' @('jk', 'cp', 'new', 'x', '-Lang')) -join ',') 'cpp,py,java,usaco'
     Assert-True ((& $names '' @('jk', 'due', 'add')) -contains 'cs350')
 }
+Test 'the README names every command' {
+    $readme = [IO.File]::ReadAllText((Join-Path (Get-JkRoot) 'README.md'))
+    $missing = @($script:JkCommands.Keys | Where-Object { $readme -notmatch "``jk $_(\s|``)" })
+    Assert-Eq ($missing -join ', ') '' 'commands the README never mentions (as `jk <command>`)'
+}
 Test 'jk help lists every command in its index, once' {
     $listed = @($script:JkHelpGroups.Values | ForEach-Object { $_ })
     $missing = @($script:JkCommands.Keys | Where-Object { $listed -notcontains $_ })
