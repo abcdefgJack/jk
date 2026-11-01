@@ -126,12 +126,19 @@ function Format-JkFindFolder([string]$Folder, [int]$Width) {
 }
 
 function Open-JkFindHit([string]$Path, [string]$How) {
+    # a jk grep result carries its PDF page after a tab
+    $page = 0
+    $tab = $Path.IndexOf("`t")
+    if ($tab -ge 0) { $page = [int]$Path.Substring($tab + 1); $Path = $Path.Substring(0, $tab) }
     if (-not (Test-Path -LiteralPath $Path)) { throw "that file is gone: $Path" }
     switch ($How) {
         'print' { return $Path }
         'explorer' { Start-Process explorer.exe -ArgumentList "/select,`"$Path`""; Say ((Paint 'green' '  shown in Explorer  ') + $Path) }
         'code' { Open-JkInEditor $Path; Say ((Paint 'green' '  opened in editor  ') + $Path) }
-        default { Invoke-Item -LiteralPath $Path; Say ((Paint 'green' '  opened  ') + $Path) }
+        default {
+            if ($page -gt 0) { Open-JkPdfAtPage $Path $page; return }
+            Invoke-Item -LiteralPath $Path; Say ((Paint 'green' '  opened  ') + $Path)
+        }
     }
 }
 

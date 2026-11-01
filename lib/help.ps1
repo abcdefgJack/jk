@@ -189,6 +189,17 @@ jk shots old                   those older than a year by year and size; -Months
                                send them to the Recycle Bin (recoverable)
 jk config set shots.path D:\Shots   another folder (default: Pictures\Screenshots)
 '@
+    'grep'   = @'
+jk grep condition number       pages holding every word, across this term's course folders: lecture PDFs
+                               page by page, slides, Word files, notebooks (by cell), notes and code
+jk grep cs370 condition number one course;  jk grep cs370 "runge kutta" for an exact phrase
+jk grep all eigenvalue         every course folder, past terms too
+jk find -o 1                   opens result 1, a PDF at its page (Edge, Chrome, SumatraPDF, Acrobat)
+-All lists every page (otherwise the best 12, three per file). Words match inside longer ones
+(interp finds interpolation). The PDFs' text is read once with pdftotext (MiKTeX, Git) or pypdf
+and kept; handwritten or scanned PDFs have no text to search, and are counted.
+Also: jk inside, jk lookup, jk where.
+'@
     'weather' = @'
 jk weather                     now, the next hours (temperature, chance of rain or snow), today and four
                                more days with what to take (umbrella, boots, icy sidewalks, a cold wind),
@@ -324,7 +335,7 @@ function Write-JkHelpBlock([string]$Text) {
 # The command index of jk help. Every command in $script:JkCommands belongs in one group (a test
 # checks), so a new command cannot go missing from it.
 $script:JkHelpGroups = [ordered]@{
-    'School'  = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
+    'School'  = @('class', 'due', 'week', 'exams', 'grep', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
     'Time'    = @('focus', 'in', 'at', 'remind', 'weather')
     'Code'    = @('cp', 'repos', 'port')
     'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')
