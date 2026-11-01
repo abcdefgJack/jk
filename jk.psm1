@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'clip', 'shots', 'pdf', 'sys', 'net', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -9,7 +9,7 @@ foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'g
 $script:JkCommands = [ordered]@{
     'due'    = @{ Fn = 'Invoke-JkDue'; Aliases = @('d', 'deadlines'); Desc = 'course deadlines: upcoming, add, done, week grid, calendar, .ics, reminders' }
     'class'  = @{ Fn = 'Invoke-JkClass'; Aliases = @('classes', 'cls', 'timetable', 'schedule', 'sched'); Desc = 'class schedule: what is on today, the next class, a weekly timetable' }
-    'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
+    'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk', 'w'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
     'exams'  = @{ Fn = 'Invoke-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown; jk exam cs370 for one exam on a screen' }
     'plan'   = @{ Fn = 'Invoke-JkPlan'; Aliases = @('study'); Desc = 'split today''s study time across upcoming exams and assignments; jk plan start' }
     'review' = @{ Fn = 'Show-JkReview'; Aliases = @('weekly', 'retro'); Desc = 'last 7 days done and slipped, next 7 days load, where the marks are' }
@@ -31,6 +31,7 @@ $script:JkCommands = [ordered]@{
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
     'pdf'    = @{ Fn = 'Invoke-JkPdf'; Aliases = @('topdf', 'scan'); Desc = 'photos of handwritten work (and PDFs) into one PDF for LEARN or Crowdmark: upright, a page each' }
     'shots'  = @{ Fn = 'Invoke-JkShots'; Aliases = @('screenshots', 'shot'); Desc = 'the Screenshots folder: per month, the newest to open, file the rest into month folders' }
+    'weather' = @{ Fn = 'Invoke-JkWeather'; Aliases = @('wx', 'forecast', 'rain'); Desc = 'the forecast read for you: rain or snow from when, how cold it feels, the days ahead, at your exam' }
     'net'    = @{ Fn = 'Invoke-JkNet'; Aliases = @('wifi', 'internet', 'online'); Desc = 'is it the Wi-Fi or the internet? address, router, internet, DNS and web checked in order' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
     'space'  = @{ Fn = 'Invoke-JkSpace'; Aliases = @('disk', 'du'); Desc = 'what is filling the disk: caches, temp, Docker, node_modules (read-only report)' }
@@ -158,6 +159,7 @@ $script:JkActions = @{
     'space'  = @('clean', 'help')
     'port'   = @()
     'net'    = @('speed', 'help')
+    'weather' = @('set', 'off', 'help')
     'shots'  = @('file', 'old', 'help')
     'pdf'    = @()
     'go'     = @()
