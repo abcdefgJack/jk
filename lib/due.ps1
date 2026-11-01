@@ -531,6 +531,10 @@ function Show-JkExamBrief {
     & $row 'when' (Paint 'white' $when)
     $notes = @(@([string]$e.note) + $(if ($x.Win) { @([string]$x.Win.Open.note) } else { @() }) | Where-Object { $_ } | Select-Object -Unique)
     foreach ($n in $notes) { & $wrapRow 'notes' $n 'muted' }
+    # the weather on the way there, for one in person inside the forecast
+    if (-not $x.Win -and $e.time -and ($notes -join ' ') -notmatch '(?i)\bonline\b' -and $x.Start -gt $now) {
+        try { $wx = Get-JkExamWeather $x.Start; if ($wx) { & $wrapRow 'weather' $wx 'muted' } } catch { }
+    }
 
     # what it is worth and what it needs
     $wt = Get-JkWeightValue ([string]$e.weight)
@@ -1348,6 +1352,8 @@ function Invoke-JkDueRemind {
     if ($classes.Count) {
         $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
     }
+    # the day's weather rides along (never a reason for the popup on its own)
+    try { $wx = Get-JkMorningWeather $now; if ($wx) { $lines += $wx } } catch { }
     foreach ($e in (@($soon | Select-Object -First 6) + $examsAhead)) {
         $due = Get-JkEventDue $e
         $when = Format-JkRelDay $due $now

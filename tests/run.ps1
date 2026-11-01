@@ -847,6 +847,102 @@ Test 'databases open to the network: grouped ports, the setting and file that ke
     $sw = [Diagnostics.Stopwatch]::StartNew(); $null = Get-JkDbServiceInfo 'no-such-db-exe'; $sw.Stop()
     Assert-True ($sw.ElapsedMilliseconds -lt 1500) "registry walk took $($sw.ElapsedMilliseconds) ms"
 }
+Test 'jk weather: rain or snow from when, what to take, the exam, kept for an hour' {
+    $savedNow = $env:JK_NOW; $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'weather-home'; $script:JkConfigCache = $null
+    $orig = ${function:Invoke-JkWeatherGet}
+    $origBg = ${function:Start-JkBackground}
+    $files = @('weather.txt', 'weather-places.json', 'weather.refresh' | ForEach-Object { Join-Path (Get-JkCacheDir) $_ })
+    try {
+        $files | ForEach-Object { Remove-Item -LiteralPath $_ -ErrorAction SilentlyContinue }
+        # a pinned clock never goes to the network
+        $env:JK_NOW = '2026-11-03T08:00:00'
+        Assert-True ($null -eq (Get-JkWeather)) 'no live fetch under JK_NOW'
+        Assert-True ($script:JkWeatherError -match 'JK_NOW') "why: $script:JkWeatherError"
+
+        # six days from Nov 2, built from local times so every zone reads the same hours
+        $unix = { param([datetime]$t) (New-Object DateTimeOffset ($t.ToUniversalTime())).ToUnixTimeSeconds() }
+        $H = @{ time = @(); temperature_2m = @(); apparent_temperature = @(); precipitation_probability = @(); precipitation = @(); snowfall = @(); weather_code = @(); wind_speed_10m = @(); wind_gusts_10m = @() }
+        $t0 = [datetime]'2026-11-02T00:00:00'
+        for ($i = 0; $i -lt 144; $i++) {
+            $t = $t0.AddHours($i)
+            $temp = [Math]::Round($t.Hour / 2.0, 1); $feels = $temp - 2; $pop = 0; $mm = 0.0; $cm = 0.0; $code = 3; $gust = 20
+            if ($t.Date -eq [datetime]'2026-11-03' -and $t.Hour -ge 14 -and $t.Hour -lt 18) { $pop = 80; $mm = 1.0; $code = 63 }
+            if (($t.Date -eq [datetime]'2026-11-05' -and $t.Hour -ge 21) -or ($t.Date -eq [datetime]'2026-11-06' -and $t.Hour -lt 3)) { $pop = 70; $mm = 1.0; $cm = 1.0; $code = 73; $temp = -2; $feels = -6 }
+            if ($t.Date -eq [datetime]'2026-11-06' -and $t.Hour -eq 7) { $pop = 60; $mm = 0.5; $code = 66 }
+            if ($t.Date -eq [datetime]'2026-11-06' -and $t.Hour -ge 7 -and $t.Hour -le 9) { $feels = -15 }
+            if ($t.Date -eq [datetime]'2026-11-07' -and $t.Hour -eq 12) { $gust = 70 }
+            $H.time += (& $unix $t); $H.temperature_2m += $temp; $H.apparent_temperature += $feels; $H.precipitation_probability += $pop
+            $H.precipitation += $mm; $H.snowfall += $cm; $H.weather_code += $code; $H.wind_speed_10m += 12; $H.wind_gusts_10m += $gust
+        }
+        $script:WxFixture = ConvertTo-Json -Depth 4 -Compress @{
+            current = @{ time = (& $unix ([datetime]'2026-11-03T08:00')); temperature_2m = 4; apparent_temperature = 0; weather_code = 3; wind_speed_10m = 12 }
+            hourly  = $H
+            daily   = @{ sunrise = @((& $unix ([datetime]'2026-11-03T06:55'))); sunset = @((& $unix ([datetime]'2026-11-03T17:05'))) }
+        }
+        $script:WxCalls = @()
+        function script:Invoke-JkWeatherGet {
+            param([string]$Url, [int]$TimeoutSec = 6)
+            $script:WxCalls += $Url
+            if ($Url -match 'geocoding') {
+                if ($Url -match 'name=london$') { return '{"results":[{"name":"London","latitude":51.5085,"longitude":-0.1257,"country_code":"GB","country":"United Kingdom","admin1":"England"},{"name":"London","latitude":42.9834,"longitude":-81.233,"country_code":"CA","country":"Canada","admin1":"Ontario"}]}' }
+                return '{}'
+            }
+            $script:WxFixture
+        }
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) $script:WxBg = $Script; [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+
+        $w = Get-JkWeather
+        Assert-Eq $script:WxCalls.Count 1 'fetched once'
+        Assert-True ($script:WxCalls[0] -match 'latitude=43\.4643&longitude=-80\.5204' -and $script:WxCalls[0] -match 'timeformat=unixtime') "Waterloo by default, as instants: $($script:WxCalls[0])"
+        $null = Get-JkWeather
+        Assert-Eq $script:WxCalls.Count 1 'the kept forecast is used within the hour'
+        Assert-Eq (Get-JkWeatherHour $w ([datetime]'2026-11-03T14:30')).Pop 80 'hours land on local time'
+
+        $text = @(& { jk weather } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($text -match 'today\s+12. / 0.\s+rain 2.6 pm \(80%\)\s+. umbrella') "today: $text"
+        Assert-True ($text -match 'Thu Nov 5\s+10. / -2.\s+snow from 9 pm \(70%, 3 cm\)\s+. boots') 'snow from 9 pm, boots'
+        Assert-True ($text -match 'Fri Nov 6 .*freezing rain 7.8 am \(60%\)\s+. umbrella, icy sidewalks, feels like -15.') 'freezing rain and a wind chill'
+        Assert-True ($text -match 'Sat Nov 7 .*gusts to 70 km/h') 'wind'
+        Assert-True ($text -match 'now\s+4. cloudy, feels 0.') 'now, with how it feels'
+
+        # the dashboard's line, the morning popup, an exam in the rain
+        $l = Get-JkWeatherLine $w ([datetime]'2026-11-03T08:00')
+        Assert-Eq "$($l.Now) | $($l.Wet) | $($l.Next)" "4$($script:JkDeg) cloudy, feels 0$($script:JkDeg) | rain 2$($script:G.dash)6 pm (80%) | high 12$($script:JkDeg)"
+        $l = Get-JkWeatherLine $w ([datetime]'2026-11-05T20:00')
+        Assert-True ($l.Wet -match '^snow 9 pm.3 am \(70%, 6 cm\)$' -and $l.Next -match '^tomorrow 12. / -2.$') "evening: $($l.Wet) | $($l.Next)"
+        Assert-True ((Get-JkMorningWeather ([datetime]'2026-11-03T08:00')) -match '^Weather: 4. now, high 12.; rain 2.6 pm \(80%\) . umbrella$') 'morning popup line'
+        Assert-True ((Get-JkExamWeather ([datetime]'2026-11-03T16:30')) -match '^8., rain at 4:30 pm; rain around then \(80%\), take an umbrella$') "exam: $(Get-JkExamWeather ([datetime]'2026-11-03T16:30'))"
+        Assert-True ((Get-JkDashWeather ([datetime]'2026-11-03T08:00')) -match 'rain 2.6 pm') 'dashboard line from the kept forecast'
+
+        # another zone reads on its own clock
+        $far = ConvertFrom-JkWeatherJson ($script:WxFixture.Substring(0, $script:WxFixture.Length - 1) + ',"utc_offset_seconds":' + [int]([TimeZoneInfo]::Local.GetUtcOffset([datetime]'2026-11-03').TotalSeconds + 10800) + '}') $script:JkWeatherHome ([DateTime]::UtcNow)
+        Assert-Eq $far.Offset.TotalSeconds ([TimeZoneInfo]::Local.GetUtcOffset([datetime]'2026-11-03').TotalSeconds + 10800) 'offset kept'
+        Assert-Eq (ConvertTo-JkWeatherClock $far ([datetime]'2026-11-03T08:00')).ToString('HH:mm') '11:00' 'three hours ahead'
+
+        # places: london, on (the comma lost to PowerShell) is the Ontario one; numbers stay invariant
+        $p = Resolve-JkWeatherPlace 'london on'
+        Assert-Eq "$($p.Name) $($p.Lat)" 'London, ON 42.9834' 'the region from the last word'
+        $n = $script:WxCalls.Count; $null = Resolve-JkWeatherPlace 'London On'
+        Assert-Eq $script:WxCalls.Count $n 'looked up once'
+        Set-JkConfig 'weather.place' 'London, ON (42.9834, -81.233)'
+        Assert-True ((Get-JkWeatherUrl (Get-JkWeatherPlace)) -match 'latitude=42\.9834&longitude=-81\.233&') 'a set place, in invariant numbers'
+        $script:WxBg = $null
+        $null = Get-JkDashWeather ([datetime]'2026-11-03T08:00')
+        $env:JK_NOW = ''
+        $null = Get-JkDashWeather ([datetime]'2026-11-03T08:00')
+        $env:JK_NOW = '2026-11-03T08:00:00'
+        Assert-True ($null -eq $script:WxBg) 'no background fetch in tests (JK_NONINTERACTIVE) or under a pinned clock'
+        jk weather off
+        Assert-True ($null -eq (Get-JkWeatherPlace)) 'off'
+        Assert-Eq (Get-JkDashWeather ([datetime]'2026-11-03T08:00')) '' 'nothing on the dashboard when off'
+    } finally {
+        Set-Item function:script:Invoke-JkWeatherGet $orig
+        Set-Item function:script:Start-JkBackground $origBg
+        $files | ForEach-Object { Remove-Item -LiteralPath $_ -ErrorAction SilentlyContinue }
+        $env:JK_NOW = $savedNow; $env:JK_HOME = $saved; $script:JkConfigCache = $null
+    }
+}
 Test 'jk net: Wi-Fi details in any language, and one verdict per kind of failure' {
     $en = @('    Name                   : Wi-Fi', '    SSID                   : eduroam', '    BSSID                  : aa:bb', '    Radio type             : 802.11ax', '    Band                   : 5 GHz', '    Signal                 : 65% ')
     $w = ConvertFrom-JkWlanText $en

@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'weather'; Cmd = 'jk weather'; Text = 'rain or snow from when, what to take, and the weather at your exam; a line of it on the dashboard' },
     @{ Id = 'grade-whatif'; Cmd = 'jk grade cs370 if midterm 70'; Text = 'what the rest of the course would need with that mark; nothing is saved' },
     @{ Id = 'pdf'; Cmd = 'jk pdf *.jpg'; Text = 'photos of handwritten work into one PDF for LEARN or Crowdmark, each page upright' },
     @{ Id = 'cp-links'; Cmd = 'jk cp new <AtCoder/USACO/CSES link>'; Text = 'the problem''s folder with every sample downloaded; jk cp tests them' },
@@ -124,6 +125,8 @@ function Show-JkDashboard {
     Say ((Paint 'bold white' $left) + (' ' * [Math]::Max(2, $w - $left.Length - $right.Length - 1)) + (Paint 'muted' $right))
     $termLine = Format-JkTermLine $info
     if ($termLine) { Say (' ' + (Paint 'gray' $termLine)) }
+    # the weather, from the kept forecast (an old one is fetched again in the background)
+    try { $wx = Get-JkDashWeather $now; if ($wx) { Say (' ' + $wx) } } catch { }
     Say (Paint 'gray dim' (' ' + ($script:G.hline * ($w - 1))))
 
     # next exam callout

@@ -189,6 +189,18 @@ jk shots old                   those older than a year by year and size; -Months
                                send them to the Recycle Bin (recoverable)
 jk config set shots.path D:\Shots   another folder (default: Pictures\Screenshots)
 '@
+    'weather' = @'
+jk weather                     now, the next hours (temperature, chance of rain or snow), today and four
+                               more days with what to take (umbrella, boots, icy sidewalks, a cold wind),
+                               and the weather at your next in-person exams
+jk weather toronto             another place, just this once ("london, on" picks the Ontario one)
+jk weather set <place>         where you are (default Waterloo); the dashboard line, the morning popup and
+                               jk exam use it
+jk weather off                 no weather on the dashboard, in the morning popup or in jk exam
+Forecast by Open-Meteo (free, no account; only the place's coordinates are sent), kept for an hour;
+the dashboard shows the kept one and fetches a fresh one in the background.
+Also: jk wx, jk forecast, jk rain.
+'@
     'net'    = @'
 jk net                         is it the Wi-Fi or the internet? checks in order: an address, the router,
                                the internet (1.1.1.1), DNS, and the page Windows fetches to decide it is
@@ -313,7 +325,7 @@ function Write-JkHelpBlock([string]$Text) {
 # checks), so a new command cannot go missing from it.
 $script:JkHelpGroups = [ordered]@{
     'School'  = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
-    'Time'    = @('focus', 'in', 'at', 'remind')
+    'Time'    = @('focus', 'in', 'at', 'remind', 'weather')
     'Code'    = @('cp', 'repos', 'port')
     'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')
     'jk'      = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
