@@ -191,6 +191,7 @@ function Invoke-JkFind {
     if (-not $show.Count) {
         Say (Paint 'gray' '  Nothing matches. Every word has to appear in the file name or its folders.')
         Say (Paint 'gray' "  searched: $($roots -join '  ')")
+        Say ((Paint 'gray' '  Words inside a file (a lecture PDF, notes)?  ') + (Paint 'white' "jk grep $query"))
         return
     }
     Write-JkFindRows $show

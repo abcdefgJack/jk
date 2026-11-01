@@ -314,6 +314,27 @@ function Get-JkWeatherDay($W, [datetime]$Date, [datetime]$Now) {
     }
 }
 
+# A day in a few characters for jk week: "12/0 rain", "17/2 clear"; Wet when a stretch of it is.
+function Get-JkWeatherDayShort($W, [datetime]$Date, [datetime]$Now) {
+    $d = Get-JkWeatherDay $W $Date $Now
+    if (-not $d) { return $null }
+    $word = switch -Regex ($d.Sky) {
+        '^(clear|mostly clear)$' { 'clear'; break }
+        '^partly' { 'mixed'; break }
+        'fog' { 'fog'; break }
+        'thunder' { 'storms'; break }
+        # wet by the sky's look but under the odds of a wet stretch: maybe
+        'snow' { 'snow?'; break }
+        'rain|drizzle|showers' { 'rain?'; break }
+        default { 'cloudy' }
+    }
+    $wet = [bool]$d.Spells.Count
+    if ($wet) {
+        $word = switch ($d.Spells[0].Kind) { 'rain and snow' { 'sleet' } 'thunderstorms' { 'storms' } 'freezing rain' { 'ice' } default { $d.Spells[0].Kind } }
+    }
+    [pscustomobject]@{ Text = "$(Format-JkDeg $d.High)/$(Format-JkDeg $d.Low) $word"; Wet = $wet }
+}
+
 # "13 deg, cloudy at 7:00 pm, 30% chance of rain" (with what to take); '' past the forecast's end.
 function Get-JkWeatherAtText($W, [datetime]$At) {
     $h = Get-JkWeatherHour $W $At
