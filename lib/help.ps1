@@ -184,6 +184,8 @@ jk net                         is it the Wi-Fi or the internet? checks in order:
                                online - then one line on what is wrong and what to try
                                (weak signal, no address from the router, router down, DNS failing,
                                a sign-in page in the way, or a VPN)
+jk net speed                   latency, download and upload against Cloudflare's speed test (about 15 s,
+                               ~30 MB), with what they are good for (HD video, calls)
 Also: jk wifi, jk internet, jk online.
 '@
     'repos'  = @'
