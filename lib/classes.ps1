@@ -188,7 +188,8 @@ function Show-JkClasses {
 }
 
 function Show-JkTimetable {
-    param([string]$Date, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra)
+    # "jk class week nov 2": the first word binds to -Date and the rest are joined back onto it
+    param([Parameter(Position = 0)][string]$Date, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra)
     $left = New-Object System.Collections.Generic.List[string]
     foreach ($x in @($Extra)) { if ($x) { $left.Add([string]$x) } }
     if (-not $Date -and $left.Count) { $Date = $left[0]; $left.RemoveAt(0) }
