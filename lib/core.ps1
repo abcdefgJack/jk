@@ -256,6 +256,7 @@ $script:JkConfigDefaults = [ordered]@{
     'tidy.minAge'   = '2'
     'tidy.courses'  = ''          # where course folders live (a;b); empty = the Desktop, off = never file by course
     'shots.path'    = ''          # screenshots folder for jk shots; empty = Pictures\Screenshots
+    'time.zones'    = ''          # jk time add <city>; empty = from your installed languages, off = none
     'weather.place' = ''          # jk weather set <place>; empty = Waterloo, off = no weather on the dashboard
     'focus.minutes' = '25'
     'plan.hours'    = '3'         # daily study budget for jk plan

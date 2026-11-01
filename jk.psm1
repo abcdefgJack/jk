@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'grep', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'grep', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'clock', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -32,6 +32,7 @@ $script:JkCommands = [ordered]@{
     'sys'    = @{ Fn = 'Invoke-JkSys'; Aliases = @('system', 'stats'); Desc = 'CPU, RAM, disks, battery, network, memory hogs' }
     'pdf'    = @{ Fn = 'Invoke-JkPdf'; Aliases = @('topdf', 'scan'); Desc = 'photos of handwritten work (and PDFs) into one PDF for LEARN or Crowdmark: upright, a page each' }
     'shots'  = @{ Fn = 'Invoke-JkShots'; Aliases = @('screenshots', 'shot'); Desc = 'the Screenshots folder: per month, the newest to open, file the rest into month folders' }
+    'time'   = @{ Fn = 'Invoke-JkTime'; Aliases = @('clock', 'tz', 'world'); Desc = 'the time where your people are, 8pm beijing in your time and back, when you are both up to call' }
     'weather' = @{ Fn = 'Invoke-JkWeather'; Aliases = @('wx', 'forecast', 'rain'); Desc = 'the forecast read for you: rain or snow from when, how cold it feels, the days ahead, at your exam' }
     'net'    = @{ Fn = 'Invoke-JkNet'; Aliases = @('wifi', 'internet', 'online'); Desc = 'is it the Wi-Fi or the internet? address, router, internet, DNS and web checked in order' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
@@ -162,6 +163,7 @@ $script:JkActions = @{
     'port'   = @()
     'net'    = @('speed', 'help')
     'weather' = @('set', 'off', 'help')
+    'time'   = @('add', 'rm', 'off', 'help')
     'shots'  = @('file', 'old', 'help')
     'pdf'    = @()
     'go'     = @()

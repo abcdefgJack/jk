@@ -200,6 +200,17 @@ jk find -o 1                   opens result 1, a PDF at its page (Edge, Chrome, 
 and kept; handwritten or scanned PDFs have no text to search, and are counted.
 Also: jk inside, jk lookup, jk where.
 '@
+    'time'   = @'
+jk time                        the time in each of your places, how far ahead or behind, awake or asleep,
+                               when you are both up for a call (8 am-11 pm here, 9 am-10 pm there), and
+                               when the gap changes because the clocks go back or forward
+jk time 8pm beijing            a time there in your time (beijing sun 8pm, tomorrow 9am shanghai work too)
+jk time 9am                    a time here in each place
+jk time add london             another place (a big city, or a Windows zone such as 'GMT Standard Time')
+jk time rm london              take one off;  jk time off  none at all
+With nothing added, the places come from your installed languages (Chinese (PRC) -> Beijing).
+Also: jk clock, jk tz, jk world.
+'@
     'weather' = @'
 jk weather                     now, the next hours (temperature, chance of rain or snow), today and four
                                more days with what to take (umbrella, boots, icy sidewalks, a cold wind),
@@ -336,7 +347,7 @@ function Write-JkHelpBlock([string]$Text) {
 # checks), so a new command cannot go missing from it.
 $script:JkHelpGroups = [ordered]@{
     'School'  = @('class', 'due', 'week', 'exams', 'grep', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
-    'Time'    = @('focus', 'in', 'at', 'remind', 'weather')
+    'Time'    = @('focus', 'in', 'at', 'remind', 'time', 'weather')
     'Code'    = @('cp', 'repos', 'port')
     'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')
     'jk'      = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
