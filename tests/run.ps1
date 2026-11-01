@@ -858,6 +858,18 @@ Test 'jk net: Wi-Fi details in any language, and one verdict per kind of failure
     }
     $null = @(Get-JkNetLinks)   # the real adapters read without errors
 }
+Test 'jk net speed: the Cloudflare site from cf-ray, and what the numbers are good for' {
+    Assert-Eq (Get-JkCfColo 'a53720f2dac3ab3c-YYZ') 'YYZ'
+    Assert-Eq (Get-JkCfColo '') ''
+    $v = { param($d, $u, $l) $r = Get-JkSpeedVerdict $d $u $l; "$($r.Level): $($r.Text)" }
+    Assert-True ((& $v 283 180 31) -match '^ok: Fast') 'fast'
+    Assert-True ((& $v 12 8 30) -match '^ok: Fine for HD video') 'HD'
+    Assert-True ((& $v 4 3 30) -match '^warn: Enough for pages') 'slow-ish download is a warning'
+    Assert-True ((& $v 50 2 30) -match '^warn: .*video calls may stutter') 'weak upload'
+    Assert-True ((& $v 50 1 30) -match 'too slow for video calls') 'very weak upload'
+    Assert-True ((& $v 50 20 220) -match '^warn: .*high latency \(220 ms\)') 'latency'
+    Assert-True ((& $v 1 1 30) -match '^bad: Very slow') 'very slow'
+}
 Test 'jk sys: CPU load from GetSystemTimes, addresses from .NET' {
     $l = Get-JkCpuLoad 100
     Assert-True ($null -ne $l -and $l -ge 0 -and $l -le 100) "load: $l"

@@ -116,7 +116,100 @@ function Get-JkNetVerdict($P) {
     & $v 'bad' "Nothing gets through: $why" 'reconnect to the Wi-Fi; if other devices are offline too, restart the router'
 }
 
+# ---- jk net speed: latency, download and upload against Cloudflare's speed test (speed.cloudflare.com),
+# each direction capped at about 8 seconds so a slow link does not hang it.
+$script:JkSpeedBase = 'https://speed.cloudflare.com'
+
+# The Cloudflare site that answered, from a cf-ray header ("a53720f2dac3ab3c-YYZ" -> YYZ).
+function Get-JkCfColo([string]$Ray) { if ($Ray -match '-([A-Z]{3})$') { $Matches[1] } else { '' } }
+
+# What the numbers are good for, in a line. Pure, for the tests.
+function Get-JkSpeedVerdict([double]$DownMbps, [double]$UpMbps, [double]$LatencyMs) {
+    $v = { param($level, $text) [pscustomobject]@{ Level = $level; Text = $text } }
+    if ($DownMbps -lt 1.5) { return & $v 'bad' 'Very slow: pages crawl, video will not play smoothly' }
+    $bits = @()
+    if ($DownMbps -lt 5) { $bits += 'enough for pages and SD video, slow for downloads' }
+    elseif ($DownMbps -lt 25) { $bits += 'fine for HD video and big downloads' }
+    else { $bits += 'fast: 4K video and big downloads are no trouble' }
+    $level = 'ok'
+    if ($UpMbps -gt 0 -and $UpMbps -lt 1.5) { $bits += 'upload too slow for video calls'; $level = 'warn' }
+    elseif ($UpMbps -gt 0 -and $UpMbps -lt 3) { $bits += 'video calls may stutter on upload'; $level = 'warn' }
+    if ($LatencyMs -gt 150) { $bits += "high latency ($([int]$LatencyMs) ms): calls and games lag"; $level = 'warn' }
+    if ($DownMbps -lt 5 -and $level -eq 'ok') { $level = 'warn' }
+    & $v $level (($bits -join '; ').Substring(0, 1).ToUpper() + ($bits -join '; ').Substring(1))
+}
+
+function Measure-JkLatency([int]$Count = 5) {
+    $times = @(); $ray = ''
+    for ($i = 0; $i -lt $Count; $i++) {
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            $req = [Net.HttpWebRequest]::Create("$script:JkSpeedBase/__down?bytes=0"); $req.Timeout = 5000
+            $resp = $req.GetResponse(); $times += $sw.Elapsed.TotalMilliseconds; $ray = [string]$resp.Headers['cf-ray']; $resp.Close()
+        } catch { }
+    }
+    if (-not $times.Count) { return $null }
+    # the first request also sets up TLS: the median of the others is the line's latency
+    $warm = @($times | Select-Object -Skip 1); if (-not $warm.Count) { $warm = $times }
+    $sorted = @($warm | Sort-Object)
+    [pscustomobject]@{ Ms = $sorted[[int][Math]::Floor(($sorted.Count - 1) / 2)]; Colo = (Get-JkCfColo $ray) }
+}
+
+function Measure-JkDownload([int]$Bytes = 25000000, [double]$MaxSeconds = 8) {
+    $req = [Net.HttpWebRequest]::Create("$script:JkSpeedBase/__down?bytes=$Bytes"); $req.Timeout = 10000; $req.ReadWriteTimeout = 10000
+    $resp = $req.GetResponse()
+    try {
+        $s = $resp.GetResponseStream(); $buf = New-Object byte[] 65536; $got = 0
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt $MaxSeconds) { $n = $s.Read($buf, 0, $buf.Length); if ($n -le 0) { break }; $got += $n }
+        $secs = [Math]::Max(0.001, $sw.Elapsed.TotalSeconds)
+    } finally { $resp.Close() }
+    [pscustomobject]@{ Mbps = $got * 8 / 1e6 / $secs; Bytes = $got }
+}
+
+function Measure-JkUpload([int]$Bytes = 8000000, [double]$MaxSeconds = 8) {
+    $req = [Net.HttpWebRequest]::Create("$script:JkSpeedBase/__up"); $req.Method = 'POST'; $req.ContentType = 'application/octet-stream'
+    $req.ContentLength = $Bytes; $req.Timeout = 15000; $req.ReadWriteTimeout = 15000; $req.AllowWriteStreamBuffering = $false
+    $chunk = New-Object byte[] 65536; $sent = 0
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $st = $req.GetRequestStream()
+    try {
+        while ($sent -lt $Bytes) {
+            if ($sw.Elapsed.TotalSeconds -ge $MaxSeconds) { $req.Abort(); break }
+            $n = [Math]::Min($chunk.Length, $Bytes - $sent); $st.Write($chunk, 0, $n); $sent += $n
+        }
+    } catch { } finally { try { $st.Close() } catch { } }
+    if ($sent -ge $Bytes) { try { $req.GetResponse().Close() } catch { } }
+    $secs = [Math]::Max(0.001, $sw.Elapsed.TotalSeconds)
+    [pscustomobject]@{ Mbps = $sent * 8 / 1e6 / $secs; Bytes = $sent }
+}
+
+function Invoke-JkNetSpeed {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $wifi = $null; try { $wifi = ConvertFrom-JkWlanText @(netsh wlan show interfaces 2>$null) } catch { }
+    Say (Paint 'gray' '  measuring (up to ~15 s; uses up to ~30 MB)...')
+    $lat = Measure-JkLatency
+    if (-not $lat) { throw 'Cloudflare''s speed test did not answer: jk net says what is wrong with the connection' }
+    $down = $null; $up = $null
+    try { $down = Measure-JkDownload } catch { }
+    try { $up = Measure-JkUpload } catch { }
+    $sub = "Cloudflare $($lat.Colo)".Trim()
+    if ($wifi) { $sub += " $($script:G.dot) Wi-Fi '$($wifi.Ssid)'"; if ($null -ne $wifi.Signal) { $sub += " $($wifi.Signal)%" } }
+    Write-JkHeader 'Network speed' (Format-JkTime ((Get-Date).ToString('HH:mm'))) -Sub $sub
+    $max = [Math]::Max(1, [Math]::Max([double]$down.Mbps, [double]$up.Mbps))
+    $row = { param($k, $v, $frac) Say ('  ' + (Paint 'bold white' (Fit $k 10)) + (Paint 'white' (Fit $v 12 -Right)) + '  ' + $(if ($null -ne $frac) { Get-JkBar $frac 28 'teal' } else { '' })) }
+    & $row 'latency' "$([int]$lat.Ms) ms" $null
+    & $row 'download' $(if ($down) { '{0:N1} Mbps' -f $down.Mbps } else { 'failed' }) $(if ($down) { $down.Mbps / $max } else { $null })
+    & $row 'upload' $(if ($up) { '{0:N1} Mbps' -f $up.Mbps } else { 'failed' }) $(if ($up) { $up.Mbps / $max } else { $null })
+    Say ''
+    $v = Get-JkSpeedVerdict ([double]$down.Mbps) ([double]$up.Mbps) $lat.Ms
+    Say ('  ' + (Paint (@{ ok = 'bold green'; warn = 'bold yellow'; bad = 'bold red' }[$v.Level]) $v.Text))
+    if ($wifi -and $null -ne $wifi.Signal -and $wifi.Signal -lt 50 -and $v.Level -ne 'ok') { Say (Paint 'gray' "  the Wi-Fi signal is $($wifi.Signal)%: closer to the router (or its 5 GHz network) usually helps most") }
+}
+
 function Invoke-JkNet {
+    if (@($args).Count -and ([string]$args[0]) -match '^(?i)(speed|test|speedtest)$') { Invoke-JkNetSpeed; return }
+    if (@($args).Count -and ([string]$args[0]) -match '^(?i)(help|-h|--help|\?)$') { Show-JkHelp 'net'; return }
     $links = @(Get-JkNetLinks)
     $vpn = @($links | Where-Object { $_.Vpn })
     $link = @($links | Where-Object { -not $_.Vpn -and $_.Gateway } | Sort-Object { -not $_.Wireless })[0]
