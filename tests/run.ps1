@@ -299,9 +299,11 @@ Test 'an exam is "in 30m", then "now" until it ends, then gone (end time known, 
         $env:JK_NOW = '2026-10-29T16:00:00'
         Assert-True ((& $line) -match '^\s+0d') 'later today: 0d'
         Assert-True ((& $dash) -match 'CS 350 Midterm\s+TODAY, in 30m') "dashboard: $(& $dash)"
+        Assert-True ((& $dash) -match 'jk exam cs350') 'points at its brief'
         $env:JK_NOW = '2026-10-29T17:00:00'
         Assert-True ((& $line) -match '^\s+now\s') "under way: $(& $line)"
         Assert-True ((& $dash) -match 'CS 350 Midterm\s+NOW') 'the dashboard keeps it while it is on'
+        Assert-True ((& $dash) -notmatch 'jk exam') 'no brief hint while it is being written'
         $env:JK_NOW = '2026-10-29T18:45:00'
         Assert-Eq (& $line) '' 'over at 6:20 pm, so gone from the list'
         Assert-True ((& $dash) -notmatch 'CS 350 Midterm') 'and from the callout'
