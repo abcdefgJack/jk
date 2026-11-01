@@ -1368,8 +1368,6 @@ function Invoke-JkDueRemind {
     if ($classes.Count) {
         $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
     }
-    # the day's weather rides along (never a reason for the popup on its own)
-    try { $wx = Get-JkMorningWeather $now; if ($wx) { $lines += $wx } } catch { }
     foreach ($e in (@($soon | Select-Object -First 6) + $examsAhead)) {
         $due = Get-JkEventDue $e
         $when = Format-JkRelDay $due $now
@@ -1403,6 +1401,8 @@ function Invoke-JkDueRemind {
         $lines += $txt
     }
     if ($soon.Count -gt 6) { $lines += "+$($soon.Count - 6) more" }
+    # the day's weather rides along after what is due (never a reason for the popup on its own)
+    try { $wx = Get-JkMorningWeather $now; if ($wx) { $lines += $wx } } catch { }
     if ($todos.Count) {
         $names = @($todos | Select-Object -First 3 | ForEach-Object {
                 $td = Get-JkTodoDue $_
