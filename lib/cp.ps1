@@ -641,7 +641,11 @@ function Invoke-JkCpListen {
             if ($made.Count -lt $want) { Set-Location -LiteralPath $here }
         }
     } finally { $listener.Stop() }
-    if (-not $made.Count) { throw "nothing arrived in $Timeout s. Is the extension on, and does it send to port $Port? (its options: custom ports)" }
+    if (-not $made.Count) {
+        $hint = 'is the extension installed and on for this site?'
+        if ($Port -ne 10043) { $hint = "port $Port is not one of the extension's own: add it in its options under custom ports" }
+        throw "nothing arrived in $Timeout s - $hint"
+    }
     if ($made.Count -lt $want) { Say (Paint 'yellow' "  $($made.Count) of $want problems arrived before the time ran out") }
     Set-Location -LiteralPath $made[0]
     Say (Paint 'gray' "  test: jk cp   $($script:G.dot)   $(if ($made.Count -gt 1) { 'cd ..\<next> for the others' } else { 'stress: add brute.cpp + gen.py, then jk cp stress' })")
