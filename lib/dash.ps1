@@ -139,7 +139,7 @@ function Show-JkDashboard {
         $when = & $stamp $e 'ddd MMM d'
         $cd = "in $days days"; if ($days -eq 0) { $cd = 'TODAY' } elseif ($days -eq 1) { $cd = 'tomorrow' }
         if ($days -eq 0 -and $e.time) {
-            if ($due -le $now) { $cd = 'NOW' } else { $cd = "TODAY, in $(Format-JkDuration ($due - $now))" }
+            if ($due -le $now) { $cd = 'NOW' } else { $cd = "TODAY, in $(Format-JkDuration (Get-JkTimeLeft $due $now))" }
         }
         # an online window: one callout for the pair ("Mon Oct 26 6:00 am - Tue 11:59 pm")
         $win = Get-JkEventWindow $e $data

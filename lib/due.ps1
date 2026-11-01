@@ -336,7 +336,8 @@ function Format-JkDueLine {
     if ($e.kind -eq 'exam') { $tag = 'EXAM' } elseif ($e.kind -eq 'appt') { $tag = 'APPT' }
     $timeTxt = Format-JkTime ([string]$e.time)
     $left = ''
-    if ($Countdown -and -not $done -and -not $past -and ($due - $Now).TotalHours -le 48) { $left = Format-JkDuration ($due - $Now) }
+    $span = Get-JkTimeLeft $due $Now
+    if ($Countdown -and -not $done -and -not $past -and $span.TotalHours -le 48) { $left = Format-JkDuration $span }
     if ($Countdown -and -not $done -and $past) { $left = 'passed' }
     $weight = [string]$e.weight
     # indent, id, gap, code, [date], space, title, space, tag(6), time(9), [countdown(9)], gap, weight(6)
@@ -356,7 +357,7 @@ function Format-JkDueLine {
     if ($Countdown) {
         $ls = 'gray'
         if ($left -and $left -ne 'passed') {
-            $h = ($due - $Now).TotalHours
+            $h = $span.TotalHours
             if ($h -le 12) { $ls = 'bold red' } elseif ($h -le 24) { $ls = 'orange' } else { $ls = 'yellow' }
         }
         $s += Paint $ls (Fit $left 9 -Right)

@@ -122,15 +122,15 @@ function Complete-JkReminder {
         if ($due -le $now -or $due.Date -ne $at.Date) { return }
         if ([string]$e.title -match '(?i)\s+closes?$') {
             # the end of an online window: the last chance to write it
-            $lines += "Closes $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+            $lines += "Closes $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             if ($e.note) { $lines += [string]$e.note }
             $lines += "Written it? jk due done $dueId"
         } elseif ($e.kind -eq 'exam' -or $e.kind -eq 'appt') {
             # an exam or an interview is something to get to, not to hand in: when, and where
-            $lines += "Starts $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+            $lines += "Starts $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             if ($e.note) { $lines += [string]$e.note }
         } else {
-            $lines += "Due $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration ($due - $now))"
+            $lines += "Due $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             $lines += "Finished? jk due done $dueId"
         }
         $accent = Get-JkCourseColor $e.course (Get-JkCourseMap $data)
