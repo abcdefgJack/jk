@@ -2560,6 +2560,13 @@ Test 'tab completion engine' {
     Assert-Eq ((& $names '' @('jk', 'cp', 'new', 'x', '-Lang')) -join ',') 'cpp,py,java,usaco'
     Assert-True ((& $names '' @('jk', 'due', 'add')) -contains 'cs350')
 }
+Test 'jk help lists every command in its index, once' {
+    $listed = @($script:JkHelpGroups.Values | ForEach-Object { $_ })
+    $missing = @($script:JkCommands.Keys | Where-Object { $listed -notcontains $_ })
+    Assert-Eq ($missing -join ', ') '' 'commands missing from the jk help index'
+    Assert-Eq (@($listed | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name }) -join ', ') '' 'listed twice'
+    Assert-Eq (@($listed | Where-Object { -not $script:JkCommands.Contains($_) }) -join ', ') '' 'no such command'
+}
 Test 'every router action is offered by tab completion' {
     # the first name in each '^(name|alias...)' pattern of a router is its action; tick is the
     # morning task's entry point; the rest are value checks, not actions

@@ -114,7 +114,9 @@ jk cp new <problem link>       AtCoder, USACO, CSES: the folder named after it, 
                                Codeforces turns scripts away: the folder only, then jk cp add per sample
 jk cp listen                   for any judge, Codeforces too: run it, then press the green + of the
                                Competitive Companion browser extension on the problem (or contest) page;
-                               each problem arrives with its samples (port 10043, jk config set cp.port)
+                               each problem arrives with its samples. Port 10043 is one the extension
+                               sends to out of the box; another (jk config set cp.port) goes in its
+                               options under custom ports
 jk cp new A -Lang py|java|usaco   -Here  (create in the current folder instead)
 jk cp add                      clipboard -> next N.in, then copy the expected output and press Enter
 jk cp | jk cp test             compile (cached) and run every *.in; diff with *.out / *.ans
@@ -294,6 +296,16 @@ function Write-JkHelpBlock([string]$Text) {
     }
 }
 
+# The command index of jk help. Every command in $script:JkCommands belongs in one group (a test
+# checks), so a new command cannot go missing from it.
+$script:JkHelpGroups = [ordered]@{
+    'School'  = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review', 'jobs')
+    'Time'    = @('focus', 'in', 'at', 'remind')
+    'Code'    = @('cp', 'repos', 'port')
+    'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')
+    'jk'      = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
+}
+
 function Show-JkHelp {
     param([Parameter(Position = 0)][string]$Topic)
     if ($Topic) {
@@ -307,13 +319,7 @@ function Show-JkHelp {
     }
     Write-JkHeader 'jk' "v$((Get-Module jk).Version) $($script:G.dot) your command-line sidekick"
     $w = Get-JkWidth
-    $groups = [ordered]@{
-        'School'   = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review')
-        'Time'     = @('focus', 'in', 'at', 'remind')
-        'Code'     = @('cp', 'repos', 'port')
-        'Machine'  = @('find', 'recent', 'go', 'mark', 'clip', 'tidy', 'space', 'sys', 'speed')
-        'jk'       = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
-    }
+    $groups = $script:JkHelpGroups
     foreach ($g in $groups.Keys) {
         Say (' ' + (Paint 'bold white' $g))
         foreach ($c in $groups[$g]) {
