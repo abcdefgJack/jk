@@ -157,7 +157,10 @@ function Show-JkDashboard {
                 $when = (& $stamp $win.Open 'ddd MMM d') + " $($script:G.dash) " + $closeWhen
             }
         }
-        Say (' ' + (Paint "bold bg:#$color ink" ' NEXT EXAM ') + ' ' + (Paint "bold #$color" (Get-JkCourseLabel $e $cmap)) + ' ' + (Paint 'bold white' $title) + (Paint 'muted' "  $cd $($script:G.dot) $when") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }))
+        # three days out or closer: the command for its brief (files, prep, what you need on it)
+        $brief = ''
+        if ($days -le 3 -and $cd -ne 'NOW') { $brief = Paint 'gray' "  $($script:G.arrow) jk exam $(Get-JkNormKey ([string](@($data.courses | Where-Object { $_.key -eq $e.course })[0].code)))" }
+        Say (' ' + (Paint "bold bg:#$color ink" ' NEXT EXAM ') + ' ' + (Paint "bold #$color" (Get-JkCourseLabel $e $cmap)) + ' ' + (Paint 'bold white' $title) + (Paint 'muted' "  $cd $($script:G.dot) $when") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }) + $brief)
     }
 
     # next class (today or tomorrow), with how many are left today
