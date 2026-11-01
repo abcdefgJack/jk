@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'pdf'; Cmd = 'jk pdf *.jpg'; Text = 'photos of handwritten work into one PDF for LEARN or Crowdmark, each page upright' },
     @{ Id = 'cp-links'; Cmd = 'jk cp new <AtCoder/USACO/CSES link>'; Text = 'the problem''s folder with every sample downloaded; jk cp tests them' },
     @{ Id = 'cp-listen'; Cmd = 'jk cp listen'; Text = 'Codeforces too: press Competitive Companion''s green + and the problem (or contest) arrives' },
     @{ Id = 'grade-import'; Cmd = 'jk grade import cs341'; Text = 'copy a course''s Grades page in LEARN: every mark matched to its deadline and recorded at once' },

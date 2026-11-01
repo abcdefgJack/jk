@@ -169,6 +169,15 @@ jk port                        listening ports with the owning app (dev ports hi
                                other devices can reach is flagged with the setting that keeps it local
 jk port 8080                   who is on 8080;   jk port 8080 -Kill   frees it
 '@
+    'pdf'    = @'
+jk pdf *.jpg                   every photo upright (phone rotation applied), one per page, fitted to Letter,
+                               into <this folder's name>.pdf; IMG_2 comes before IMG_10
+jk pdf p1.jpg p2.png a3.pdf -Out hw3.pdf      images and PDFs together, in that order
+jk pdf *.jpg -Small            shrink the photos (about 1700 px, JPEG 72) for upload size limits
+jk pdf *.jpg -A4               A4 pages instead of Letter
+Never overwrites a file (hw3 (2).pdf) unless -Force. Images need nothing extra; merging PDFs uses
+pypdf (Python) or pdfunite when either is installed.
+'@
     'shots'  = @'
 jk shots                       the Screenshots folder (Win+PrtScn, Snipping Tool): count per month for a year,
                                the newest numbered (jk find -o 1 opens the latest)
@@ -301,7 +310,7 @@ function Write-JkHelpBlock([string]$Text) {
 # The command index of jk help. Every command in $script:JkCommands belongs in one group (a test
 # checks), so a new command cannot go missing from it.
 $script:JkHelpGroups = [ordered]@{
-    'School'  = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review', 'jobs')
+    'School'  = @('class', 'due', 'week', 'exams', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
     'Time'    = @('focus', 'in', 'at', 'remind')
     'Code'    = @('cp', 'repos', 'port')
     'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')

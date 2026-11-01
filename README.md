@@ -75,6 +75,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk grade fill` | Goes through every past graded item with no mark: type it (`17/20`, `85`), Enter skips. Each marked item is checked off as of its due date |
 | | `jk grade import cs341` | Copy the course's Grades page in LEARN (Ctrl+A, Ctrl+C): each row is matched to its deadline by title, shown with what did not match, and recorded on a yes. Nothing copied yet? It opens LEARN and waits |
 | | `jk todo "email the TA" -Due fri` | Lightweight to-do list |
+| | `jk pdf *.jpg` / `jk pdf p1.jpg a3.pdf -Out hw3.pdf` | Photos of handwritten work into one PDF for a LEARN dropbox or Crowdmark: each turned upright by the phone's rotation tag, a page each (landscape pages for landscape photos), Letter or `-A4`, in natural order (IMG_2 before IMG_10); PDFs in the list are merged in (pypdf or pdfunite); `-Small` shrinks photos for upload limits; never overwrites |
 | | `jk review` | Last 7 days (done, slipped, focus per course) and next 7 (load, where the marks are) |
 | | `jk jobs` / `jk jobs stripe` | Job applications from your tracker table: applied, waiting on you (sign-ins, MFA, take-homes), ruled out, weekly pace; search answers "did I already apply?" (read-only) |
 | Time | `jk focus 50 cs350` | Focus block; a popup slides in when it ends. `jk focus log` for the week |
