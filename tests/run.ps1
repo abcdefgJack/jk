@@ -346,6 +346,7 @@ Test 'jk exam <course>: when, worth, prep, what lands the week before, and its f
         Assert-True ($text -match '(?s)before\s+.*CS 350 A2A Synchronization \(Wed 8:00 pm\)') 'the A2A due the day before (the row may wrap)'
         Assert-True ($text -match 'HEALTH 105 Midterm \(closes Tue 11:59 pm\)' -and $text -notmatch 'Midterm closes') 'an online window reads as the quiz, open until it closes'
         Assert-True ($text -match 'prep\s+about \d+h') 'jk plan estimate'
+        Assert-True ($text -match '(?s)if\s+a mark here of 60 . \d+%.*70 . \d+%.*90 . \d+%') 'what each mark here would leave the rest needing'
         $files = @($out | Where-Object { $_ -match '^\s+\d+\s{2}' })
         Assert-Eq $files.Count 2 'the two midterm files, not a2a.pdf'
         Assert-True (@(Get-JkFindLast).Count -eq 2) 'numbered for jk find -o'

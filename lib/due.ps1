@@ -547,6 +547,19 @@ function Show-JkExamBrief {
     } else {
         & $wrapRow 'marks' "none recorded for this course yet $($script:G.dash) jk grade fill, then this says what you need on it" 'gray'
     }
+    # what a mark here would leave the rest needing (the what-if of jk grade <course> if, at four marks)
+    $gitems = @(Get-JkGradeItems $data $gd $e.course)
+    $gi = @($gitems | Where-Object { $_.Key -eq [string]$e.id -or ($x.Win -and $_.Key -eq [string]$x.Win.Open.id) })[0]
+    if ($gi -and $null -eq $gi.Score -and $wt -gt 0) {
+        $cells = foreach ($p in 60, 70, 80, 90) {
+            $scores = @(@($gd.scores | ForEach-Object { [pscustomobject]@{ id = [string]$_.id; score = [double]$_.score } }) | Where-Object { $_.id -ne $gi.Key }) + [pscustomobject]@{ id = [string]$gi.Key; score = [double]$p }
+            $hypo = [pscustomobject]@{ scores = $scores; extras = $gd.extras; targets = $gd.targets; nextExtra = $gd.nextExtra }
+            $mh = Measure-JkGrade (Get-JkGradeItems $data $hypo $e.course) (Get-JkGradeRules $data $e.course)
+            "$p $($script:G.arrow) $((Get-JkNeededText $target $mh)[0])"
+        }
+        $note = ''; if ($m.Graded -le 0) { $note = ' (no marks in yet, so all the other work counts as still to come)' }
+        & $wrapRow 'if' "a mark here of $($cells -join "  $($script:G.dot)  ") on the rest, for $(Format-JkPct $target 0)$note" 'muted'
+    }
 
     # prep: jk plan's estimate for it, focus already credited, and the blocks scheduled before it
     try {
