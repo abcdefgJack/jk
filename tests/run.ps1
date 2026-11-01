@@ -1393,6 +1393,18 @@ Test 'background timers sleep before loading the module, then run in its scope' 
     Assert-True ($t.Elapsed.TotalSeconds -ge 1.5) "returned after $($t.Elapsed.TotalSeconds)s"
     Assert-Eq (Get-Content -LiteralPath $flag) $env:JK_HOME 'ran in the module scope with JK_HOME passed through'
 }
+Test 'background timers wait in real time: the second 1:30 the night clocks fall back is not the first' {
+    # "jk in 2h" at 00:30 EDT on Nov 1: 1:30 EST, an hour after the clock first reads 1:30
+    $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-11-01T01:30:00.0000000-05:00'
+    $at = $null
+    Invoke-Expression ([regex]::Match($cmd, '\$at = [^;]+;').Value)
+    Assert-Eq $at.ToString("yyyy-MM-dd'T'HH:mm'Z'", $script:Inv) '2026-11-01T06:30Z' 'target kept its offset'
+    Assert-True ($cmd -match '\$at - \[DateTime\]::UtcNow' -and $cmd -notmatch 'Get-Date\)\)\.TotalSeconds') 'counts down against the UTC clock'
+    # a target with no offset is the local wall-clock time on that day
+    $cmd = Get-JkBackgroundCommand -Script 'x' -WaitUntil '2026-11-02T17:00:00'
+    Invoke-Expression ([regex]::Match($cmd, '\$at = [^;]+;').Value)
+    Assert-Eq $at.ToLocalTime().ToString('yyyy-MM-dd HH:mm', $script:Inv) '2026-11-02 17:00' 'no offset: local time that day'
+}
 Test 'reopen and grade by title text, including finished items' {
     $d = Get-JkDueData
     $e = @($d.events | Where-Object { $_.title -eq 'A2A Synchronization' })[0]

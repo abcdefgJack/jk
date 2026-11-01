@@ -697,10 +697,10 @@ function Get-JkBackgroundCommand {
     $prelude = ''
     if ($WaitUntil) {
         # polls instead of one long sleep so a laptop that suspends mid-wait still fires
-        # promptly after it wakes up
-        $prelude += "`$at = [datetime]::Parse('" + $WaitUntil.Replace("'", "''") + "', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind); "
-        $prelude += "if (`$at.Kind -eq 'Utc') { `$at = `$at.ToLocalTime() }; "
-        $prelude += "while (`$true) { `$left = (`$at - (Get-Date)).TotalSeconds; if (`$left -le 0) { break }; Start-Sleep -Milliseconds ([int]([Math]::Min(`$left, 15) * 1000)) }; "
+        # promptly after it wakes up. Counted in UTC: the night clocks fall back, 1:30 comes twice,
+        # and a timer for the second one (-05:00) compared by the clock fired at the first.
+        $prelude += "`$at = [DateTimeOffset]::Parse('" + $WaitUntil.Replace("'", "''") + "', [Globalization.CultureInfo]::InvariantCulture).UtcDateTime; "
+        $prelude += "while (`$true) { `$left = (`$at - [DateTime]::UtcNow).TotalSeconds; if (`$left -le 0) { break }; Start-Sleep -Milliseconds ([int]([Math]::Min(`$left, 15) * 1000)) }; "
     }
     $prelude += "`$env:JK_HOME = '" + (Get-JkHome).Replace("'", "''") + "'; "
     foreach ($k in $Env.Keys) { $prelude += "`$env:$k = '" + ([string]$Env[$k]).Replace("'", "''") + "'; " }
