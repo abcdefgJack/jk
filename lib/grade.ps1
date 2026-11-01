@@ -226,23 +226,73 @@ function Show-JkGrade {
     if ($m.Total -lt 99.5) { $sumNote = Paint 'yellow' "  (weights add up to $(Format-JkPct $m.Total 1) - add missing parts: jk grade add $($c.key) `"Participation`" -Weight 5)" }
     elseif ($m.Total -gt 100.5) { $sumNote = Paint 'yellow' "  (weights add up to $(Format-JkPct $m.Total 1) - is something counted twice? jk due edit <id> -Weight 0, or jk grade clear x<n>)" }
     Say ('  graded ' + (Paint 'white' (Format-JkPct $m.Graded 1)) + ' of the course  ' + $script:G.dot + '  average ' + (Paint "bold #$color" (Format-JkPct $m.Average)) + '  ' + $script:G.dot + '  banked ' + (Paint 'white' ('{0:N2}' -f $m.Banked)) + ' / ' + ('{0:N1}' -f $m.Graded) + $sumNote)
-    if ($m.Remaining -gt 0) {
-        Say ''
-        $targets = @(50, 60, 70, 80, 90) + @($target) | Sort-Object -Unique
-        # the cells narrow with the window; the explanation gets a line of its own
-        $cellW = [Math]::Max(7, [Math]::Min(13, [int][Math]::Floor(((Get-JkWidth) - 21) / $targets.Count)))
-        $row1 = '  to finish with   '
-        $row2 = '  you need         '
-        foreach ($t in $targets) {
-            $n = Get-JkNeededText $t $m
-            $hl = 'muted'; if ($t -eq $target) { $hl = 'bold white' }
-            $row1 += Paint $hl (Fit (Format-JkPct $t 0) $cellW -Right)
-            $row2 += Paint $n[1] (Fit $n[0] $cellW -Right)
-        }
-        Say $row1
-        Say $row2
-        Say (Paint 'gray' "  (the average you need on the remaining $(Format-JkPct $m.Remaining 1) of the course)")
+    Write-JkNeedTable $m $target
+}
+
+# "to finish with 50% 60% ... / you need ..." for what is left of the course.
+function Write-JkNeedTable($M, [double]$Target) {
+    if ($M.Remaining -le 0) { return }
+    Say ''
+    $targets = @(50, 60, 70, 80, 90) + @($Target) | Sort-Object -Unique
+    # the cells narrow with the window; the explanation gets a line of its own
+    $cellW = [Math]::Max(7, [Math]::Min(13, [int][Math]::Floor(((Get-JkWidth) - 21) / $targets.Count)))
+    $row1 = '  to finish with   '
+    $row2 = '  you need         '
+    foreach ($t in $targets) {
+        $n = Get-JkNeededText $t $M
+        $hl = 'muted'; if ($t -eq $Target) { $hl = 'bold white' }
+        $row1 += Paint $hl (Fit (Format-JkPct $t 0) $cellW -Right)
+        $row2 += Paint $n[1] (Fit $n[0] $cellW -Right)
     }
+    Say $row1
+    Say $row2
+    Say (Paint 'gray' "  (the average you need on the remaining $(Format-JkPct $M.Remaining 1) of the course)")
+}
+
+# jk grade cs370 if midterm 70[, a2 85]: the course as it would stand with those marks (nothing is
+# saved): the average, and what the rest would then need.
+function Show-JkGradeWhatIf {
+    param([string]$Course, [string[]]$Words)
+    $due = Get-JkDueData
+    $gd = Get-JkGradeData
+    $c = Resolve-JkCourse $due $Course
+    if (-not $c) { throw "unknown course '$Course'" }
+    # "a1 38/40, midterm 1 73 / 90": PowerShell turns the comma into an array, which arrives joined by
+    # spaces, so each item and mark is paired by where the mark ends instead (before the next item's
+    # first word, which starts with a letter, or at the end) - "midterm 1 73" stays Midterm 1 = 73
+    $text = ((($Words | Where-Object { $_ }) -join ' ') -replace '\s*,\s*', ' ' -replace '(?i)\s+and\s+', ' ').Trim()
+    $pairRx = '(?<ref>\S.*?)\s+(?<score>\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?|\s+out\s+of\s+\d+(?:\.\d+)?)?\s*%?)(?=\s+[A-Za-z]|\s*$)'
+    $chunks = @([regex]::Matches($text, $pairRx) | ForEach-Object { "$($_.Groups['ref'].Value.Trim()) $($_.Groups['score'].Value.Trim())" })
+    if (-not $chunks.Count) { throw "usage: jk grade $($c.key) if midterm 70   (several: if midterm 70, a2 85)" }
+    # a copy of the marks with the assumed ones put in
+    $scores = @($gd.scores | ForEach-Object { [pscustomobject]@{ id = [string]$_.id; score = [double]$_.score } })
+    $extras = @($gd.extras | ForEach-Object { $_ | Select-Object * })
+    $assumed = @()
+    foreach ($ch in $chunks) {
+        if ($ch -notmatch $script:JkScoreTailRx) { throw "can't read '$ch' (an item and a mark: midterm 70, a2 17/20)" }
+        $ref = $Matches['ref']; $pct = ConvertTo-JkPercent $Matches['score']
+        $key = Resolve-JkGradeRef $due $gd (@([string]$c.key) + @($ref -split '\s+'))
+        if (-not $key) { throw "nothing graded in $($c.code) matches '$ref' (jk grade $($c.key) lists them)" }
+        $item = @(Get-JkGradeItems $due $gd ([string]$c.key) | Where-Object { $_.Key -eq $key })[0]
+        $assumed += [pscustomobject]@{ Title = $item.Title; Weight = $item.Weight; Pct = $pct; Was = $item.Score }
+        if ($key -match '^x\d+$') { @($extras | Where-Object { $_.id -eq $key })[0].score = $pct }
+        else { $scores = @($scores | Where-Object { $_.id -ne $key }) + [pscustomobject]@{ id = $key; score = $pct } }
+    }
+    $hypo = [pscustomobject]@{ scores = $scores; extras = $extras; targets = $gd.targets; nextExtra = $gd.nextExtra }
+    $m = Measure-JkGrade (Get-JkGradeItems $due $hypo ([string]$c.key)) (Get-JkGradeRules $due ([string]$c.key))
+    $real = Measure-JkGrade (Get-JkGradeItems $due $gd ([string]$c.key)) (Get-JkGradeRules $due ([string]$c.key))
+    $target = Get-JkTarget $gd ([string]$c.key)
+    Write-JkHeader "$($c.code) what if" "target $(Format-JkPct $target 0)" -Sub 'nothing is saved'
+    foreach ($a in $assumed) {
+        $was = ''; if ($null -ne $a.Was) { $was = Paint 'gray' "  (recorded: $(Format-JkPct $a.Was))" }
+        Say ('  ' + (Paint 'white' (Fit $a.Title 30)) + (Paint 'muted' (Fit (Format-JkPct $a.Weight 1) 8 -Right)) + (Paint 'bold white' (Fit (Format-JkPct $a.Pct) 9 -Right)) + $was)
+    }
+    Say ''
+    $then = 'average ' + (Paint 'bold white' (Format-JkPct $m.Average)) + ' over ' + (Format-JkPct $m.Graded 1) + ' of the course'
+    $now = $(if ($null -ne $real.Average) { " (now $(Format-JkPct $real.Average) over $(Format-JkPct $real.Graded 1))" } else { ' (nothing recorded yet)' })
+    Say ('  then: ' + $then + (Paint 'gray' $now))
+    Write-JkNeedTable $m $target
+    if ($m.Remaining -le 0) { Say ''; Say ('  ' + (Paint 'bold white' "final mark $(Format-JkPct $m.Average)")) }
 }
 
 function Set-JkGrade {
@@ -552,6 +602,8 @@ function Invoke-JkGrade {
         '^(import|learn|paste)$' { Import-JkGrades @rest; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'grade'; return }
     }
+    # "jk grade cs370 if midterm 70": a what-if, never a mark (checked before the rule below)
+    if ($a.Count -ge 3 -and ([string]$a[1]) -match '^(?i)(if|whatif|what-if)$') { Show-JkGradeWhatIf ([string]$a[0]) @($a | Select-Object -Skip 2); return }
     # "jk grade cs370 a1 9/10": a mark at the end means set
     if ($a.Count -ge 2 -and ($a -join ' ') -match $script:JkScoreTailRx) { Set-JkGrade @a; return }
     Show-JkGrade @a
