@@ -397,6 +397,25 @@ Test 'jk at: bare hours mean the next such hour, day + time phrases' {
     Assert-Eq (Resolve-JkAtTime @('tomorrow', '9am', 'submit', 'form') ([datetime]'2026-10-22 14:00')).K 2
     Assert-Throws { Resolve-JkAtTime @('whenever') ([datetime]'2026-10-22 14:00') }
 }
+Test 'countdowns count real hours: Monday 7 pm from Saturday 11 pm the weekend clocks fall back' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'fallback-home'
+    try {
+        $from = [datetime]'2026-10-31T23:00:00'; $to = [datetime]'2026-11-02T19:00:00'
+        # 44 hours by the clock, plus what the zone gains overnight: an hour in Eastern or Pacific, none in UTC
+        $tz = [TimeZoneInfo]::Local
+        $want = 44 + ($tz.GetUtcOffset($from) - $tz.GetUtcOffset($to)).TotalHours
+        Assert-Eq (Get-JkTimeLeft $to $from).TotalHours $want 'real hours'
+        Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        $null = New-JkEvent -Data $d -Course 'cs350' -Date ([datetime]'2026-11-02') -Time '19:00' -Title 'Fallback midterm' -Kind 'exam'
+        Save-JkDueData $d
+        $env:JK_NOW = '2026-10-31T23:00:00'
+        $text = @(& { jk due 3 } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        $cd = Format-JkDuration ([timespan]::FromHours($want))
+        Assert-True ($text -match "Fallback midterm.*\s$([regex]::Escape($cd))\s") "countdown $cd"
+    } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow }
+}
 Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can be turned off' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'alerts-home'

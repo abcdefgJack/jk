@@ -78,6 +78,12 @@ function Get-JkLocalAfter([double]$Seconds, [datetime]$From = [DateTime]::UtcNow
     $From.ToUniversalTime().AddSeconds($Seconds).ToLocalTime()
 }
 
+# The real time from $From to $To, both local: Monday 7 pm from Saturday 11 pm is 44 hours by
+# the clock but 45 lived ones the weekend clocks fall back.
+function Get-JkTimeLeft([datetime]$To, [datetime]$From) {
+    $To.ToUniversalTime() - $From.ToUniversalTime()
+}
+
 function Get-JkState([string]$Name, $Default = $null) { Get-JkProp (Read-JkJson 'state.json' $null) $Name $Default }
 
 # True only in a real terminal someone is typing into: never in CI, tests (JK_NONINTERACTIVE),
