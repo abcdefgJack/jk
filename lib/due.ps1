@@ -719,6 +719,9 @@ function Show-JkDueWeek {
         }
         return
     }
+    # the kept forecast, for a line under the days it reaches (none for a place in another zone)
+    $wx = $null
+    try { $p = Get-JkWeatherPlace -NoLookup; if ($p) { $wx = Get-JkWeather -Place $p -CacheOnly; if ($wx -and $null -ne $wx.Offset) { $wx = $null } } } catch { }
     for ($wk = 0; $wk -lt $Weeks; $wk++) {
         $start = $monday.AddDays(7 * $wk)
         $head = ' '
@@ -730,6 +733,19 @@ function Show-JkDueWeek {
             $head += (Paint $st $txt) + ' '
         }
         Say $head
+        if ($wx) {
+            $row = ' '; $any = $false
+            for ($i = 0; $i -lt 7; $i++) {
+                $d = $start.AddDays($i)
+                $txt = ''; $st = 'gray'
+                if ($d -ge $now.Date) {
+                    $s = $null; try { $s = Get-JkWeatherDayShort $wx $d $now } catch { }
+                    if ($s) { $txt = $s.Text; $any = $true; if ($s.Wet) { $st = 'cyan' } }
+                }
+                $row += (Paint $st (Fit $txt ($colW - 1))) + ' '
+            }
+            if ($any) { Say $row }
+        }
         $cells = @()
         $max = 0
         for ($i = 0; $i -lt 7; $i++) {

@@ -912,6 +912,8 @@ Test 'jk grep: words inside course files by page, phrase first, one course or al
         Assert-True ($t5 -match 'other\.md' -and $t5 -match 'every course') 'jk grep all: every course folder'
         $t6 = @(& { jk grep cs350 zebra } 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($t6 -match 'Nothing has all of those words') 'nothing found says so'
+        $f6 = @(& { Invoke-JkFind -Root $courses zzqqx } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($f6 -match 'jk grep zzqqx') 'jk find with no name match points to jk grep'
 
         # the page in each PDF app
         Assert-Eq (Get-JkPdfPageArgs 'C:\Program Files\Edge\msedge.exe' 'C:\x y\a#1.pdf' 4) '"file:///C:/x%20y/a%231.pdf#page=4"'
@@ -1047,6 +1049,8 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
         Assert-True ($text -match 'Fri Nov 6 .*freezing rain 7.8 am \(60%\)\s+. umbrella, icy sidewalks, feels like -15.') 'freezing rain and a wind chill'
         Assert-True ($text -match 'Sat Nov 7 .*gusts to 70 km/h') 'wind'
         Assert-True ($text -match 'now\s+4. cloudy, feels 0.') 'now, with how it feels'
+        $week = @(& { Show-JkDueWeek } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($week -match "12$($script:JkDeg)/0$($script:JkDeg) rain\s+12$($script:JkDeg)/0$($script:JkDeg) cloudy\s+10$($script:JkDeg)/-2$($script:JkDeg) snow\s+12$($script:JkDeg)/-2$($script:JkDeg) ice") "week grid: the forecast under its days: $week"
 
         # the dashboard's line, the morning popup, an exam in the rain
         $l = Get-JkWeatherLine $w ([datetime]'2026-11-03T08:00')
