@@ -2188,6 +2188,60 @@ Test 'tidy apply + undo round-trips exactly' {
     $after = (Get-ChildItem $dir -Recurse | ForEach-Object { $_.FullName.Substring($dir.Length) } | Sort-Object) -join '|'
     Assert-Eq $after $before
 }
+Test 'jk pdf: photos upright, a page each, a valid PDF; natural order; images and PDFs merged; nothing overwritten' {
+    Add-Type -AssemblyName System.Drawing
+    $dir = Join-Path $env:JK_HOME 'pdf-work'
+    New-Item -ItemType Directory $dir -Force | Out-Null
+    $mk = { param($name, $w, $h, $orientation)
+        $b = New-Object Drawing.Bitmap $w, $h
+        $g = [Drawing.Graphics]::FromImage($b); $g.Clear([Drawing.Color]::SteelBlue); $g.Dispose()
+        if ($orientation) {
+            # an EXIF orientation tag, the way a phone held sideways writes it
+            $pi = [Runtime.Serialization.FormatterServices]::GetUninitializedObject([Drawing.Imaging.PropertyItem])
+            $pi.Id = 0x0112; $pi.Type = 3; $pi.Len = 2; $pi.Value = [byte[]]($orientation, 0)
+            $b.SetPropertyItem($pi)
+        }
+        $fmt = [Drawing.Imaging.ImageFormat]::Jpeg; if ($name -like '*.png') { $fmt = [Drawing.Imaging.ImageFormat]::Png }
+        $b.Save((Join-Path $dir $name), $fmt); $b.Dispose()
+    }
+    & $mk 'IMG_10.jpg' 300 200 0      # landscape
+    & $mk 'IMG_2.jpg' 400 200 6       # stored sideways, tagged "rotate 90"
+    & $mk 'notes.png' 200 300 0
+    Assert-Eq (Get-JkRotateFlip 6) 'Rotate90FlipNone'
+    $j = ConvertTo-JkJpegBytes (Join-Path $dir 'IMG_2.jpg')
+    Assert-Eq "$($j.Width)x$($j.Height)" '200x400' 'turned upright by its EXIF tag'
+    Assert-Eq "$($j.Bytes[0]) $($j.Bytes[1])" '255 216' 'JPEG bytes'
+    $here = Get-Location
+    try {
+        Set-Location $dir
+        $null = @(Invoke-JkPdf '*.jpg' 'notes.png' 6>&1)
+        $out = Join-Path $dir 'pdf-work.pdf'
+        $bytes = [IO.File]::ReadAllBytes($out)
+        $text = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
+        Assert-True ($text.StartsWith('%PDF-1.4') -and $text.TrimEnd().EndsWith('%%EOF')) 'header and trailer'
+        Assert-Eq ([regex]::Matches($text, '/Type /Page\b').Count) 3 'a page per image'
+        $boxes = @([regex]::Matches($text, '/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]') | ForEach-Object { "$($_.Groups[1].Value)x$($_.Groups[2].Value)" })
+        Assert-Eq ($boxes -join ' ') '612x792 792x612 612x792' 'IMG_2 (upright: portrait) before IMG_10 (landscape), then the PNG'
+        # every xref offset points at its object
+        $start = [int]([regex]::Match($text, 'startxref\s+(\d+)').Groups[1].Value)
+        $entries = @([regex]::Matches($text.Substring($start), '(\d{10}) 00000 n') | ForEach-Object { [int]$_.Groups[1].Value })
+        for ($k = 0; $k -lt $entries.Count; $k++) { Assert-True ($text.Substring($entries[$k]).StartsWith("$($k + 1) 0 obj")) "xref entry $($k + 1)" }
+        # a second run never overwrites: "pdf-work (2).pdf"
+        $null = @(Invoke-JkPdf '*.jpg' 6>&1)
+        Assert-True (Test-Path (Join-Path $dir 'pdf-work (2).pdf')) 'kept the first, wrote a second'
+        # images and a PDF together, when pypdf or pdfunite is there to merge
+        $canMerge = $false
+        $py = Get-Command python -ErrorAction SilentlyContinue
+        if ($py) { $r = Invoke-JkProcess -Exe $py.Source -ArgList @('-c', 'import pypdf') -InputText '' -TimeoutMs 30000 -WorkDir $dir; $canMerge = $r.Code -eq 0 }
+        if (-not $canMerge) { $canMerge = [bool](Get-Command pdfunite -ErrorAction SilentlyContinue) }
+        if ($canMerge) {
+            $null = @(Invoke-JkPdf 'notes.png' 'pdf-work.pdf' -Out 'all.pdf' 6>&1)
+            $all = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes((Join-Path $dir 'all.pdf')))
+            Assert-Eq ([regex]::Matches($all, '/Type\s*/Page\b').Count) 4 'one image page + the three'
+        }
+        Assert-Throws { Invoke-JkPdf 'nothing-here.jpg' 6>$null }
+    } finally { Set-Location $here }
+}
 Test 'jk shots: per month and newest; file sorts older ones into month folders; tidy undo puts them back' {
     $dir = Join-Path $env:JK_HOME 'Screenshots'
     New-Item -ItemType Directory $dir -Force | Out-Null
