@@ -914,6 +914,15 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
         Assert-True ((Get-JkMorningWeather ([datetime]'2026-11-03T08:00')) -match '^Weather: 4. now, high 12.; rain 2.6 pm \(80%\) . umbrella$') 'morning popup line'
         Assert-True ((Get-JkExamWeather ([datetime]'2026-11-03T16:30')) -match '^8., rain at 4:30 pm; rain around then \(80%\), take an umbrella$') "exam: $(Get-JkExamWeather ([datetime]'2026-11-03T16:30'))"
         Assert-True ((Get-JkDashWeather ([datetime]'2026-11-03T08:00')) -match 'rain 2.6 pm') 'dashboard line from the kept forecast'
+        # the brief speaks up only for rain, snow or a bitter wind chill in the next 12 hours
+        Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-03T08:00')) "rain 2$($script:G.dash)6 pm" 'brief: rain today'
+        Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-05T20:00')) "snow 9 pm$($script:G.dash)3 am" 'brief: snow tonight'
+        Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-06T05:00')) "freezing rain 7$($script:G.dash)8 am" 'brief: an hour of freezing rain'
+        Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-06T08:00')) "feels -15$($script:JkDeg)" 'brief: the wind chill'
+        Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-04T08:00')) '' 'brief: nothing on a dry, mild day'
+        $env:JK_NOW = '2026-11-03T08:00:00'
+        $brief = (Get-JkBriefLine) -replace "$([char]27)\[[0-9;]*m", ''
+        Assert-True ($brief -match "rain 2.6 pm") "in the brief line: $brief"
 
         # another zone reads on its own clock
         $far = ConvertFrom-JkWeatherJson ($script:WxFixture.Substring(0, $script:WxFixture.Length - 1) + ',"utc_offset_seconds":' + [int]([TimeZoneInfo]::Local.GetUtcOffset([datetime]'2026-11-03').TotalSeconds + 10800) + '}') $script:JkWeatherHome ([DateTime]::UtcNow)
