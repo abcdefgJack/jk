@@ -847,6 +847,98 @@ Test 'databases open to the network: grouped ports, the setting and file that ke
     $sw = [Diagnostics.Stopwatch]::StartNew(); $null = Get-JkDbServiceInfo 'no-such-db-exe'; $sw.Stop()
     Assert-True ($sw.ElapsedMilliseconds -lt 1500) "registry walk took $($sw.ElapsedMilliseconds) ms"
 }
+Test 'jk grep: words inside course files by page, phrase first, one course or all, -o at the page' {
+    $courses = Join-Path $env:JK_HOME 'grep-courses'
+    $c350 = Join-Path $courses 'CS350'; $other = Join-Path $courses 'MATH999'
+    New-Item -ItemType Directory (Join-Path $c350 'text'), $other -Force | Out-Null
+    $saved = Get-JkConfig 'tidy.courses'
+    $origOpen = ${function:Open-JkPdfAtPage}
+    try {
+        Set-JkConfig 'tidy.courses' $courses
+        Set-Content (Join-Path $c350 'notes.md') "# Week 3`nsome text`nThe condition number of A is large." -Encoding UTF8
+        Set-Content (Join-Path $other 'other.md') 'condition number elsewhere' -Encoding UTF8
+        Set-Content (Join-Path $c350 'review.html') '<html><style>.x{}</style><p><span>condition</span> <b>number</b> &amp; stability</p></html>' -Encoding UTF8
+        # slides: a .pptx is a zip of slide XML
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $pptx = Join-Path $c350 'lec05.pptx'
+        $z = [IO.Compression.ZipFile]::Open($pptx, 'Create')
+        foreach ($s in @(@(1, '<a:t>Runge Kutta</a:t><a:t>schemes</a:t>'), @(2, '<a:t>LU with partial pivoting &amp; more</a:t>'))) {
+            $sw = New-Object IO.StreamWriter ($z.CreateEntry("ppt/slides/slide$($s[0]).xml").Open()); $sw.Write("<p:sld><a:p>$($s[1])</a:p></p:sld>"); $sw.Dispose()
+        }
+        $z.Dispose()
+        Set-Content (Join-Path $c350 'lab.ipynb') '{"cells":[{"cell_type":"markdown","source":["# Newton"]},{"cell_type":"code","source":["def secant(f):\n","    return 1"]}]}' -Encoding UTF8
+        # PDFs: their text seeded in the cache as pdftotext would leave it (no pdftotext needed)
+        $pdf = { param($name, [string[]]$pages) $p = Join-Path $c350 $name; Set-Content $p "pdf $name"; Save-JkTextCache (Get-Item -LiteralPath $p) (($pages -join "`f") + "`f") }
+        & $pdf 'course_notes.pdf' @('Contents 1.5 condition . . . . . . . . . . . . 3 number . . . . . 4 more . . . . . . 5', 'boundary condition and a number', 'the condition number of A measures how errors grow; condition number again')
+        & $pdf 'a2.pdf' @('Q1: show the condi-' + "`n" + 'tion number is the worst case')
+        & $pdf 'a2 (1).pdf' @('Q1: show the condi-' + "`n" + 'tion number is the worst case')
+        Set-Content (Join-Path $c350 'text\a2.txt') 'condition number copied out of a2.pdf'
+        Set-Content (Join-Path $c350 'a2.txt') 'condition number copied out of a2.pdf'
+        & $pdf 'handwritten.pdf' @('')
+        Assert-True ($null -ne (Read-JkTextCache (Get-Item (Join-Path $c350 'a2.pdf')))) 'cache read back'
+        Set-Content (Join-Path $c350 'a2.pdf') 'changed'
+        Assert-True ($null -eq (Read-JkTextCache (Get-Item (Join-Path $c350 'a2.pdf')))) 'a changed file is read again'
+        & $pdf 'a2.pdf' @('Q1: show the condi-' + "`n" + 'tion number is the worst case')
+
+        $out = @(& { jk grep cs350 condition number } 6>&1 | ForEach-Object { "$_" })
+        $rows = @($out | Where-Object { $_ -match '^\s+\d+\s{2}' })
+        $text = $out -join "`n"
+        Assert-True ($rows[0] -match 'course_notes\.pdf\s+p\.3\s') "the page with the phrase, twice, first: $($rows[0])"
+        Assert-True ($text -match 'a2\.pdf\s+p\.1\s.*condition number is the worst' -and $text -notmatch 'a2 \(1\)\.pdf') 'a line-end hyphen joined; the duplicate download shows once'
+        Assert-True ($text -notmatch 'a2\.txt') 'a .txt copied out of a PDF is left to the PDF'
+        Assert-True ($text -match 'notes\.md\s+line 3\s') 'a note by line'
+        Assert-True ($text -match 'review\.html\s+line 1\s+condition number & stability') 'html without its tags'
+        Assert-True ($text -notmatch 'other\.md') 'one course only'
+        $toc = [array]::IndexOf(@($rows | ForEach-Object { $_ -match 'p\.1\s+Contents' }), $true)
+        $weak = [array]::IndexOf(@($rows | ForEach-Object { $_ -match 'p\.2\s+boundary' }), $true)
+        Assert-True ($toc -gt $weak -or $toc -lt 0) 'a table of contents ranks below a real page'
+        Assert-True ($text -match '1 PDF with no text inside' -or (Get-Item (Join-Path $c350 'handwritten.pdf')).Length -le 50KB) 'handwritten counted (only when it is a real size)'
+
+        # find.last keeps the page; jk find -o opens the PDF there
+        $last = @(Get-JkFindLast)
+        Assert-True ($last[0] -match "course_notes\.pdf`t3$") "page kept: $($last[0])"
+        $script:Opened = $null
+        function script:Open-JkPdfAtPage([string]$Path, [int]$Page) { $script:Opened = "$(Split-Path $Path -Leaf)@$Page" }
+        jk find -o 1
+        Assert-Eq $script:Opened 'course_notes.pdf@3' 'opened at its page'
+
+        $t2 = @(& { jk grep cs350 runge kutta } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t2 -match 'lec05\.pptx\s+slide 1\s') 'slides by number'
+        $t3 = @(& { jk grep cs350 'partial pivoting &' } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t3 -match 'lec05\.pptx\s+slide 2\s') 'a quoted phrase, entities decoded'
+        $t4 = @(& { jk grep cs350 secant } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t4 -match 'lab\.ipynb\s+cell 2\s') 'notebooks by cell'
+        $t5 = @(& { jk grep all condition number } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t5 -match 'other\.md' -and $t5 -match 'every course') 'jk grep all: every course folder'
+        $t6 = @(& { jk grep cs350 zebra } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t6 -match 'Nothing has all of those words') 'nothing found says so'
+
+        # the page in each PDF app
+        Assert-Eq (Get-JkPdfPageArgs 'C:\Program Files\Edge\msedge.exe' 'C:\x y\a#1.pdf' 4) '"file:///C:/x%20y/a%231.pdf#page=4"'
+        Assert-Eq (Get-JkPdfPageArgs 'C:\Tools\SumatraPDF.exe' 'C:\x y\a.pdf' 4) '-page 4 "C:\x y\a.pdf"'
+        Assert-True ($null -eq (Get-JkPdfPageArgs 'C:\Tools\viewer.exe' 'C:\a.pdf' 4)) 'no page for an unknown app'
+
+        # a real PDF through pdftotext, when one is installed
+        if (Find-JkPdfToText) {
+            $real = Join-Path $other 'real.pdf'
+            $objs = @('<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>')
+            foreach ($i in 0, 1) { $objs += "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /F1 7 0 R >> >> /Contents $(5 + $i) 0 R >>" }
+            foreach ($s in 'Gaussian elimination', 'the eigenvalue of the matrix') { $c = "BT /F1 12 Tf 20 100 Td ($s) Tj ET"; $objs += "<< /Length $($c.Length) >>`nstream`n$c`nendstream" }
+            $objs += '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+            $sb = New-Object Text.StringBuilder; [void]$sb.Append("%PDF-1.4`n"); $offs = @()
+            for ($k = 0; $k -lt $objs.Count; $k++) { $offs += $sb.Length; [void]$sb.Append("$($k + 1) 0 obj`n$($objs[$k])`nendobj`n") }
+            $x = $sb.Length; [void]$sb.Append("xref`n0 $($objs.Count + 1)`n0000000000 65535 f `n")
+            foreach ($o in $offs) { [void]$sb.Append(('{0:D10} 00000 n ' -f $o) + "`n") }
+            [void]$sb.Append("trailer << /Size $($objs.Count + 1) /Root 1 0 R >>`nstartxref`n$x`n%%EOF`n")
+            [IO.File]::WriteAllText($real, $sb.ToString(), [Text.Encoding]::ASCII)
+            $t7 = @(& { jk grep math999 eigenvalue } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            Assert-True ($t7 -match 'real\.pdf\s+p\.2\s+the eigenvalue of the matrix') "pdftotext, by page: $t7"
+        }
+    } finally {
+        Set-Item function:script:Open-JkPdfAtPage $origOpen
+        Set-JkConfig 'tidy.courses' $saved
+    }
+}
 Test 'jk weather: rain or snow from when, what to take, the exam, kept for an hour' {
     $savedNow = $env:JK_NOW; $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'weather-home'; $script:JkConfigCache = $null
@@ -1041,7 +1133,7 @@ Test 'what''s new: each item once, three per run; a fresh setup sees none' {
     Assert-True ($first -match "new\s+$([regex]::Escape($script:JkNews[0].Cmd))") 'newest first'
     # the rest, three at a time, each exactly once
     $shown = [Math]::Min(3, $n)
-    for ($run = 2; $run -le 10 -and $shown -lt $n; $run++) {
+    for ($run = 2; $run -le [Math]::Ceiling($n / 3) + 1 -and $shown -lt $n; $run++) {
         $next = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
         $k = [regex]::Matches($next, '(?m)^\s+new\s{2}').Count
         Assert-Eq $k ([Math]::Min(3, $n - $shown)) "run $run"
