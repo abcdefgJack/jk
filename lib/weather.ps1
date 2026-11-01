@@ -270,6 +270,12 @@ function Format-JkSpell($S, [datetime]$From, [datetime]$To, [string]$Day = '', [
     "$($S.Kind) $span ($($amt -join ', '))"
 }
 
+# '' for a stretch starting today (or under way), else "overnight" (before 6 am) or "tomorrow".
+function Get-JkSpellDay($S, [datetime]$Now) {
+    if ($S.Start -le $Now -or $S.Start.Date -eq $Now.Date) { return '' }
+    $(if ($S.Start.Hour -lt 6) { 'overnight' } else { 'tomorrow' })
+}
+
 # One day: high and low, the wet stretches between 6 am and midnight (from now, today), or else the
 # sky by day, and what to take along.
 function Get-JkWeatherDay($W, [datetime]$Date, [datetime]$Now) {
@@ -331,11 +337,7 @@ function Get-JkWeatherLine($W, [datetime]$Now) {
     $to = $Now.AddHours(18)
     $wet = ''
     $s = @(Get-JkWetSpells $W $Now $to)[0]
-    if ($s) {
-        $day = ''
-        if ($s.Start -gt $Now -and $s.Start.Date -ne $Now.Date) { $day = $(if ($s.Start.Hour -lt 6) { 'overnight' } else { 'tomorrow' }) }
-        $wet = Format-JkSpell $s $Now $to $day 'for the next 18 hours'
-    }
+    if ($s) { $wet = Format-JkSpell $s $Now $to (Get-JkSpellDay $s $Now) 'for the next 18 hours' }
     $next = ''
     if ($Now.Hour -lt 17) { $d = Get-JkWeatherDay $W $Now.Date $Now; if ($d) { $next = "high $(Format-JkDeg $d.High)" } }
     else { $d = Get-JkWeatherDay $W $Now.Date.AddDays(1) $Now; if ($d) { $next = "tomorrow $(Format-JkDeg $d.High) / $(Format-JkDeg $d.Low)" } }
@@ -360,6 +362,25 @@ function Get-JkDashWeather([datetime]$Now) {
     if ($l.Wet) { $parts += Paint 'cyan' $l.Wet }
     if ($l.Next) { $parts += Paint 'muted' $l.Next }
     ($parts -join $sep)
+}
+
+# The brief's note, only when it matters in the next 12 hours: "rain 2-6 pm", "snow from 9 pm",
+# "feels -14" (the kept forecast only: the brief prints as a terminal opens).
+function Get-JkBriefWeather([datetime]$Now) {
+    $place = Get-JkWeatherPlace -NoLookup
+    if (-not $place) { return '' }
+    $w = Get-JkWeather -Place $place -CacheOnly
+    if (-not $w) { return '' }
+    $Now = ConvertTo-JkWeatherClock $w $Now
+    $to = $Now.AddHours(12)
+    $s = @(Get-JkWetSpells $w $Now $to)[0]
+    if ($s) { return ((Format-JkSpell $s $Now $to (Get-JkSpellDay $s $Now) 'for the next 12 hours') -replace '\s*\([^)]*\)$', '') }
+    $next = @($w.Hours | Where-Object { $_.At.AddHours(1) -gt $Now -and $_.At -lt $to })
+    if ($next.Count) {
+        $cold = ($next | Measure-Object Feels -Minimum).Minimum
+        if ($cold -le -10) { return "feels $(Format-JkDeg $cold)" }
+    }
+    ''
 }
 
 # The morning popup's line: "Weather: 4 now, high 9; rain 2-6 pm (80%), take an umbrella".

@@ -383,6 +383,8 @@ function Get-JkBriefLine {
     $td = Get-JkTodoData
     $openTodo = @($td.items | Where-Object { -not $_.done }).Count
     $tail = ''
+    # rain, snow or a bitter wind chill in the next 12 hours (nothing on a dry, mild day)
+    try { $wx = Get-JkBriefWeather $now; if ($wx) { $tail += (Paint 'gray' "  $($script:G.vline)  ") + (Paint 'cyan' $wx) } } catch { }
     if ($openTodo) { $tail += Paint 'gray' "  $($script:G.vline)  $openTodo to-do" }
     $tail += Paint 'gray' '   (jk for more)'
     # keep it on one line: drop trailing items (they become "+N") until it fits the window

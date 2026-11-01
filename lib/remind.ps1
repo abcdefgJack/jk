@@ -454,6 +454,8 @@ function Invoke-JkRemind {
             if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
             try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
             try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
+            # a fresh forecast for the brief, the dashboard and the popup (offline mornings keep the old one)
+            try { $null = Get-JkWeather -TimeoutSec 10 } catch { }
             Invoke-JkDueRemind -Quiet
             return
         }
