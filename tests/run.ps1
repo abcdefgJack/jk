@@ -2626,6 +2626,45 @@ Test 'tab completion engine' {
     Assert-Eq ((& $names '' @('jk', 'cp', 'new', 'x', '-Lang')) -join ',') 'cpp,py,java,usaco'
     Assert-True ((& $names '' @('jk', 'due', 'add')) -contains 'cs350')
 }
+Test 'no command takes a bare word into an option by accident (implicit positions)' {
+    # PowerShell numbers a function's parameters in order when none says otherwise, so a catch-all for
+    # the words beside another numbered parameter once had "jk pdf *.jpg *.png" bind *.png to -Out
+    $common = [System.Management.Automation.Cmdlet]::CommonParameters + [System.Management.Automation.Cmdlet]::OptionalCommonParameters
+    $entry = @($script:JkCommands.Values | ForEach-Object { $_.Fn }) + @($script:JkParamTargets.Values) | Select-Object -Unique
+    $shape = {
+        param($f)
+        # PowerShell writes the positions it hands out into the attributes, so only the source says
+        # which were written by hand (param() blocks and function F($x) signatures alike)
+        $written = @{}
+        $ast = $f.ScriptBlock.Ast
+        $pas = @()
+        if ($ast -is [Management.Automation.Language.FunctionDefinitionAst]) {
+            if ($ast.Parameters) { $pas += @($ast.Parameters) }
+            if ($ast.Body.ParamBlock) { $pas += @($ast.Body.ParamBlock.Parameters) }
+        } elseif ($ast.ParamBlock) { $pas += @($ast.ParamBlock.Parameters) }
+        foreach ($pa in $pas) {
+            $written[$pa.Name.VariablePath.UserPath] = @($pa.Attributes | Where-Object { $_.TypeName.Name -eq 'Parameter' } | ForEach-Object { $_.NamedArguments | Where-Object { $_.ArgumentName -eq 'Position' } }).Count -gt 0
+        }
+        foreach ($set in $f.ParameterSets) {
+            $ps = @($set.Parameters | Where-Object { $common -notcontains $_.Name -and $_.Position -ge 0 -and $_.ParameterType -ne [switch] -and -not $written[$_.Name] })
+            # the trap: a catch-all for the words beside another parameter PowerShell numbered too,
+            # so the words are shared out between them
+            if (@($ps | Where-Object { $_.ValueFromRemainingArguments }).Count -and @($ps | Where-Object { -not $_.ValueFromRemainingArguments }).Count) { ($ps | ForEach-Object { $_.Name }) -join ', ' }
+        }
+    }
+    $bad = foreach ($name in $entry) {
+        $f = Get-Item "function:$name" -ErrorAction SilentlyContinue
+        if ($f) { $hit = @(& $shape $f); if ($hit.Count) { "$name ($($hit[0]))" } }
+    }
+    Assert-Eq (@($bad | Select-Object -Unique) -join '; ') ''
+    # and the check itself catches the shape that went wrong ("jk pdf *.jpg *.png" binding *.png to -Out)
+    function script:Test-JkOldShape { param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Files, [string]$Out) }
+    function script:Test-JkNewShape { [CmdletBinding(PositionalBinding = $false)] param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Files, [string]$Out) }
+    try {
+        Assert-Eq @(& $shape (Get-Item function:Test-JkOldShape)).Count 1 'the old jk pdf signature is caught'
+        Assert-Eq @(& $shape (Get-Item function:Test-JkNewShape)).Count 0 'PositionalBinding off is fine'
+    } finally { Remove-Item function:script:Test-JkOldShape, function:script:Test-JkNewShape }
+}
 Test 'the README names every command' {
     $readme = [IO.File]::ReadAllText((Join-Path (Get-JkRoot) 'README.md'))
     $missing = @($script:JkCommands.Keys | Where-Object { $readme -notmatch "``jk $_(\s|``)" })
