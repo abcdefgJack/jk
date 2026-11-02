@@ -797,6 +797,20 @@ Test 'doctor flags a stale LEARN feed and this week''s background errors' {
         $out = (Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($out -match 'LEARN feed\s+last synced 5 days ago') 'stale feed'
         Assert-True ($out -match 'background errors\s+1 this week, latest: sync: The remote name') 'recent error only'
+        # the forecast: none kept yet, and why the last try failed
+        $ef = Join-Path (Get-JkCacheDir) 'weather.error'
+        $wf = Join-Path (Get-JkCacheDir) 'weather.txt'
+        $keptWeather = $null; if (Test-Path -LiteralPath $wf) { $keptWeather = [IO.File]::ReadAllText($wf); Remove-Item -LiteralPath $wf }
+        Set-Content -LiteralPath $ef -Value '2026-11-02T07:45:03 The remote name could not be resolved'
+        try {
+            $out = (Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            Assert-True ($out -match 'weather\s+no forecast kept yet; last try: 2026-11-02T07:45:03 The remote name') 'weather: why it is missing'
+            Assert-True ($out -match 'disk space\s+\w: [\d.,]+ \w?B free of') 'disk space'
+            Assert-True ($out -match 'PDF text \(jk grep\)\s+') 'what jk grep reads PDFs with'
+        } finally {
+            Remove-Item -LiteralPath $ef -ErrorAction SilentlyContinue
+            if ($null -ne $keptWeather) { [IO.File]::WriteAllText($wf, $keptWeather) }
+        }
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
 Test 'task status via COM: a missing task is $null, and the list says how to install it' {
