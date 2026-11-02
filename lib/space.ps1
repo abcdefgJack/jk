@@ -40,8 +40,51 @@ function Get-JkSpaceTargets {
         @{ Key = 'cursor'; Name = 'Cursor caches'; Path = (Join-Path $ra 'Cursor\CachedData'); Fix = 'old CachedData versions can go' }
         @{ Key = 'jetbrains'; Name = 'JetBrains caches/logs'; Path = (Join-Path $la 'JetBrains'); Fix = 'jk space clean jetbrains  (caches of IDE versions no longer installed)' }
         @{ Key = 'crashdumps'; Name = 'Crash dumps'; Path = (Join-Path $la 'CrashDumps'); Fix = 'safe to delete' }
+        @{ Key = 'wechat'; Name = 'WeChat files'; Path = (Join-Path $HOME 'xwechat_files'); Fix = 'WeChat > Settings > Storage: clear cached photos, videos and files of old chats' }
+        @{ Key = 'wechat-old'; Name = 'WeChat files (older)'; Path = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WeChat Files'); Fix = 'WeChat > Settings > Storage: clear cached media' }
+        @{ Key = 'ollama'; Name = 'Ollama models'; Path = (Join-Path $HOME '.ollama\models'); Fix = 'ollama list, then ollama rm <model> for the ones you no longer use' }
+        @{ Key = 'dotcache'; Name = 'Tool caches (~\.cache)'; Path = (Join-Path $HOME '.cache'); Fix = 'Hugging Face, torch and pip caches: models you no longer use can go (huggingface-cli delete-cache)' }
+        @{ Key = 'avd'; Name = 'Android Studio emulators'; Path = (Join-Path $HOME '.android\avd'); Fix = 'Android Studio > Device Manager: delete devices you no longer use, or Wipe Data' }
+        @{ Key = 'winupdate'; Name = 'Windows Update downloads'; Path = (Join-Path $env:SystemRoot 'SoftwareDistribution\Download'); Fix = 'Settings > System > Storage > Temporary files > Windows Update Cleanup' }
     )
+    # Android emulators keep their phones as disk images that only grow (MuMu, BlueStacks, LDPlayer)
+    $emu = @()
+    foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, 'C:\', 'D:\') | Where-Object { $_ }) {
+        foreach ($d in @(Get-ChildItem -LiteralPath (Join-Path $pf 'Netease') -Directory -Filter 'MuMu*' -ErrorAction SilentlyContinue)) { $emu += Join-Path $d.FullName 'vms' }
+        foreach ($d in @(Get-ChildItem -LiteralPath (Join-Path $pf 'LDPlayer') -Directory -Filter 'LDPlayer*' -ErrorAction SilentlyContinue)) { $emu += Join-Path $d.FullName 'vms' }
+    }
+    $emu += Join-Path $env:ProgramData 'BlueStacks_nxt\Engine'
+    $n = 0
+    foreach ($e in $emu | Where-Object { Test-Path -LiteralPath $_ }) {
+        $n++
+        $who = $(if ($e -match '(?i)\\(MuMu[^\\]*)\\') { $Matches[1] -replace '(?i)Player', ' Player' -replace '-', ' ' } elseif ($e -match '(?i)LDPlayer') { 'LDPlayer' } else { 'BlueStacks' })
+        $list += @{ Key = "emulator$n"; Name = "$who disks"; Path = $e; Fix = 'it only grows: uninstall apps inside it, or delete unused instances (multi-instance manager)' }
+    }
     foreach ($t in $list) { if ($t.Path) { [pscustomobject]$t } }
+}
+
+# Sizes from earlier jk space runs (the cache's space.log), so a row can say how much it grew.
+function Get-JkSpaceLog {
+    $p = Join-Path (Get-JkCacheDir) 'space.log'
+    if (-not [IO.File]::Exists($p)) { return @() }
+    @(foreach ($l in [IO.File]::ReadAllLines($p)) {
+            $f = $l.Split("`t")
+            if ($f.Count -eq 3) { [pscustomobject]@{ At = [datetime]::ParseExact($f[0], 's', $script:Inv); Key = $f[1]; Bytes = [double]$f[2] } }
+        })
+}
+
+function Add-JkSpaceLog($Rows, [datetime]$Now = (Get-JkNow)) {
+    $p = Join-Path (Get-JkCacheDir) 'space.log'
+    $old = @(); try { if ([IO.File]::Exists($p)) { $old = @([IO.File]::ReadAllLines($p) | Where-Object { $_ }) } } catch { }
+    $new = @($Rows | Where-Object { $_.Key } | ForEach-Object { "$($Now.ToString('s', $script:Inv))`t$($_.Key)`t$([long]$_.Bytes)" })
+    try { [IO.File]::WriteAllLines($p, [string[]](@(@($old) + $new) | Select-Object -Last 400)) } catch { }
+}
+
+# How much a place grew since the last run at least 12 hours before this one; $null under 500 MB.
+function Get-JkSpaceGrowth($Log, [string]$Key, [double]$Bytes, [datetime]$Now) {
+    $prev = @($Log | Where-Object { $_.Key -eq $Key -and $_.At -le $Now.AddHours(-12) } | Sort-Object At)[-1]
+    if (-not $prev -or $Bytes - $prev.Bytes -lt 500MB) { return $null }
+    [pscustomobject]@{ Grew = $Bytes - $prev.Bytes; Since = $prev.At }
 }
 
 # Free space on the system drive, one reading a day (the first look of the day: the morning task or
@@ -129,7 +172,7 @@ function Show-JkSpace {
         $i++
         if ($live) { Write-Host ($clear + '  ' + (Paint 'gray' ("measuring {0}/{1}  {2}" -f $i, $targets.Count, $t.Name))) -NoNewline }
         $s = Get-JkFolderSize $t.Path
-        if ($s -and $s.Bytes -gt 0) { $rows += [pscustomobject]@{ Name = $t.Name; Bytes = $s.Bytes; Files = $s.Files; Fix = $t.Fix; Path = $t.Path } }
+        if ($s -and $s.Bytes -gt 0) { $rows += [pscustomobject]@{ Key = $t.Key; Name = $t.Name; Bytes = $s.Bytes; Files = $s.Files; Fix = $t.Fix; Path = $t.Path } }
     }
     if (-not $NoNodeModules) {
         if ($live) { Write-Host ($clear + '  ' + (Paint 'gray' "looking for node_modules under the Desktop$($script:G.ell)")) -NoNewline }
@@ -137,7 +180,7 @@ function Show-JkSpace {
         $nmBytes = 0.0
         $nmList = @()
         foreach ($p in $nm) { $s = Get-JkFolderSize $p; if ($s) { $nmBytes += $s.Bytes; $nmList += [pscustomobject]@{ Path = $p; Bytes = $s.Bytes; Age = [int]((Get-Date) - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays } } }
-        if ($nmBytes -gt 0) { $rows += [pscustomobject]@{ Name = "node_modules ($($nm.Count) projects)"; Bytes = $nmBytes; Files = 0; Fix = 'delete node_modules of projects you are not working on (npm install brings it back)'; Path = '' } }
+        if ($nmBytes -gt 0) { $rows += [pscustomobject]@{ Key = 'node_modules'; Name = "node_modules ($($nm.Count) projects)"; Bytes = $nmBytes; Files = 0; Fix = 'delete node_modules of projects you are not working on (npm install brings it back)'; Path = '' } }
     }
     if ($live) { Write-Host $clear -NoNewline }
     $rows = @($rows | Sort-Object Bytes -Descending)
@@ -145,9 +188,14 @@ function Show-JkSpace {
     $max = ($rows | Measure-Object Bytes -Maximum).Maximum
     if (-not $max) { $max = 1 }
     $w = Get-JkWidth
+    # what grew since an earlier run: where the space went, not just where it is
+    $now = Get-JkNow
+    $log = @(); try { $log = @(Get-JkSpaceLog) } catch { }
     foreach ($r in $rows) {
         $sz = 'muted'; if ($r.Bytes -ge 5GB) { $sz = 'bold red' } elseif ($r.Bytes -ge 1GB) { $sz = 'orange' } elseif ($r.Bytes -ge 200MB) { $sz = 'yellow' }
-        Say ('  ' + (Paint 'white' (Fit $r.Name 28)) + (Paint $sz (Fit (Format-JkSize $r.Bytes) 10 -Right)) + '  ' + (Get-JkBar ($r.Bytes / $max) 18 'teal'))
+        $g = Get-JkSpaceGrowth $log $r.Key $r.Bytes $now
+        $grew = $(if ($g) { Paint 'orange' "  +$(Format-JkSize $g.Grew) since $($g.Since.ToString('ddd', $script:Inv))" } else { '' })
+        Say ('  ' + (Paint 'white' (Fit $r.Name 28)) + (Paint $sz (Fit (Format-JkSize $r.Bytes) 10 -Right)) + '  ' + (Get-JkBar ($r.Bytes / $max) 18 'teal') + $grew)
         Say ('      ' + (Paint 'gray' (Fit $r.Fix ($w - 8)).TrimEnd()))
     }
     if ($nmList.Count) {
@@ -157,6 +205,7 @@ function Show-JkSpace {
             Say ('  ' + (Paint 'white' (Fit (Format-JkSize $n.Bytes) 10 -Right)) + (Paint 'gray' (Fit "$($n.Age)d" 7 -Right)) + '  ' + (Paint 'muted' (Fit $n.Path ($w - 22)).TrimEnd()))
         }
     }
+    try { Add-JkSpaceLog $rows $now } catch { }
     Say ''
     Say ('  ' + (Paint 'bold white' ('{0} in these places' -f (Format-JkSize $total))) + (Paint 'gray' '  -  nothing was changed; cleanups run only when you name one'))
 }

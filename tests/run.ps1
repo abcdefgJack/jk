@@ -1020,6 +1020,26 @@ Test 'disk filling up fast: a reading a day, 4 GB gone in three days is said' {
         if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
     }
 }
+Test 'jk space: what grew since an earlier run (500 MB or more, 12 hours or more before)' {
+    $p = Join-Path (Get-JkCacheDir) 'space.log'
+    $saved = $null; if (Test-Path -LiteralPath $p) { $saved = [IO.File]::ReadAllText($p) }
+    try {
+        Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue
+        $rows = { param([double]$emu, [double]$chat) @([pscustomobject]@{ Key = 'emulator1'; Bytes = $emu }, [pscustomobject]@{ Key = 'wechat'; Bytes = $chat }, [pscustomobject]@{ Key = $null; Bytes = 1GB }) }
+        Add-JkSpaceLog (& $rows 20GB 9.6GB) ([datetime]'2026-10-31T22:00')
+        Add-JkSpaceLog (& $rows 25GB 9.6GB) ([datetime]'2026-11-02T10:00')
+        $log = @(Get-JkSpaceLog)
+        Assert-Eq $log.Count 4 'two runs, two places each (a row without a key is not kept)'
+        $g = Get-JkSpaceGrowth $log 'emulator1' (26.2GB) ([datetime]'2026-11-02T18:00')
+        Assert-True ($g -and [Math]::Round($g.Grew / 1GB, 1) -eq 6.2 -and $g.Since.DayOfWeek -eq 'Saturday') 'measured against the last run 12h or more before (Saturday, not this morning)'
+        Assert-True ($null -eq (Get-JkSpaceGrowth $log 'wechat' (9.9GB) ([datetime]'2026-11-02T18:00'))) 'under 500 MB: nothing to say'
+        Assert-True ($null -eq (Get-JkSpaceGrowth $log 'emulator1' (40GB) ([datetime]'2026-10-31T23:00'))) 'nothing 12h before: no claim'
+        1..250 | ForEach-Object { Add-JkSpaceLog (& $rows 1GB 1GB) ([datetime]'2026-12-01') }
+        Assert-Eq @(Get-JkSpaceLog).Count 400 'the log keeps the newest 400 lines'
+    } finally {
+        if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
+    }
+}
 Test 'jk weather: rain or snow from when, what to take, the exam, kept for an hour' {
     $savedNow = $env:JK_NOW; $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'weather-home'; $script:JkConfigCache = $null
