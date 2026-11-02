@@ -935,6 +935,12 @@ Test 'jk grep: words inside course files by page, phrase first, one course or al
             [IO.File]::WriteAllText($real, $sb.ToString(), [Text.Encoding]::ASCII)
             $t7 = @(& { jk grep math999 eigenvalue } 6>&1 | ForEach-Object { "$_" }) -join "`n"
             Assert-True ($t7 -match 'real\.pdf\s+p\.2\s+the eigenvalue of the matrix') "pdftotext, by page: $t7"
+            # enough at once for the progress bar: every one read, none twice
+            $many = Join-Path $other 'many'; $null = New-Item -ItemType Directory $many -Force
+            1..22 | ForEach-Object { Copy-Item $real (Join-Path $many "copy$_.pdf") }
+            $ErrorActionPreference = 'Stop'
+            Update-JkPdfTexts @(Get-ChildItem $many -Filter *.pdf) 6>$null
+            Assert-True (@(Get-ChildItem $many -Filter *.pdf | Where-Object { $null -eq (Read-JkTextCache $_) }).Count -eq 0) 'all 22 read and kept'
         }
     } finally {
         Set-Item function:script:Open-JkPdfAtPage $origOpen
