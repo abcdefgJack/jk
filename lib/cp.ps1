@@ -376,7 +376,11 @@ function Invoke-JkCpTest {
         Say (Paint 'yellow' '  no tests (*.in) here. Copy a sample input and run: jk cp add')
         return
     }
-    Write-JkHeader "Testing $($src.Name)" "$($tests.Count) test$(if ($tests.Count -ne 1) {'s'}) $($script:G.dot) limit ${Timeout}s"
+    # the judge's own limits, when the problem came with them (Competitive Companion)
+    $limits = Get-JkCpLimits $src.DirectoryName
+    $right = "$($tests.Count) test$(if ($tests.Count -ne 1) {'s'}) $($script:G.dot) limit ${Timeout}s"
+    if ($limits -and $limits.TimeMs) { $right = "$($tests.Count) test$(if ($tests.Count -ne 1) {'s'}) $($script:G.dot) judge $(($limits.TimeMs / 1000.0).ToString('0.###', $script:Inv)) s$(if ($limits.MemoryMb) { ", $($limits.MemoryMb) MB" }) $($script:G.dot) stops at ${Timeout}s" }
+    Write-JkHeader "Testing $($src.Name)" $right
     $pass = 0; $maxMs = 0; $maxMb = 0.0
     foreach ($t in $tests) {
         $inText = [IO.File]::ReadAllText($t.In)
@@ -394,7 +398,10 @@ function Invoke-JkCpTest {
             } else { $v = @('RAN', 'bold cyan', 'no expected output yet') }
         }
         if ($v[0] -eq 'PASS') { $pass++ }
-        Say ('  ' + (Paint $v[1] (Fit $v[0] 5)) + ' ' + (Paint 'white' (Fit $t.Name 14)) + $stats + '  ' + (Paint 'muted' $v[2]))
+        $lim = Format-JkCpLimitNote $res.Ms $res.PeakMB $limits
+        $note = Paint 'muted' $v[2]
+        if ($lim) { $note = (Paint $(if ($lim -match 'over') { 'bold orange' } else { 'yellow' }) $lim) + $(if ($v[2]) { Paint 'muted' "  $($v[2])" } else { '' }) }
+        Say ('  ' + (Paint $v[1] (Fit $v[0] 5)) + ' ' + (Paint 'white' (Fit $t.Name 14)) + $stats + '  ' + $note)
         if ($v[0] -eq 'WA') { Write-JkSideBySide $expected $res.Out }
         if ($v[0] -eq 'RAN') {
             foreach ($l in (@($res.Out.TrimEnd() -split "`r?`n") | Select-Object -First 15)) { Say ('      ' + $l) }
@@ -609,7 +616,47 @@ function ConvertFrom-JkCompanion($Json) {
     if ($p.input -and [string]$p.input.type -eq 'file' -and [string]$p.input.fileName -match '^([A-Za-z0-9_]+)\.in$') { $lang = 'usaco'; $name = $Matches[1] }
     $tests = @(foreach ($t in @($p.tests)) { [pscustomobject]@{ In = ConvertFrom-JkPreHtml ([Net.WebUtility]::HtmlEncode([string]$t.input)); Out = ConvertFrom-JkPreHtml ([Net.WebUtility]::HtmlEncode([string]$t.output)) } })
     $size = 1; if ($p.batch -and [int]$p.batch.size -gt 0) { $size = [int]$p.batch.size }
-    [pscustomobject]@{ Name = $name; Lang = $lang; Tests = $tests; Title = [string]$p.name; Group = [string]$p.group; BatchSize = $size; Interactive = [bool]$p.interactive }
+    [pscustomobject]@{
+        Name = $name; Lang = $lang; Tests = $tests; Title = [string]$p.name; Group = [string]$p.group; BatchSize = $size; Interactive = [bool]$p.interactive
+        Url = [string]$p.url; TimeMs = [int]$p.timeLimit; MemoryMb = [int]$p.memoryLimit
+    }
+}
+
+# problem.txt beside the source: the judge's link and limits, for jk cp test to hold runs against.
+#   https://codeforces.com/contest/2000/problem/A
+#   time 1.5 s, memory 256 MB    (plain ASCII: Windows PowerShell reads BOM-less files as ANSI)
+function Save-JkCpLimits([string]$Dir, [string]$Url, [int]$TimeMs, [int]$MemoryMb, [string]$Title = '', [string]$Group = '') {
+    $lines = @()
+    if ($Title) { $lines += $(if ($Group) { "$Title ($Group)" } else { $Title }) }
+    if ($Url) { $lines += $Url }
+    $lim = @()
+    if ($TimeMs -gt 0) { $lim += "time $(($TimeMs / 1000.0).ToString('0.###', $script:Inv)) s" }
+    if ($MemoryMb -gt 0) { $lim += "memory $MemoryMb MB" }
+    if ($lim.Count) { $lines += ($lim -join ', ') }
+    if ($lines.Count) { Write-JkText (Join-Path $Dir 'problem.txt') (($lines -join "`n") + "`n") }
+}
+
+function Get-JkCpLimits([string]$Dir) {
+    $p = Join-Path $Dir 'problem.txt'
+    if (-not [IO.File]::Exists($p)) { return $null }
+    $t = [IO.File]::ReadAllText($p)
+    $ms = 0; $mb = 0
+    $m = [regex]::Match($t, '(?i)\btime\s+(\d+(?:[.,]\d+)?)\s*s\b'); if ($m.Success) { $ms = [int]([double]::Parse($m.Groups[1].Value.Replace(',', '.'), $script:Inv) * 1000) }
+    $m = [regex]::Match($t, '(?i)\bmemory\s+(\d+)\s*MB\b'); if ($m.Success) { $mb = [int]$m.Groups[1].Value }
+    if (-not $ms -and -not $mb) { return $null }
+    [pscustomobject]@{ TimeMs = $ms; MemoryMb = $mb }
+}
+
+# What a run says against the judge's limits: '' when well inside, else "over the 1 s limit",
+# "close to the 1 s limit" (past 80%), "over 256 MB".
+function Format-JkCpLimitNote([int]$Ms, [double]$PeakMb, $Limits) {
+    if (-not $Limits) { return '' }
+    $n = @()
+    $t = ($Limits.TimeMs / 1000.0).ToString('0.###', $script:Inv)
+    if ($Limits.TimeMs -gt 0 -and $Ms -gt $Limits.TimeMs) { $n += "over the $t s limit" }
+    elseif ($Limits.TimeMs -gt 0 -and $Ms -gt 0.8 * $Limits.TimeMs) { $n += "close to the $t s limit" }
+    if ($Limits.MemoryMb -gt 0 -and $PeakMb -gt $Limits.MemoryMb) { $n += "over $($Limits.MemoryMb) MB" }
+    $n -join ', '
 }
 
 function Invoke-JkCpListen {
@@ -636,6 +683,7 @@ function Invoke-JkCpListen {
             # a contest arrives one problem at a time: each beside the others, the editor once at the end
             $here = (Get-Location).ProviderPath
             New-JkCpProblem $prob.Name -Lang $prob.Lang -Samples $prob.Tests -NoOpen 6>&1 | Where-Object { "$_" -match 'created|exists' } | ForEach-Object { Say "$_" }
+            try { Save-JkCpLimits (Get-Location).ProviderPath $prob.Url $prob.TimeMs $prob.MemoryMb $prob.Title $prob.Group } catch { }
             if ($prob.Interactive) { Say (Paint 'yellow' "    interactive: the samples show one exchange, so jk cp can only compare the output") }
             $made += (Get-Location).ProviderPath
             if ($made.Count -lt $want) { Set-Location -LiteralPath $here }
