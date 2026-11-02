@@ -44,6 +44,50 @@ function Get-JkSpaceTargets {
     foreach ($t in $list) { if ($t.Path) { [pscustomobject]$t } }
 }
 
+# Free space on the system drive, one reading a day (the first look of the day: the morning task or
+# the dashboard), 21 days kept in the cache, so a drive that is filling up fast can be said so.
+function Update-JkDiskLog([double]$Free = -1, [datetime]$Now = (Get-JkNow)) {
+    if ($Free -lt 0) { $Free = (New-Object IO.DriveInfo ($env:SystemDrive)).AvailableFreeSpace }
+    $p = Join-Path (Get-JkCacheDir) 'disk.log'
+    $day = $Now.ToString('yyyy-MM-dd', $script:Inv)
+    $lines = @()
+    try { if ([IO.File]::Exists($p)) { $lines = @([IO.File]::ReadAllLines($p) | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}\t\d+$' }) } } catch { }
+    if (@($lines | Where-Object { $_.StartsWith("$day`t") }).Count) { return }
+    $keep = @(@($lines | Where-Object { $_.Substring(0, 10) -lt $day }) | Select-Object -Last 20)
+    try { [IO.File]::WriteAllLines($p, [string[]](@($keep) + "$day`t$([long]$Free)")) } catch { }
+}
+
+function Get-JkDiskLog {
+    $p = Join-Path (Get-JkCacheDir) 'disk.log'
+    if (-not [IO.File]::Exists($p)) { return @() }
+    @(foreach ($l in [IO.File]::ReadAllLines($p)) {
+            if ($l -match '^(\d{4}-\d{2}-\d{2})\t(\d+)$') { [pscustomobject]@{ Date = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd', $script:Inv); Free = [double]$Matches[2] } }
+        })
+}
+
+# What the drive lost over the last three days, when that is 4 GB or more: Drop (bytes) and Since
+# (the day of the highest reading).
+function Get-JkDiskDrop([double]$Free, [datetime]$Now) {
+    $log = @(Get-JkDiskLog | Where-Object { $_.Date -lt $Now.Date -and $_.Date -ge $Now.Date.AddDays(-3) })
+    if (-not $log.Count) { return $null }
+    $top = @($log | Sort-Object Free -Descending)[0]
+    $drop = $top.Free - $Free
+    if ($drop -lt 4GB) { return $null }
+    [pscustomobject]@{ Drop = $drop; Since = $top.Date }
+}
+
+# "-6.8 GB since Sat"
+function Format-JkDiskDrop($Drop) { "-$(Format-JkSize $Drop.Drop) since $($Drop.Since.ToString('ddd', $script:Inv))" }
+
+# The readings as a bar per day, lowest free space lowest: "free, 14 days  #####  66.3 -> 59.5 GB"
+function Get-JkDiskTrend {
+    $log = @(Get-JkDiskLog | Select-Object -Last 14)
+    if ($log.Count -lt 3) { return '' }
+    $lo = ($log | Measure-Object Free -Minimum).Minimum; $hi = ($log | Measure-Object Free -Maximum).Maximum
+    $bars = -join @(foreach ($r in $log) { $k = $(if ($hi -gt $lo) { [int][Math]::Round(7 * ($r.Free - $lo) / ($hi - $lo)) } else { 7 }); [string][char](0x2581 + $k) })
+    "$bars  $(Format-JkSize $log[0].Free) $($script:G.arrow) $(Format-JkSize $log[-1].Free) free over $($log.Count) days"
+}
+
 function Find-JkNodeModules([string[]]$Roots, [int]$Depth = 4) {
     $found = New-Object System.Collections.Generic.List[string]
     $walk = $null
@@ -66,6 +110,13 @@ function Show-JkSpace {
     Write-JkHeader 'Disk space' "$($env:SystemDrive) $(Format-JkSize $drive.AvailableFreeSpace) free of $(Format-JkSize $drive.TotalSize)"
     $st = 'blue'; if ($usedFrac -ge 0.9) { $st = 'red' } elseif ($usedFrac -ge 0.8) { $st = 'orange' }
     Say ('  ' + (Get-JkBar $usedFrac 50 $st) + '  ' + (Paint 'white' ('{0:N0}% used' -f ($usedFrac * 100))))
+    try {
+        Update-JkDiskLog $drive.AvailableFreeSpace
+        $trend = Get-JkDiskTrend
+        $drop = Get-JkDiskDrop $drive.AvailableFreeSpace (Get-JkNow)
+        if ($trend) { Say ('  ' + (Paint 'muted' $trend) + $(if ($drop) { Paint 'orange' "  ($(Format-JkDiskDrop $drop))" } else { '' })) }
+        elseif ($drop) { Say ('  ' + (Paint 'orange' (Format-JkDiskDrop $drop))) }
+    } catch { }
     Say ''
     $rows = @()
     $targets = @(Get-JkSpaceTargets)
