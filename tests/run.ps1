@@ -2532,7 +2532,8 @@ Test 'jk cp listen: Competitive Companion problems, one or a whole contest, over
     $here = Get-Location
     $port = Get-Random -Minimum 20000 -Maximum 50000
     $job = Start-Job -ArgumentList $port -ScriptBlock { param($p)
-        $mk = { param($l, $in, $out) '{"name":"' + $l + '. X","url":"https://codeforces.com/contest/2000/problem/' + $l + '","tests":[{"input":"' + $in + '","output":"' + $out + '"}],"input":{"type":"stdin"},"batch":{"id":"b","size":2}}' }
+        # every field the extension sends (its README's example, two problems of one contest)
+        $mk = { param($l, $in, $out) '{"name":"' + $l + '. X","group":"Codeforces Round 2000 (Div. 2)","url":"https://codeforces.com/contest/2000/problem/' + $l + '","interactive":false,"memoryLimit":256,"timeLimit":2000,"tests":[{"input":"' + $in + '","output":"' + $out + '"}],"testType":"single","input":{"type":"stdin"},"output":{"type":"stdout"},"languages":{"java":{"mainClass":"Main","taskClass":"X"}},"batch":{"id":"123e67c8-03c6-44a4-a3f9-5918def8bac4","size":2}}' }
         for ($try = 0; $try -lt 50; $try++) {
             try { $null = Invoke-WebRequest -Uri "http://127.0.0.1:$p/" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes((& $mk 'A' '1 2\n' '3\n'))) -ContentType 'application/json' -UseBasicParsing; break } catch { Start-Sleep -Milliseconds 200 }
         }
@@ -2543,6 +2544,17 @@ Test 'jk cp listen: Competitive Companion problems, one or a whole contest, over
         Assert-Eq ([IO.File]::ReadAllText((Join-Path $root 'cf2000A\1.in'))) "1 2`n" 'first problem and its sample'
         Assert-Eq ([IO.File]::ReadAllText((Join-Path $root 'cf2000B\1.out'))) "25`n" 'the whole contest arrives'
         Assert-Eq (Resolve-JkLongPath (Get-Location).ProviderPath) (Resolve-JkLongPath (Join-Path $root 'cf2000A')) 'left in the first problem'
+        # the judge's link and limits kept beside it, for jk cp test
+        $pt = [IO.File]::ReadAllText((Join-Path $root 'cf2000B\problem.txt'))
+        Assert-True ($pt -match 'B\. X \(Codeforces Round 2000 \(Div\. 2\)\)' -and $pt -match 'https://codeforces\.com/contest/2000/problem/B' -and $pt -match 'time 2 s, memory 256 MB') "problem.txt: $pt"
+        $lim = Get-JkCpLimits (Join-Path $root 'cf2000B')
+        Assert-Eq "$($lim.TimeMs) $($lim.MemoryMb)" '2000 256'
+        Assert-Eq (Format-JkCpLimitNote 900 12 $lim) '' 'well inside'
+        Assert-Eq (Format-JkCpLimitNote 1700 12 $lim) 'close to the 2 s limit'
+        Assert-Eq (Format-JkCpLimitNote 2100 300 $lim) 'over the 2 s limit, over 256 MB'
+        Assert-Eq (Format-JkCpLimitNote 2100 300 $null) '' 'no problem.txt: nothing to say'
+        Save-JkCpLimits $root '' 1500 0
+        Assert-Eq (Get-JkCpLimits $root).TimeMs 1500 'a fractional second'
     } finally {
         Receive-Job $job -Wait -ErrorAction SilentlyContinue | Out-Null; Remove-Job $job -Force
         Set-JkConfig 'cp.root' $savedRoot; Set-Location $here
