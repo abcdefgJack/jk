@@ -215,9 +215,9 @@ function Get-JkWeather {
 }
 
 # Fetches the forecast in a background process for the next look: at most every 10 minutes, and
-# never under a pinned clock or in tests.
+# never under a pinned clock, in tests or in the install check's sandbox.
 function Start-JkWeatherRefresh {
-    if ($env:JK_NOW -or $env:JK_NONINTERACTIVE) { return }
+    if ($env:JK_NOW -or $env:JK_NONINTERACTIVE -or $env:JK_SANDBOX) { return }
     $mark = Join-Path (Get-JkCacheDir) 'weather.refresh'
     try {
         if ([IO.File]::Exists($mark) -and ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($mark)).TotalMinutes -lt 10) { return }

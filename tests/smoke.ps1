@@ -29,6 +29,10 @@ if ($Real) {
     New-Item -ItemType Directory -Path $sandbox | Out-Null
     $env:JK_SANDBOX = $sandbox
     $env:JK_HOME = Join-Path $sandbox 'data'
+    # caches too (the disk log, the forecast, PDF text): the real ones are left as they were
+    $realCache = Join-Path $env:LOCALAPPDATA 'jk'
+    $cacheBefore = @(Get-ChildItem -LiteralPath $realCache -File -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name)|$($_.LastWriteTimeUtc.Ticks)" }) -join ','
+    $env:JK_CACHE = Join-Path $sandbox 'cache'
     $link = Join-Path $sandbox 'Modules\jk'
     $profilePath = Join-Path $sandbox 'profile.ps1'
     $dataDir = $env:JK_HOME
@@ -58,7 +62,10 @@ try {
     Check 'the deadline was added and listed' { $text -match 'Smoke test' }
     Check 'the to-do was added' { $text -match 'water plants' }
     Check 'doctor found the module and named the task' { $text -match 'module on PSModulePath' -and $text -match 'daily reminder task' }
-    if (-not $Real) { Check 'nothing written to the real data folder' { -not ($text -match [regex]::Escape((Join-Path $HOME '.jk'))) } }
+    if (-not $Real) {
+        Check 'nothing written to the real data folder' { -not ($text -match [regex]::Escape((Join-Path $HOME '.jk'))) }
+        Check 'the real cache left alone' { (@(Get-ChildItem -LiteralPath $realCache -File -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name)|$($_.LastWriteTimeUtc.Ticks)" }) -join ',') -eq $cacheBefore }
+    }
 
     Write-Host 'uninstall' -ForegroundColor Cyan
     Show @(& powershell -NoProfile -ExecutionPolicy Bypass -Command "Import-Module '$root\jk.psd1'; jk setup uninstall" 2>&1 | ForEach-Object { "$_" })
@@ -74,7 +81,7 @@ try {
         $links = @(Get-ChildItem -LiteralPath $sandbox -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue)
         if ($links.Count) { Write-Host "  left $sandbox in place: it still holds a link ($($links[0].FullName))" -ForegroundColor Yellow }
         else { Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue }
-        Remove-Item env:JK_SANDBOX, env:JK_HOME -ErrorAction SilentlyContinue
+        Remove-Item env:JK_SANDBOX, env:JK_HOME, env:JK_CACHE -ErrorAction SilentlyContinue
     }
 }
 
