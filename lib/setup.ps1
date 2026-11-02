@@ -399,6 +399,33 @@ function Invoke-JkDoctor {
     $exposed = @(Get-JkExposedServices (Get-JkListeners) (Get-JkProcessNames))
     foreach ($x in $exposed) { & $meh 'open to the network' "$($x.Name) ($($x.Ports -join ', ')) answers other devices too - see jk port" }
     if (-not $exposed.Count) { & $ok 'open to the network' 'no database listens beyond this PC' }
+    # the kept forecast: the morning task, a terminal opening and the dashboard refresh it
+    try {
+        $wp = Get-JkWeatherPlace -NoLookup
+        if (-not $wp) { & $ok 'weather' 'off (jk weather set <place> turns it on)' }
+        else {
+            $wx = Get-JkWeather -Place $wp -CacheOnly -MaxAgeHours 6
+            $why = ''; $ef = Join-Path (Get-JkCacheDir) 'weather.error'
+            if ([IO.File]::Exists($ef)) { $why = [IO.File]::ReadAllText($ef).Trim() }
+            if ($wx -and -not $wx.Stale) { & $ok 'weather' "$($wp.Name) $($script:G.dot) forecast fetched $(Format-JkRelTime $wx.Fetched.ToLocalTime())" }
+            elseif ($wx) { & $meh 'weather' "forecast fetched $(Format-JkRelTime $wx.Fetched.ToLocalTime())$(if ($why) { "; last try: $why" }) - jk weather" }
+            else { & $meh 'weather' "no forecast kept yet$(if ($why) { "; last try: $why" }) - jk weather" }
+        }
+    } catch { & $meh 'weather' $_.Exception.Message }
+    # free space, and whether it is going fast
+    try {
+        $drv = New-Object IO.DriveInfo ($env:SystemDrive)
+        $txt = "$($env:SystemDrive) $(Format-JkSize $drv.AvailableFreeSpace) free of $(Format-JkSize $drv.TotalSize)"
+        $drop = Get-JkDiskDrop $drv.AvailableFreeSpace (Get-JkNow)
+        if ($drv.AvailableFreeSpace / $drv.TotalSize -lt 0.1) { & $bad 'disk space' "$txt - jk space" }
+        elseif ($drop) { & $meh 'disk space' "$txt, $(Format-JkDiskDrop $drop) - jk space" }
+        else { & $ok 'disk space' $txt }
+    } catch { }
+    # what jk grep reads PDFs with
+    $ptt = Find-JkPdfToText
+    if ($ptt) { & $ok 'PDF text (jk grep)' $ptt }
+    elseif (Get-Command python -ErrorAction SilentlyContinue) { & $meh 'PDF text (jk grep)' 'no pdftotext: pypdf is used if installed (slower); MiKTeX or Git for Windows bring pdftotext' }
+    else { & $meh 'PDF text (jk grep)' 'no pdftotext or Python: jk grep searches notes and slides but not PDFs' }
     foreach ($tool in @(@('g++', 'C++ for jk cp'), @('python', 'Python for jk cp'), @('javac', 'Java for jk cp'), @('git', 'git for jk repos'))) {
         $c = Get-Command $tool[0] -ErrorAction SilentlyContinue
         if ($c) {
