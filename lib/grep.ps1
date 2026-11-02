@@ -84,7 +84,13 @@ function Update-JkPdfTexts([IO.FileInfo[]]$Files) {
         $queue = New-Object 'System.Collections.Generic.Queue[object]'
         foreach ($f in $Files) { $queue.Enqueue($f) }
         $running = New-Object 'System.Collections.Generic.List[object]'
+        $finished = 0; $shown = [DateTime]::UtcNow
         while ($queue.Count -or $running.Count) {
+            # a first read of every term takes half a minute: show how far along it is
+            if ($Files.Count -ge 20 -and ([DateTime]::UtcNow - $shown).TotalMilliseconds -ge 400) {
+                Write-Progress -Activity 'jk grep: reading PDFs once' -Status "$finished of $($Files.Count)" -PercentComplete ([int](100 * $finished / $Files.Count))
+                $shown = [DateTime]::UtcNow
+            }
             while ($queue.Count -and $running.Count -lt 6) {
                 $f = $queue.Dequeue()
                 $out = Join-Path $dir ([guid]::NewGuid().ToString('N') + '.part')
@@ -102,9 +108,11 @@ function Update-JkPdfTexts([IO.FileInfo[]]$Files) {
                 Save-JkTextCache $r.F $text
                 $r.P.Dispose()
                 $null = $running.Remove($r)
+                $finished++
             }
             if ($running.Count) { Start-Sleep -Milliseconds 25 }
         }
+        if ($Files.Count -ge 20) { Write-Progress -Activity 'jk grep: reading PDFs once' -Completed }
         return
     }
     $py = Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
