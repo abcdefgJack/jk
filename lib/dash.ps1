@@ -270,7 +270,11 @@ function Show-JkDashboard {
         $free = $c.AvailableFreeSpace / $c.TotalSize
         $st = 'muted'; if ($free -lt 0.1) { $st = 'red' } elseif ($free -lt 0.2) { $st = 'orange' }
         $hint = ''; if ($free -lt 0.2) { $hint = Paint 'gray' " $($script:G.arrow) jk space" }
-        $sysBits += (Paint $st "$($env:SystemDrive) $(Format-JkSize $c.AvailableFreeSpace) free") + $hint
+        # filling up fast: 4 GB or more gone in three days is worth a look before it is a problem
+        $txt = "$($env:SystemDrive) $(Format-JkSize $c.AvailableFreeSpace) free"
+        $drop = $null; try { Update-JkDiskLog $c.AvailableFreeSpace $now; $drop = Get-JkDiskDrop $c.AvailableFreeSpace $now } catch { }
+        if ($drop) { $txt += " ($(Format-JkDiskDrop $drop))"; if ($st -eq 'muted') { $st = 'orange' }; $hint = Paint 'gray' " $($script:G.arrow) jk space" }
+        $sysBits += (Paint $st $txt) + $hint
     } catch { }
     try {
         $mem = Get-JkMemory

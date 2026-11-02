@@ -997,6 +997,29 @@ Test 'jk time: the gap and when it changes, call windows, places from languages,
         Assert-Throws { Invoke-JkTime add nowhereville } 'an unknown city is refused'
     } finally { $env:JK_NOW = $savedNow; Set-JkConfig 'time.zones' $savedZones }
 }
+Test 'disk filling up fast: a reading a day, 4 GB gone in three days is said' {
+    $p = Join-Path (Get-JkCacheDir) 'disk.log'
+    $saved = $null; if (Test-Path -LiteralPath $p) { $saved = [IO.File]::ReadAllText($p) }
+    try {
+        Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue
+        Update-JkDiskLog (66.3GB) ([datetime]'2026-11-01T09:00')
+        Update-JkDiskLog (60GB) ([datetime]'2026-11-01T20:00')
+        Update-JkDiskLog (63GB) ([datetime]'2026-11-02T09:00')
+        $log = @(Get-JkDiskLog)
+        Assert-Eq $log.Count 2 'one reading a day'
+        Assert-Eq $log[0].Free ([double][long](66.3GB)) 'the first of the day is kept'
+        $d = Get-JkDiskDrop (59.5GB) ([datetime]'2026-11-03T09:00')
+        Assert-True ((Format-JkDiskDrop $d) -match '^-6[.,]8 GB since Sun$') "the drop: $(Format-JkDiskDrop $d)"
+        Assert-True ($null -eq (Get-JkDiskDrop (63.5GB) ([datetime]'2026-11-03T09:00'))) 'under 4 GB: quiet'
+        Assert-True ($null -eq (Get-JkDiskDrop (50GB) ([datetime]'2026-11-08T09:00'))) 'readings over three days old do not count'
+        Update-JkDiskLog (59.5GB) ([datetime]'2026-11-03T09:00')
+        Assert-True ((Get-JkDiskTrend) -match '^\S{3}  66[.,]3 GB . 59[.,]5 GB free over 3 days$') "trend: $(Get-JkDiskTrend)"
+        for ($i = 0; $i -lt 30; $i++) { Update-JkDiskLog (50GB) ([datetime]'2026-12-01').AddDays($i) }
+        Assert-Eq @(Get-JkDiskLog).Count 21 'three weeks kept'
+    } finally {
+        if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
+    }
+}
 Test 'jk weather: rain or snow from when, what to take, the exam, kept for an hour' {
     $savedNow = $env:JK_NOW; $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'weather-home'; $script:JkConfigCache = $null
