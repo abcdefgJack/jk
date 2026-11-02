@@ -189,18 +189,26 @@ function Get-JkWeather {
         }
     } catch { $text = $null }
     if ($text -and $age -ge 0 -and $age -lt $MaxAgeHours) { try { return ConvertFrom-JkWeatherJson $text $Place $fetched } catch { $text = $null } }
+    $errFile = Join-Path (Get-JkCacheDir) 'weather.error'
     if (-not $CacheOnly) {
         try {
             $new = Invoke-JkWeatherGet (Get-JkWeatherUrl $Place) $TimeoutSec
             $at = [DateTime]::UtcNow
             # read before it is kept: a garbled reply is never cached
             $w = ConvertFrom-JkWeatherJson $new $Place $at
-            if (-not $NoSave) { try { Write-JkText $file ($at.ToString('o', $script:Inv) + "|$id`n" + $new) } catch { } }
+            if (-not $NoSave) {
+                try { Write-JkText $file ($at.ToString('o', $script:Inv) + "|$id`n" + $new) } catch { }
+                try { [IO.File]::Delete($errFile) } catch { }
+            }
             return $w
-        } catch { $script:JkWeatherError = $_.Exception.Message }
+        } catch {
+            $script:JkWeatherError = $_.Exception.Message
+            # why the kept forecast is getting old, for jk weather to say
+            if (-not $NoSave -and -not $env:JK_NOW) { try { Write-JkText $errFile ((Get-Date).ToString('s', $script:Inv) + ' ' + $script:JkWeatherError) } catch { } }
+        }
     }
-    # offline, or not asked to fetch: an older forecast still beats none
-    if ($text -and $age -ge 0 -and $age -lt 24) {
+    # offline, or not asked to fetch: an older forecast still beats none (it reaches six days out)
+    if ($text -and $age -ge 0 -and $age -lt 48) {
         try { $w = ConvertFrom-JkWeatherJson $text $Place $fetched; $w.Stale = $true; return $w } catch { }
     }
     $null
@@ -390,7 +398,9 @@ function Get-JkDashWeather([datetime]$Now) {
 function Get-JkBriefWeather([datetime]$Now) {
     $place = Get-JkWeatherPlace -NoLookup
     if (-not $place) { return '' }
-    $w = Get-JkWeather -Place $place -CacheOnly
+    $w = Get-JkWeather -Place $place -CacheOnly -MaxAgeHours 3
+    # a terminal opening is a good moment to fetch a fresh one for next time, in the background
+    if (-not $w -or $w.Stale) { Start-JkWeatherRefresh }
     if (-not $w) { return '' }
     $Now = ConvertTo-JkWeatherClock $w $Now
     $to = $Now.AddHours(12)
@@ -446,6 +456,11 @@ function Show-JkWeather {
     if ($w.Stale) { $asOf = "offline: forecast from $($w.Fetched.ToLocalTime().ToString('ddd', $script:Inv)) $(Format-JkTime $w.Fetched.ToLocalTime().ToString('HH:mm', $script:Inv))" }
     Write-JkHeader 'Weather' $asOf -Sub $Place.Name
     $row = { param($k, $v) Say ('  ' + (Paint 'bold white' (Fit $k 10)) + $v) }
+    if ($w.Stale) {
+        $why = $script:JkWeatherError
+        try { $ef = Join-Path (Get-JkCacheDir) 'weather.error'; if (-not $why -and [IO.File]::Exists($ef)) { $why = [IO.File]::ReadAllText($ef).Trim() } } catch { }
+        if ($why) { Say (Paint 'gray' "  could not refresh: $why  (jk net checks the connection)") }
+    }
     $now = ConvertTo-JkWeatherClock $w $now
     if ($null -ne $w.Offset) {
         $sign = $(if ($w.Offset -lt [TimeSpan]::Zero) { '-' } else { '+' })

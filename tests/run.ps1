@@ -996,7 +996,7 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
     $env:JK_HOME = Join-Path $saved 'weather-home'; $script:JkConfigCache = $null
     $orig = ${function:Invoke-JkWeatherGet}
     $origBg = ${function:Start-JkBackground}
-    $files = @('weather.txt', 'weather-places.json', 'weather.refresh' | ForEach-Object { Join-Path (Get-JkCacheDir) $_ })
+    $files = @('weather.txt', 'weather-places.json', 'weather.refresh', 'weather.error' | ForEach-Object { Join-Path (Get-JkCacheDir) $_ })
     try {
         $files | ForEach-Object { Remove-Item -LiteralPath $_ -ErrorAction SilentlyContinue }
         # a pinned clock never goes to the network
@@ -1074,6 +1074,28 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
             Complete-JkReminder -Id $r.id
             Assert-True ($script:WxShown -match 'Weather: 8., rain at 4:30 pm; rain around then \(80%\), take an umbrella') "exam alert: $script:WxShown"
         } finally { Set-Item function:script:Show-JkNotify $origN; $env:JK_NOW = '2026-11-03T08:00:00' }
+
+        # an older forecast: read up to two days on, marked stale; a failed refresh says why
+        $wf = Join-Path (Get-JkCacheDir) 'weather.txt'
+        $body = [IO.File]::ReadAllText($wf); $bar = $body.IndexOf('|')
+        $age = { param([double]$h) [IO.File]::WriteAllText($wf, [DateTime]::UtcNow.AddHours(-$h).ToString('o', $script:Inv) + $body.Substring($bar)) }
+        & $age 30
+        $w30 = Get-JkWeather -CacheOnly
+        Assert-True ($w30 -and $w30.Stale) 'a day and a half old: still read, marked stale'
+        & $age 60
+        Assert-True ($null -eq (Get-JkWeather -CacheOnly)) 'older than two days: not used'
+        & $age 30
+        $fixtureGet = ${function:Invoke-JkWeatherGet}
+        $env:JK_NOW = ''
+        try {
+            function script:Invoke-JkWeatherGet { param([string]$Url, [int]$TimeoutSec = 6) throw 'The remote name could not be resolved' }
+            Assert-True ((Get-JkWeather -MaxAgeHours 0).Stale) 'offline: the kept one'
+            Assert-True ([IO.File]::ReadAllText((Join-Path (Get-JkCacheDir) 'weather.error')) -match 'could not be resolved') 'the failure is noted'
+            $off = @(& { jk weather } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            Assert-True ($off -match 'offline: forecast from' -and $off -match 'could not refresh: .*could not be resolved') "jk weather says why: $off"
+        } finally { Set-Item function:script:Invoke-JkWeatherGet $fixtureGet; $env:JK_NOW = '2026-11-03T08:00:00' }
+        $null = Get-JkWeather -MaxAgeHours 0
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path (Get-JkCacheDir) 'weather.error'))) 'a good fetch clears the note'
         # the brief speaks up only for rain, snow or a bitter wind chill in the next 12 hours
         Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-03T08:00')) "rain 2$($script:G.dash)6 pm" 'brief: rain today'
         Assert-Eq (Get-JkBriefWeather ([datetime]'2026-11-05T20:00')) "snow 9 pm$($script:G.dash)3 am" 'brief: snow tonight'
