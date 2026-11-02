@@ -351,8 +351,16 @@ Test 'jk exam <course>: when, worth, prep, what lands the week before, and its f
         Assert-Eq $files.Count 2 'the two midterm files, not a2a.pdf'
         Assert-True (@(Get-JkFindLast).Count -eq 2) 'numbered for jk find -o'
         # an online window reads as one exam with its opening and closing
-        $h = (& { jk exam health } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        New-Item -ItemType Directory (Join-Path $courses 'HEALTH105\lectures') -Force | Out-Null
+        Set-Content (Join-Path $courses 'HEALTH105\lectures\week5.pdf') 'x'; (Get-Item (Join-Path $courses 'HEALTH105\lectures\week5.pdf')).LastWriteTime = [datetime]'2026-10-15'
+        Set-Content (Join-Path $courses 'HEALTH105\a5.docx') 'x'; (Get-Item (Join-Path $courses 'HEALTH105\a5.docx')).LastWriteTime = [datetime]'2026-10-21'
+        $hOut = @(& { jk exam health } 6>&1 | ForEach-Object { "$_" })
+        $h = $hOut -join "`n"
         Assert-True ($h -match 'opens Mon Oct 26 6:00 am\s+.\s+closes Tue Oct 27 11:59 pm') 'window'
+        # nothing named after it: lecture material first, though the assignment is newer
+        $rows = @($hOut | Where-Object { $_ -match '^\s+\d+\s{2}' })
+        Assert-True ($h -match 'none named after it; the newest lecture material' -and $rows[0] -match 'week5\.pdf' -and $rows[1] -match 'a5\.docx') "fallback files: $($rows -join ' | ')"
+        Assert-True ($h -match 'jk grep health105 <words>') 'points to jk grep'
         Assert-Throws { Show-JkExamBrief cs350 nonsense }
         Assert-True (((Invoke-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'UPCOMING EXAMS') 'no words: the list'
     } finally { Set-JkConfig 'tidy.courses' $saved }

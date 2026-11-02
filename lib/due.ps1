@@ -591,7 +591,10 @@ function Show-JkExamBrief {
                 $t = [string]$_.title; $verb = ''
                 # the closing half of an online window reads as the quiz itself, open until then
                 if ($t -match '(?i)\s+closes?$' -and (Get-JkEventWindow $_ $data)) { $t = $t -replace '(?i)\s+closes?$', ''; $verb = 'closes ' }
-                "$(Get-JkCourseLabel $_ $cmap) $t ($verb$($dd.ToString('ddd', $script:Inv)) $(Format-JkTime $dd.ToString('HH:mm')))"
+                # a week out, the exam's own weekday is today's too: "today", not "Mon"
+                $day = $dd.ToString('ddd', $script:Inv)
+                if ($dd.Date -eq $now.Date) { $day = 'today' } elseif ($dd.Date -eq $now.Date.AddDays(1)) { $day = 'tomorrow' }
+                "$(Get-JkCourseLabel $_ $cmap) $t ($verb$day $(Format-JkTime $dd.ToString('HH:mm')))"
             }) -join "  $($script:G.dot)  "
         & $wrapRow 'before' $txt 'muted'
     }
@@ -605,8 +608,19 @@ function Show-JkExamBrief {
         Save-JkFindLast $show
         Say (' ' + (Paint 'bold white' 'Files') + (Paint 'gray' "  named after it in $(Get-JkShortPath $f.Dir)"))
         Write-JkFindRows $show
-    } elseif ($f) { Say (Paint 'gray' "  no files named after it in $(Get-JkShortPath $f.Dir) yet") }
+    } elseif ($f -and @($f.All).Count) {
+        # nothing named after it: the newest lecture material first (slides, notes, L11.pdf), then
+        # whatever else changed last
+        $study = '(?i)lecture|\blec|slides?|notes|module|chapter|review|practice|tutorial|\bL\d{1,2}\b'
+        $lect = @($f.All | Where-Object { "$($_.Folder)\$($_.Name)" -match $study } | Sort-Object Modified -Descending)
+        $rest = @($f.All | Where-Object { "$($_.Folder)\$($_.Name)" -notmatch $study } | Sort-Object Modified -Descending)
+        $show = @(@($lect) + @($rest) | Select-Object -First 5)
+        Save-JkFindLast $show
+        Say (' ' + (Paint 'bold white' 'Files') + (Paint 'gray' "  none named after it; $(if ($lect.Count) { 'the newest lecture material' } else { 'the newest' }) in $(Get-JkShortPath $f.Dir)"))
+        Write-JkFindRows $show
+    } elseif ($f) { Say (Paint 'gray' "  $(Get-JkShortPath $f.Dir) is empty") }
     $key = Get-JkNormKey ([string]$c.code)
+    if ($f) { Say ((Paint 'gray' '  a topic inside its PDFs and slides: ') + (Paint 'white' "jk grep $key <words>")) }
     Say (Paint 'gray' "  jk focus 50 $key $(($x.Title -replace '\s+', ' ').ToLower())  $($script:G.dot)  jk find -o 1 opens a file  $($script:G.dot)  jk grade $key")
 }
 
