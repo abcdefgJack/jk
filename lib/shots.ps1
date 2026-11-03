@@ -121,11 +121,37 @@ function Initialize-JkOcr {
     $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
     $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType = WindowsRuntime]
     $asTask = @([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
-    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-    if (-not $engine) { $l = @([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)[0]; if ($l) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($l) } }
-    if (-not $engine) { throw 'Windows has no text recognition language installed (Settings > Time & language > Language: a language with "Optical character recognition")' }
-    $script:JkOcr = [pscustomobject]@{ Engine = $engine; AsTask = $asTask }
+    # one engine per language of yours that Windows can read (English and Chinese both, once the
+    # Chinese one is installed); en-GB and en-US are one language here
+    $available = @([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)
+    $engines = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($tag in @(Get-JkProfileLanguages)) {
+        $prim = $tag.Split('-')[0].ToLower()
+        if ($seen[$prim]) { continue }
+        $l = @($available | Where-Object { $_.LanguageTag -ieq $tag })[0]
+        if (-not $l) { $l = @($available | Where-Object { $_.LanguageTag.Split('-')[0] -ieq $prim })[0] }
+        if ($l) { $e = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($l); if ($e) { $engines.Add($e); $seen[$prim] = $true } }
+    }
+    if (-not $engines.Count -and $available.Count) { $engines.Add([Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($available[0])) }
+    if (-not $engines.Count) { throw 'Windows has no text recognition language installed (Settings > Time & language > Language: a language with "Optical character recognition")' }
+    $script:JkOcr = [pscustomobject]@{ Engines = $engines.ToArray(); Tags = (@($engines | ForEach-Object { $_.RecognizerLanguage.LanguageTag }) -join ','); AsTask = $asTask }
     $script:JkOcr
+}
+
+# Your languages, from Windows (Settings > Time & language > Language).
+function Get-JkProfileLanguages {
+    try { @((Get-ItemProperty 'HKCU:\Control Panel\International\User Profile' -ErrorAction Stop).Languages) } catch { @('en-US') }
+}
+
+# Languages of yours that Windows cannot read in pictures yet: "Chinese (Simplified, China)".
+function Get-JkOcrMissing {
+    $o = Initialize-JkOcr
+    $have = @($o.Engines | ForEach-Object { $_.RecognizerLanguage.LanguageTag.Split('-')[0].ToLower() })
+    @(foreach ($tag in @(Get-JkProfileLanguages)) {
+            if ($have -contains $tag.Split('-')[0].ToLower()) { continue }
+            try { [Globalization.CultureInfo]::GetCultureInfo($tag).EnglishName } catch { $tag }
+        }) | Select-Object -Unique
 }
 
 function Wait-JkWinRt($Op, [Type]$Type) { $t = $script:JkOcr.AsTask.MakeGenericMethod($Type).Invoke($null, @($Op)); $null = $t.Wait(-1); $t.Result }
@@ -140,8 +166,8 @@ function Get-JkImageText([string]$Path) {
         $max = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
         if ($dec.PixelWidth -gt $max -or $dec.PixelHeight -gt $max) { return '' }
         $bmp = Wait-JkWinRt ($dec.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-        $res = Wait-JkWinRt ($o.Engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
-        [regex]::Replace([string]$res.Text, '\s+', ' ').Trim()
+        $texts = foreach ($e in $o.Engines) { [string](Wait-JkWinRt ($e.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])).Text }
+        [regex]::Replace((@($texts) -join ' '), '\s+', ' ').Trim()
     } finally { $stream.Dispose() }
 }
 
@@ -167,10 +193,18 @@ function Read-JkShotsIndex {
 function Update-JkShotsIndex {
     param([double]$Seconds = 30, [switch]$Progress, [switch]$LowPriority, [string]$Path = (Get-JkShotsPath))
     if ($LowPriority) { try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { } }
+    $p = Get-JkShotsIndexPath
+    # read with other languages than last time (Chinese just installed): everything again
+    $tagFile = "$p.langs"
+    $tags = (Initialize-JkOcr).Tags
+    $was = ''; try { if ([IO.File]::Exists($tagFile)) { $was = [IO.File]::ReadAllText($tagFile).Trim() } } catch { }
+    if ($was -ne $tags) {
+        if ($was -and [IO.File]::Exists($p)) { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
+        Write-JkText $tagFile $tags
+    }
     $shots = @(Get-JkShots $Path | Where-Object { $_.Item.Extension -match '^\.(png|jpe?g|bmp|gif)$' } | Sort-Object Modified -Descending)
     $idx = Read-JkShotsIndex
     $todo = @($shots | Where-Object { -not $idx.ContainsKey((Get-JkShotKey $_)) })
-    $p = Get-JkShotsIndexPath
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     $batch = New-Object System.Collections.Generic.List[string]
     $n = 0
@@ -211,8 +245,15 @@ function Invoke-JkShotsFind {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words, [switch]$All, [string]$Path = (Get-JkShotsPath))
     $terms = @($Words | Where-Object { $_ } | ForEach-Object { $_.Trim() })
     if (-not $terms.Count) { throw 'which words? jk shots find error message   (jk shots find "exact phrase" for one)' }
-    $u = Update-JkShotsIndex -Seconds 30 -Progress -Path $Path
+    $u = $null
+    try { $u = Update-JkShotsIndex -Seconds 30 -Progress -Path $Path } catch { Say (Paint 'yellow' "  $($_.Exception.Message)") }
     $idx = Read-JkShotsIndex
+    if (-not $u) {
+        # nothing can be read here: search what an earlier read left
+        $all = @(Get-JkShots $Path | Where-Object { $_.Item.Extension -match '^\.(png|jpe?g|bmp|gif)$' })
+        $read = @($all | Where-Object { $idx.ContainsKey((Get-JkShotKey $_)) }).Count
+        $u = [pscustomobject]@{ Read = $read; Total = $all.Count; Left = 0; Now = 0 }
+    }
     $cmp = [StringComparison]::OrdinalIgnoreCase
     $hits = @(foreach ($s in @(Get-JkShots $Path)) {
             $t = $null
@@ -251,6 +292,11 @@ function Invoke-JkShotsFind {
         Say (Paint 'gray' "  $($u.Left) older screenshots not read yet$(if ($bg) { ': reading them in the background now (a few minutes)' } else { ': run it again to read more' }); the morning task keeps new ones read")
     }
     Say (Paint 'gray' "  text read by Windows itself, kept on this PC only (jk shots forget deletes it)")
+    $missing = @(); try { $missing = @(Get-JkOcrMissing) } catch { }
+    foreach ($l in $missing) {
+        Say (Paint 'yellow' "  $l text is not read yet: Windows has no $l text recognition installed")
+        Write-JkTip '    ' 4 "Settings > Time & language > Language & region > $l > Language options > Optical character recognition: Download. jk reads them all again after." 'gray' -Indent 4
+    }
 }
 
 function Invoke-JkShots {
@@ -263,7 +309,7 @@ function Invoke-JkShots {
         '^(old|stale)$' { Invoke-JkShotsOld @rest; return }
         '^(find|search|text|grep)$' { Invoke-JkShotsFind @rest; return }
         '^(forget)$' {
-            Remove-Item -LiteralPath (Get-JkShotsIndexPath) -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Get-JkShotsIndexPath), "$(Get-JkShotsIndexPath).langs" -ErrorAction SilentlyContinue
             Say (Paint 'green' "  the text read from your screenshots is deleted $($script:G.check)  (jk shots find reads it again)")
             return
         }
