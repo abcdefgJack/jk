@@ -187,6 +187,11 @@ jk shots file                  move screenshots from before this month into YYYY
                                jk tidy undo puts them back
 jk shots old                   those older than a year by year and size; -Months 6 to choose, -Recycle to
                                send them to the Recycle Bin (recoverable)
+jk shots find backward euler   screenshots by the words in them, newest first, each with the words in
+                               place (jk find -o 1 opens one). The text is read by Windows' own OCR,
+                               about 30 ms a screenshot: 30 s of reading per run, then the rest in the
+                               background, and each morning's new ones; kept on this PC only
+jk shots forget                delete the text read from them
 jk config set shots.path D:\Shots   another folder (default: Pictures\Screenshots)
 '@
     'grep'   = @'

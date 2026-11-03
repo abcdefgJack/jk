@@ -1042,6 +1042,54 @@ Test 'disk filling up fast: a reading a day, 4 GB gone in three days is said' {
         if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
     }
 }
+Test 'jk shots find: the words in screenshots, read once, newest first, kept when filed' {
+    $dir = Join-Path $env:JK_HOME 'shots-find'
+    New-Item -ItemType Directory (Join-Path $dir '2026-10') -Force | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $mk = { param($path, $text, [datetime]$when)
+        $bmp = New-Object Drawing.Bitmap 900, 110
+        $g = [Drawing.Graphics]::FromImage($bmp); $g.Clear([Drawing.Color]::White)
+        if ($text) { $font = New-Object Drawing.Font 'Segoe UI', 30; $g.DrawString($text, $font, [Drawing.Brushes]::Black, 10, 25); $font.Dispose() }
+        $g.Dispose(); $bmp.Save($path, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+        (Get-Item -LiteralPath $path).LastWriteTime = $when
+    }
+    $newest = Join-Path $dir 'Screenshot 2026-11-01 101010.png'
+    & $mk $newest 'Take one step of Backward Euler' ([datetime]'2026-11-01T10:10')
+    & $mk (Join-Path $dir '2026-10\Screenshot 2026-10-01 090909.png') 'The page table and the TLB' ([datetime]'2026-10-01T09:09')
+    & $mk (Join-Path $dir 'Screenshot 2026-09-01 080808.png') '' ([datetime]'2026-09-01T08:08')
+    $savedPath = Get-JkConfig 'shots.path'
+    $idx = Get-JkShotsIndexPath
+    Remove-Item -LiteralPath $idx -ErrorAction SilentlyContinue
+    Set-JkConfig 'shots.path' $dir
+    try {
+        $ocr = $true; try { $null = Initialize-JkOcr } catch { $ocr = $false }
+        if (-not $ocr) {
+            # no OCR language on this machine: the search and its output still work from an index
+            $shots = @(Get-JkShots $dir)
+            [IO.File]::WriteAllLines($idx, [string[]]@($shots | ForEach-Object { (Get-JkShotKey $_) + "`t" + $(if ($_.Name -match '101010') { 'Take one step of Backward Euler' } elseif ($_.Name -match '090909') { 'The page table and the TLB' } else { '' }) }))
+        } else {
+            $u = Update-JkShotsIndex -Seconds 60
+            Assert-Eq "$($u.Read) $($u.Left) $($u.Now)" '3 0 3' 'every screenshot read once'
+            Assert-Eq (Update-JkShotsIndex -Seconds 60).Now 0 'nothing read twice'
+        }
+        $t1 = @(& { jk shots find backward euler } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t1 -match '1 screenshot . 3 of 3 read' -and $t1 -match 'Screenshot 2026-11-01 101010\.png' -and $t1 -match '(?i)backward euler') "found by its words: $t1"
+        Assert-True ((Split-Path @(Get-JkFindLast)[0] -Leaf) -eq 'Screenshot 2026-11-01 101010.png') 'numbered for jk find -o'
+        $t2 = @(& { jk shots find 'page table' } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t2 -match 'Screenshot 2026-10-01 090909\.png\s+Oct 1\s+2026-10') "a phrase, in its month folder: $t2"
+        Assert-True ((@(& { jk shots find zebra } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'None of the screenshots') 'nothing found says so'
+        # filed into a month folder (jk shots file): what was read is kept
+        New-Item -ItemType Directory (Join-Path $dir '2026-11') -Force | Out-Null
+        Move-Item -LiteralPath $newest -Destination (Join-Path $dir '2026-11')
+        if ($ocr) { Assert-Eq (Update-JkShotsIndex -Seconds 60).Now 0 'a moved screenshot is not read again' }
+        Assert-True ((@(& { jk shots find backward euler } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match '101010\.png\s+\S[^\n]*?\s2026-11\s*(\n|$)') 'found where it is now (its date reads against the real clock)'
+        jk shots forget
+        Assert-True (-not (Test-Path -LiteralPath $idx)) 'forget deletes the text'
+    } finally {
+        Set-JkConfig 'shots.path' $savedPath
+        Remove-Item -LiteralPath $idx -ErrorAction SilentlyContinue
+    }
+}
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null

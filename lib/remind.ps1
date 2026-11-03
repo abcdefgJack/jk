@@ -468,6 +468,9 @@ function Invoke-JkRemind {
                 }
             } catch { }
             Invoke-JkDueRemind -Quiet
+            # yesterday's screenshots read for jk shots find, once it has been used (after the popup,
+            # at low priority, two minutes at most)
+            try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { }
             return
         }
         '^(now|due)$' { Invoke-JkDueRemind -Force @rest; return }
