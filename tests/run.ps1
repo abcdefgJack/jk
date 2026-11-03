@@ -1071,6 +1071,17 @@ Test 'jk shots find: the words in screenshots, read once, newest first, kept whe
             $u = Update-JkShotsIndex -Seconds 60
             Assert-Eq "$($u.Read) $($u.Left) $($u.Now)" '3 0 3' 'every screenshot read once'
             Assert-Eq (Update-JkShotsIndex -Seconds 60).Now 0 'nothing read twice'
+            # read with other languages than last time (Chinese just installed): all of them again
+            Set-Content -LiteralPath "$idx.langs" -Value 'xx-XX'
+            Assert-Eq (Update-JkShotsIndex -Seconds 60).Now 3 'a new OCR language reads everything again'
+            # a language of yours Windows cannot read in pictures is named, with where to add it
+            $missing = @(Get-JkOcrMissing)
+            Assert-True (@($missing | Where-Object { $_ -match '^English' }).Count -eq 0) "English is read: $($missing -join ', ')"
+            $zhOcr = @([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | Where-Object { $_.LanguageTag -like 'zh*' }).Count
+            if (@(Get-JkProfileLanguages | Where-Object { $_ -like 'zh*' }).Count -and -not $zhOcr) {
+                Assert-True (@($missing | Where-Object { $_ -match '^Chinese \(Simplified' }).Count -eq 1) "Chinese named while its OCR is missing: $($missing -join ', ')"
+                Assert-True ((@(& { jk shots find euler } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match '(?s)Chinese \(Simplified[^)]*\) text is not read yet.*Optical character recognition') 'and how to add it'
+            }
         }
         $t1 = @(& { jk shots find backward euler } 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($t1 -match '1 screenshot . 3 of 3 read' -and $t1 -match 'Screenshot 2026-11-01 101010\.png' -and $t1 -match '(?i)backward euler') "found by its words: $t1"
@@ -1087,7 +1098,7 @@ Test 'jk shots find: the words in screenshots, read once, newest first, kept whe
         Assert-True (-not (Test-Path -LiteralPath $idx)) 'forget deletes the text'
     } finally {
         Set-JkConfig 'shots.path' $savedPath
-        Remove-Item -LiteralPath $idx -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $idx, "$idx.langs" -ErrorAction SilentlyContinue
     }
 }
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
