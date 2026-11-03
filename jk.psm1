@@ -64,6 +64,26 @@ function jk {
     finally { if ($global:LASTEXITCODE -ne $exitCode) { $global:LASTEXITCODE = $exitCode } }
 }
 
+# What a command line names: @{ Command } or @{ Course = (Resolve-JkCourseWords) }, or $null. A
+# course (jk cs341, jk co 367) is that course on a screen. An exact command or alias always wins;
+# a word that plainly is a course wins over a command it merely starts ("co" -> config); a looser
+# match ("health") only when no command takes the word. Tab completion asks the same question.
+function Resolve-JkRoute([string[]]$Words) {
+    $a = @($Words)
+    if (-not $a.Count) { return $null }
+    $first = ([string]$a[0]).ToLower()
+    $exact = $script:JkCommands.Contains($first) -or @($script:JkCommands.Values | Where-Object { $_.Aliases -contains $first }).Count
+    $courseish = $first -match '^[a-z]{2,8}\d{2,3}[a-z]?$' -or ($a.Count -ge 2 -and $first -match '^[a-z]{2,8}$' -and [string]$a[1] -match '^\d{2,3}[A-Za-z]?$')
+    $name = $null
+    if ($exact -or -not $courseish) { $name = Resolve-JkCommand $first }
+    if ($name) { return @{ Command = $name } }
+    $cw = $null
+    try { $cw = Resolve-JkCourseWords $a } catch { }
+    if ($cw) { return @{ Course = $cw } }
+    if ($courseish) { $name = Resolve-JkCommand $first; if ($name) { return @{ Command = $name } } }
+    $null
+}
+
 function Invoke-JkCommand {
     $script:JkUseColor = Test-JkColor
     $script:JkConfigCache = $null
@@ -74,24 +94,13 @@ function Invoke-JkCommand {
         try { Show-JkDashboard } catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
         return
     }
-    # a course (jk cs341, jk co 367): that course on a screen, or a command for it. A word that
-    # plainly is one wins over a command it happens to start ("co" -> config); a looser match
-    # ("health") only when no command takes the word.
-    $first = ([string]$a[0]).ToLower()
-    $exact = $script:JkCommands.Contains($first) -or @($script:JkCommands.Values | Where-Object { $_.Aliases -contains $first }).Count
-    $courseish = $first -match '^[a-z]{2,8}\d{2,3}[a-z]?$' -or ($a.Count -ge 2 -and $first -match '^[a-z]{2,8}$' -and [string]$a[1] -match '^\d{2,3}[A-Za-z]?$')
-    $name = $null
-    if ($exact -or -not $courseish) { $name = Resolve-JkCommand $first }
-    if (-not $name) {
-        $cw = $null
-        try { $cw = Resolve-JkCourseWords ([string[]]$a) } catch { }
-        if ($cw) {
-            try { if ($cw.Rest.Count) { Invoke-JkCourseAction $cw.Course $cw.Rest } else { Show-JkCourseBrief $cw.Course } }
-            catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
-            return
-        }
-        if ($courseish -and -not $exact) { $name = Resolve-JkCommand $first }
+    $route = Resolve-JkRoute ([string[]]$a)
+    if ($route -and $route.Course) {
+        try { if ($route.Course.Rest.Count) { Invoke-JkCourseAction $route.Course.Course $route.Course.Rest } else { Show-JkCourseBrief $route.Course.Course } }
+        catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
+        return
     }
+    $name = $null; if ($route) { $name = $route.Command }
     if (-not $name) {
         Write-Host (Paint 'red' "  jk: unknown command '$($a[0])'.") (Paint 'gray' "Try 'jk help'.")
         return
@@ -197,9 +206,28 @@ function Get-JkCompletions {
     $idx = $Tokens.Count
     if ($Word) { $idx = $Tokens.Count - 1 }
     if ($idx -le 1) {
-        return $script:JkCommands.Keys | Where-Object { $_ -like "$Word*" } | ForEach-Object { & $mk $_ $_ $script:JkCommands[$_].Desc }
+        $cmds = @($script:JkCommands.Keys | Where-Object { $_ -like "$Word*" } | ForEach-Object { & $mk $_ $_ $script:JkCommands[$_].Desc })
+        # this term's course codes too: jk cs341 is that course on a screen
+        $courses = @()
+        try {
+            $courses = @(foreach ($c in @((Get-JkDueData -Cached).courses)) {
+                    $k = Get-JkNormKey ([string]$c.code); if (-not $k) { $k = [string]$c.key }
+                    if ($k -like "$Word*" -and -not $script:JkCommands.Contains($k)) { & $mk $k $k "$($c.code)$(if ($c.name) { " $($c.name)" }): the course on a screen" }
+                })
+        } catch { }
+        return @($cmds + $courses)
     }
-    $cmd = Resolve-JkCommand $Tokens[1]
+    # the words before the one being typed decide what it is
+    $done = @($Tokens | Select-Object -Skip 1)
+    if ($Word -and $done.Count) { $done = @($done | Select-Object -First ($done.Count - 1)) }
+    $route = Resolve-JkRoute $done
+    if ($route -and $route.Course) {
+        # right after the course: what can follow it
+        if ($route.Course.Rest.Count) { return }
+        $acts = [ordered]@{ exam = 'its next exam on a screen'; grade = 'its marks and what the rest needs'; grep = 'words inside its PDFs, slides and notes'; due = 'its deadlines'; files = 'the files for one of its deadlines'; go = 'jump to its folder' }
+        return @($acts.Keys | Where-Object { $_ -like "$Word*" } | ForEach-Object { & $mk $_ $_ $acts[$_] })
+    }
+    $cmd = $null; if ($route) { $cmd = $route.Command }
     if (-not $cmd) { return }
     $action = ''
     if ($idx -ge 3) { $action = ([string]$Tokens[2]).ToLower() }
@@ -247,8 +275,8 @@ function Get-JkCompletions {
         if ($cmd -eq 'help') { $vals = @($script:JkCommands.Keys) }
         elseif ($cmd -eq 'go') { $vals = @(Get-JkGoCandidates | ForEach-Object { $_.Alias }) }
         elseif ($cmd -eq 'config') { $vals = @($script:JkActions['config']) + @($script:JkConfigDefaults.Keys) }
-        elseif ($cmd -eq 'grade' -or $cmd -eq 'due') {
-            $vals = @($script:JkActions[$cmd]) + @((Get-JkDueData).courses | ForEach-Object { [string]$_.key })
+        elseif ($cmd -in 'grade', 'due', 'exams', 'grep') {
+            $vals = @(@($script:JkActions[$cmd]) + @((Get-JkDueData).courses | ForEach-Object { [string]$_.key }) | Where-Object { $_ })
         }
         elseif ($script:JkActions.ContainsKey($cmd)) { $vals = @($script:JkActions[$cmd]) }
     } elseif ($idx -ge 3) {

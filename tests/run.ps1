@@ -3068,6 +3068,14 @@ Test 'tab completion engine' {
     Assert-True ((& $names '' @('jk', 'cp', 'new', 'x')) -contains '-Lang')
     Assert-Eq ((& $names '' @('jk', 'cp', 'new', 'x', '-Lang')) -join ',') 'cpp,py,java,usaco'
     Assert-True ((& $names '' @('jk', 'due', 'add')) -contains 'cs350')
+    # course codes: as the first word (jk cs341 is the course on a screen), and what can follow one
+    Assert-True ((& $names 'cs3' @('jk', 'cs3')) -contains 'cs350') 'a course code as the first word'
+    Assert-Eq ((& $names '' @('jk', 'cs350')) -join ',') 'exam,grade,grep,due,files,go' 'after a course'
+    Assert-Eq ((& $names 'g' @('jk', 'cs', '350', 'g')) -join ',') 'grade,grep,go' 'after "cs 350"'
+    Assert-True ((& $names '' @('jk', 'exam')) -contains 'cs350') 'jk exam <Tab> offers the courses'
+    Assert-True ((& $names '' @('jk', 'grep')) -contains 'all') 'jk grep <Tab>: all, and the courses'
+    Assert-True ((& $names '' @('jk', 'due')) -contains 'add') 'a command still completes its own words'
+    Assert-Eq (Resolve-JkRoute @('co', '367')).Command 'config' 'no course called that here: the command it starts, as before'
 }
 Test 'no command takes a bare word into an option by accident (implicit positions)' {
     # PowerShell numbers a function's parameters in order when none says otherwise, so a catch-all for
