@@ -373,6 +373,28 @@ function Get-JkWeatherLine($W, [datetime]$Now) {
     [pscustomobject]@{ Now = $nowTxt; Wet = $wet; Next = $next }
 }
 
+# How old the kept forecast for $Place is, in hours (-1: none), from its first line alone.
+function Get-JkWeatherAge($Place) {
+    $file = Join-Path (Get-JkCacheDir) 'weather.txt'
+    try {
+        if (-not [IO.File]::Exists($file)) { return -1 }
+        $sr = New-Object IO.StreamReader $file
+        try { $head = $sr.ReadLine() } finally { $sr.Dispose() }
+        $id = ([double]$Place.Lat).ToString('0.####', $script:Inv) + '|' + ([double]$Place.Lon).ToString('0.####', $script:Inv)
+        $bar = $head.IndexOf('|')
+        if ($bar -le 0 -or $head.Substring($bar + 1) -ne $id) { return -1 }
+        ([DateTime]::UtcNow - [DateTimeOffset]::Parse($head.Substring(0, $bar), $script:Inv).UtcDateTime).TotalHours
+    } catch { -1 }
+}
+
+# The text of a weather line, kept for the hour and the forecast it came from: parsing a week of
+# hours costs about 200 ms in a fresh terminal, and the line can only change on the hour or with
+# a new forecast.
+function Get-JkWeatherCachedLine([string]$Name, $Place, [datetime]$Now, [scriptblock]$Compute) {
+    $key = "$(Get-JkFileStamp @((Join-Path (Get-JkCacheDir) 'weather.txt')))|$($Now.ToString('yyyyMMddHH', $script:Inv))|$($Place.Name)|$script:JkUseColor|$script:JkLightTheme"
+    Get-JkCached $Name $key $Compute
+}
+
 # The dashboard's line from the cache only; a stale or missing forecast is fetched in the
 # background for next time.
 function Get-JkDashWeather([datetime]$Now) {
@@ -381,8 +403,14 @@ function Get-JkDashWeather([datetime]$Now) {
         if ([string](Get-JkConfig 'weather.place') -notmatch '^(off|none|no|0)$') { Start-JkWeatherRefresh }
         return ''
     }
-    $w = Get-JkWeather -Place $place -CacheOnly
-    if (-not $w -or $w.Stale) { Start-JkWeatherRefresh }
+    $age = Get-JkWeatherAge $place
+    if ($age -lt 0 -or $age -ge 1) { Start-JkWeatherRefresh }
+    if ($age -lt 0) { return '' }
+    Get-JkWeatherCachedLine 'dash-weather' $place $Now { Get-JkDashWeatherText $place $Now }
+}
+
+function Get-JkDashWeatherText($Place, [datetime]$Now) {
+    $w = Get-JkWeather -Place $Place -CacheOnly
     if (-not $w) { return '' }
     $l = Get-JkWeatherLine $w (ConvertTo-JkWeatherClock $w $Now)
     if (-not $l) { return '' }
@@ -398,9 +426,15 @@ function Get-JkDashWeather([datetime]$Now) {
 function Get-JkBriefWeather([datetime]$Now) {
     $place = Get-JkWeatherPlace -NoLookup
     if (-not $place) { return '' }
-    $w = Get-JkWeather -Place $place -CacheOnly -MaxAgeHours 3
     # a terminal opening is a good moment to fetch a fresh one for next time, in the background
-    if (-not $w -or $w.Stale) { Start-JkWeatherRefresh }
+    $age = Get-JkWeatherAge $place
+    if ($age -lt 0 -or $age -ge 3) { Start-JkWeatherRefresh }
+    if ($age -lt 0) { return '' }
+    Get-JkWeatherCachedLine 'brief-weather' $place $Now { Get-JkBriefWeatherText $place $Now }
+}
+
+function Get-JkBriefWeatherText($Place, [datetime]$Now) {
+    $w = Get-JkWeather -Place $Place -CacheOnly -MaxAgeHours 3
     if (-not $w) { return '' }
     $Now = ConvertTo-JkWeatherClock $w $Now
     $to = $Now.AddHours(12)
