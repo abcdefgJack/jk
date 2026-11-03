@@ -207,6 +207,12 @@ jk find -o 1                   opens result 1, a PDF at its page (Edge, Chrome, 
 and kept; handwritten or scanned PDFs have no text to search, and are counted.
 Also: jk inside, jk lookup, jk where.
 '@
+    'next'   = @'
+jk next                        the one thing to do now, and the next two: an exam within 6 hours, a class
+                               starting within 45 minutes, work due within 12 hours, to-dos due today,
+                               then the study jk plan has for today; each with the command that does it
+Also: jk now, jk what.
+'@
     'time'   = @'
 jk time                        the time in each of your places, how far ahead or behind, awake or asleep,
                                when you are both up for a call (8 am-11 pm here, 9 am-10 pm there), and
@@ -354,7 +360,7 @@ function Write-JkHelpBlock([string]$Text) {
 # checks), so a new command cannot go missing from it.
 $script:JkHelpGroups = [ordered]@{
     'School'  = @('class', 'due', 'week', 'exams', 'grep', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
-    'Time'    = @('focus', 'in', 'at', 'remind', 'time', 'weather')
+    'Time'    = @('next', 'focus', 'in', 'at', 'remind', 'time', 'weather')
     'Code'    = @('cp', 'repos', 'port')
     'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')
     'jk'      = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
