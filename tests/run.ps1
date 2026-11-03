@@ -1127,6 +1127,31 @@ Test 'jk clip ocr: the text in a snip on the clipboard, lines kept, put back as 
         $bmp.Dispose()
     }
 }
+Test 'jk next: an exam soon, a class soon, work due tonight, then the study planned' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'next-home'; $script:JkConfigCache = $null
+    try {
+        $d = Get-JkDueData
+        $c370 = Resolve-JkCourse $d 'cs370' -Create; $hl = Resolve-JkCourse $d 'health105' -Create; $null = Resolve-JkCourse $d 'co367' -Create
+        $null = New-JkEvent -Data $d -Course $c370.key -Date ([datetime]'2026-11-02') -Time '17:00' -Title 'Midterm' -Kind 'exam' -Note 'in person, MC 2065'
+        $null = New-JkEvent -Data $d -Course $hl.key -Date ([datetime]'2026-11-02') -Time '23:59' -Title 'Assignment 5' -Kind 'due' -Weight '7.5%'
+        $null = New-JkEvent -Data $d -Course $hl.key -Date ([datetime]'2026-11-05') -Time '23:59' -Title 'Assignment 6' -Kind 'due' -Weight '7.5%'
+        Save-JkDueData $d
+        Save-JkClassData ([pscustomobject]@{ nextId = 2; items = @([pscustomobject]@{ id = 1; course = 'co367'; kind = 'LEC'; days = @('Mon'); start = '13:30'; end = '14:50'; room = 'MC 2017'; from = ''; to = '' }) })
+        $env:JK_NOW = '2026-11-02T13:00:00'
+        $steps = @(Get-JkNextSteps (Get-JkNow))
+        Assert-True ($steps[0].Text -match '^CS 370 Midterm at 5:00 pm \(in 4h 00m\)' -and $steps[0].Hint -match '^leave in time . in person, MC 2065 . jk exam cs370$') "the exam first: $($steps[0].Text) / $($steps[0].Hint)"
+        Assert-True ($steps[1].Text -match '^CO 367 LEC in MC 2017 at 1:30 pm \(in 30m\)') "then the class: $($steps[1].Text)"
+        Assert-True ($steps[2].Text -match '^HEALTH 105 Assignment 5, due 11:59 pm' -and $steps[2].Hint -match 'jk due done \d+') "then tonight's work: $($steps[2].Text)"
+        Assert-True (-not @($steps | Where-Object { $_.Text -match 'Assignment 6' -and $_.Text -notmatch '^Study' }).Count) 'work due in three days is not "now"'
+        $out = @(& { jk next } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match '(?s)now\s+CS 370 Midterm.*then\s+CO 367 LEC.*then\s+HEALTH 105 Assignment 5') "the screen: $out"
+        # a quiet evening: nothing within reach, so what comes next and when
+        $env:JK_NOW = '2026-11-03T23:30:00'
+        $quiet = @(Get-JkNextSteps (Get-JkNow))
+        Assert-True ($quiet[0].Text -match '^Nothing pressing\. Next: HEALTH 105 Assignment 6, Thu Nov 5 \(in 2 days\)' -or $quiet[0].Text -match '^Study ') "quiet: $($quiet[0].Text)"
+    } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null

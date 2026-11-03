@@ -1,0 +1,82 @@
+# next.ps1 - jk next: the one thing to do now, and what follows it.
+# In order: an exam within 6 hours, a class starting within 45 minutes, work due within 12 hours,
+# to-dos due today, then the study jk plan has for today; each with the command that does it.
+
+function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
+    $data = Get-JkDueData
+    $cmap = Get-JkCourseMap $data
+    $out = New-Object System.Collections.Generic.List[object]
+    $add = { param($text, $hint) $out.Add([pscustomobject]@{ Text = $text; Hint = $hint }) }
+    $timed = @($data.events | Where-Object { -not $_.done -and $_.time -and [string]$_.title -notmatch '(?i)\sopens?$' } |
+            ForEach-Object { [pscustomobject]@{ E = $_; Due = (Get-JkEventDue $_) } } | Where-Object { $_.Due -gt $Now } | Sort-Object Due)
+    $name = { param($e) "$(Get-JkCourseLabel $e $cmap) $(([string]$e.title -replace '(?i)\s+closes?$', '').Trim())" }
+    $key = { param($e) $c = @($data.courses | Where-Object { $_.key -eq $e.course })[0]; $k = Get-JkNormKey ([string]$c.code); if ($k) { $k } else { [string]$e.course } }
+
+    # an exam within 6 hours: the last review, then getting there
+    foreach ($x in @($timed | Where-Object { $_.E.kind -eq 'exam' -and ($_.Due - $Now).TotalHours -le 6 })) {
+        $where = Get-JkExamNote $x.E
+        $online = [string]$x.E.title -match '(?i)\s+closes?$' -or $where -match '(?i)\bonline\b'
+        $verb = $(if ([string]$x.E.title -match '(?i)\s+closes?$') { 'closes' } else { 'at' })
+        $hint = "jk exam $(& $key $x.E)"
+        if (-not $online) { $hint = (@('leave in time', $where, $hint) | Where-Object { $_ }) -join " $($script:G.dot) " }
+        & $add "$(& $name $x.E) $verb $(Format-JkTime $x.E.time) (in $(Format-JkDuration (Get-JkTimeLeft $x.Due $Now)))" $hint
+    }
+    # a class starting within 45 minutes (or under way)
+    try {
+        foreach ($m in @(Get-JkClassesOn $Now.Date | Where-Object { $_.End -gt $Now -and ($_.Start - $Now).TotalMinutes -le 45 })) {
+            $room = $(if ($m.Class.room) { " in $($m.Class.room)" } else { '' })
+            $when = $(if ($m.Start -le $Now) { "now, until $(Format-JkTime $m.End.ToString('HH:mm', $script:Inv))" } else { "at $(Format-JkTime $m.Start.ToString('HH:mm', $script:Inv)) (in $(Format-JkDuration ($m.Start - $Now)))" })
+            & $add "$(Format-JkClassLabel $m.Class $cmap)$room $when" 'jk class'
+        }
+    } catch { }
+    # work due within 12 hours
+    foreach ($x in @($timed | Where-Object { $_.E.kind -ne 'exam' -and $_.E.kind -ne 'appt' -and ($_.Due - $Now).TotalHours -le 12 })) {
+        & $add "$(& $name $x.E), due $(Format-JkTime $x.E.time) (in $(Format-JkDuration (Get-JkTimeLeft $x.Due $Now)))" "hand it in, then jk due done $($x.E.id)"
+    }
+    # an interview or appointment within 6 hours
+    foreach ($x in @($timed | Where-Object { $_.E.kind -eq 'appt' -and ($_.Due - $Now).TotalHours -le 6 })) {
+        & $add "$(& $name $x.E) at $(Format-JkTime $x.E.time) (in $(Format-JkDuration (Get-JkTimeLeft $x.Due $Now)))" $(if ($x.E.note) { [string]$x.E.note } else { 'be ready a few minutes early' })
+    }
+    # to-dos due today (or overdue)
+    try {
+        foreach ($t in @((Get-JkTodoData).items | Where-Object { -not $_.done -and ($d = Get-JkTodoDue $_) -and $d.Date -le $Now.Date } | Sort-Object { Get-JkTodoDue $_ })) {
+            $d = Get-JkTodoDue $t
+            $when = $(if ($d.Date -lt $Now.Date) { "overdue since $($d.ToString('ddd', $script:Inv))" } elseif ($d.TimeOfDay.TotalMinutes -gt 0) { "by $(Format-JkTime $d.ToString('HH:mm', $script:Inv))" } else { 'today' })
+            & $add "$($t.text) ($when)" "jk todo done $($t.id)"
+        }
+    } catch { }
+    # the study jk plan has for today, biggest first (what is due tonight is already above)
+    try {
+        $p = Get-JkPlanToday
+        if ($p) {
+            $listed = @($timed | Where-Object { ($_.Due - $Now).TotalHours -le 12 } | ForEach-Object { "$($_.E.course)|#$($_.E.id)" })
+            $its = @($p.Items | Where-Object { [double]$p.Today.Alloc[$_.Key] -gt 0 -and $listed -notcontains $_.Key } | Sort-Object { [double]$p.Today.Alloc[$_.Key] } -Descending)
+            foreach ($it in $its) {
+                $c = Get-JkCourseLabel ([pscustomobject]@{ course = $it.Course }) $cmap
+                & $add "Study $c $($it.Title): $(Format-JkMinutes ([double]$p.Today.Alloc[$it.Key])) planned today" 'jk plan start'
+            }
+        }
+    } catch { }
+    if (-not $out.Count) {
+        $n = @($timed)[0]
+        $txt = 'Nothing pressing.'
+        if ($n) { $txt += " Next: $(& $name $n.E), $($n.Due.ToString('ddd MMM d', $script:Inv)) (in $([int]($n.Due.Date - $Now.Date).TotalDays) days)" }
+        & $add $txt 'jk for the week'
+    }
+    $out.ToArray()
+}
+
+function Show-JkNext {
+    $now = Get-JkNow
+    $steps = @(Get-JkNextSteps $now)
+    Write-JkHeader 'Next' "$($now.ToString('ddd', $script:Inv)) $(Format-JkTime $now.ToString('HH:mm', $script:Inv))"
+    $i = 0
+    foreach ($s in @($steps | Select-Object -First 3)) {
+        $label = $(if ($i -eq 0) { 'now' } else { 'then' })
+        $style = $(if ($i -eq 0) { 'bold white' } else { 'white' })
+        Write-JkTip ('  ' + (Paint $(if ($i -eq 0) { 'bold green' } else { 'gray' }) (Fit $label 6))) 8 $s.Text $style -Indent 8
+        Say ((' ' * 8) + (Paint 'gray' "$($script:G.arrow) $($s.Hint)"))
+        $i++
+    }
+    if ($steps.Count -gt 3) { Say (Paint 'gray' "  +$($steps.Count - 3) more $($script:G.dot) jk for everything") }
+}
