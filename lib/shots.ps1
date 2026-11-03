@@ -110,6 +110,149 @@ function Invoke-JkShotsOld {
     }
 }
 
+# ---------------------------------------------------------------- jk shots find: by the words in them
+
+# Windows' own text recognition (Windows.Media.Ocr: printed text, in the OCR languages installed
+# under Settings > Time & language), set up once per process.
+function Initialize-JkOcr {
+    if ($script:JkOcr) { return $script:JkOcr }
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+    $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+    $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType = WindowsRuntime]
+    $asTask = @([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    if (-not $engine) { $l = @([Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages)[0]; if ($l) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($l) } }
+    if (-not $engine) { throw 'Windows has no text recognition language installed (Settings > Time & language > Language: a language with "Optical character recognition")' }
+    $script:JkOcr = [pscustomobject]@{ Engine = $engine; AsTask = $asTask }
+    $script:JkOcr
+}
+
+function Wait-JkWinRt($Op, [Type]$Type) { $t = $script:JkOcr.AsTask.MakeGenericMethod($Type).Invoke($null, @($Op)); $null = $t.Wait(-1); $t.Result }
+
+# The text in an image, on one line ('' when there is none or it cannot be read).
+function Get-JkImageText([string]$Path) {
+    $o = Initialize-JkOcr
+    $file = Wait-JkWinRt ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Path)) ([Windows.Storage.StorageFile])
+    $stream = Wait-JkWinRt ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
+    try {
+        $dec = Wait-JkWinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+        $max = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
+        if ($dec.PixelWidth -gt $max -or $dec.PixelHeight -gt $max) { return '' }
+        $bmp = Wait-JkWinRt ($dec.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+        $res = Wait-JkWinRt ($o.Engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
+        [regex]::Replace([string]$res.Text, '\s+', ' ').Trim()
+    } finally { $stream.Dispose() }
+}
+
+# The index: a line per screenshot read, "name|size|time<TAB>text", in the cache. Keyed by name,
+# size and time rather than path, so filing them into month folders keeps what was read.
+function Get-JkShotsIndexPath { Join-Path (Get-JkCacheDir) 'shots-text.tsv' }
+function Get-JkShotKey($Shot) { "$($Shot.Name)|$($Shot.Size)|$($Shot.Item.LastWriteTimeUtc.Ticks)" }
+
+function Read-JkShotsIndex {
+    $map = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::OrdinalIgnoreCase)
+    $p = Get-JkShotsIndexPath
+    if ([IO.File]::Exists($p)) {
+        foreach ($l in [IO.File]::ReadAllLines($p, [Text.Encoding]::UTF8)) {
+            $tab = $l.IndexOf("`t")
+            if ($tab -gt 0) { $map[$l.Substring(0, $tab)] = $l.Substring($tab + 1) }
+        }
+    }
+    , $map
+}
+
+# Reads screenshots not in the index yet, newest first, for up to $Seconds (videos aside).
+# Returns how many are read and how many are left.
+function Update-JkShotsIndex {
+    param([double]$Seconds = 30, [switch]$Progress, [switch]$LowPriority, [string]$Path = (Get-JkShotsPath))
+    if ($LowPriority) { try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { } }
+    $shots = @(Get-JkShots $Path | Where-Object { $_.Item.Extension -match '^\.(png|jpe?g|bmp|gif)$' } | Sort-Object Modified -Descending)
+    $idx = Read-JkShotsIndex
+    $todo = @($shots | Where-Object { -not $idx.ContainsKey((Get-JkShotKey $_)) })
+    $p = Get-JkShotsIndexPath
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    $batch = New-Object System.Collections.Generic.List[string]
+    $n = 0
+    $flush = { if ($batch.Count) { [IO.File]::AppendAllText($p, (($batch -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false)); $batch.Clear() } }
+    try {
+        foreach ($s in $todo) {
+            if ([DateTime]::UtcNow -gt $deadline) { break }
+            $text = ''
+            try { $text = Get-JkImageText $s.Path } catch { if ($_.Exception.Message -match 'no text recognition') { throw } }
+            $batch.Add((Get-JkShotKey $s) + "`t" + $text.Replace("`t", ' '))
+            $n++
+            # written as it goes: an interrupted run keeps what it read
+            if ($batch.Count -ge 50) { & $flush }
+            if ($Progress -and $n % 20 -eq 0) { Write-Progress -Activity 'jk shots: reading the text in screenshots' -Status "$n of $($todo.Count)" -PercentComplete ([int](100 * $n / [Math]::Max(1, $todo.Count))) }
+        }
+    } finally {
+        & $flush
+        if ($Progress) { Write-Progress -Activity 'jk shots: reading the text in screenshots' -Completed }
+    }
+    [pscustomobject]@{ Read = $shots.Count - ($todo.Count - $n); Total = $shots.Count; Left = $todo.Count - $n; Now = $n }
+}
+
+# The rest in a background process at low priority, one at a time, never in tests or the sandbox.
+function Start-JkShotsIndexing {
+    if ($env:JK_NOW -or $env:JK_NONINTERACTIVE -or $env:JK_SANDBOX) { return $false }
+    $mark = Join-Path (Get-JkCacheDir) 'shots-index.running'
+    try {
+        if ([IO.File]::Exists($mark) -and ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($mark)).TotalMinutes -lt 30) { return $false }
+        [IO.File]::WriteAllText($mark, '')
+    } catch { return $false }
+    $m = $mark.Replace("'", "''")
+    $null = Start-JkBackground -Script "try { `$null = Update-JkShotsIndex -Seconds 1500 -LowPriority } finally { Remove-Item -LiteralPath '$m' -ErrorAction SilentlyContinue }"
+    $true
+}
+
+function Invoke-JkShotsFind {
+    [CmdletBinding(PositionalBinding = $false)]
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words, [switch]$All, [string]$Path = (Get-JkShotsPath))
+    $terms = @($Words | Where-Object { $_ } | ForEach-Object { $_.Trim() })
+    if (-not $terms.Count) { throw 'which words? jk shots find error message   (jk shots find "exact phrase" for one)' }
+    $u = Update-JkShotsIndex -Seconds 30 -Progress -Path $Path
+    $idx = Read-JkShotsIndex
+    $cmp = [StringComparison]::OrdinalIgnoreCase
+    $hits = @(foreach ($s in @(Get-JkShots $Path)) {
+            $t = $null
+            if (-not $idx.TryGetValue((Get-JkShotKey $s), [ref]$t) -or -not $t) { continue }
+            $ok = $true; foreach ($w in $terms) { if ($t.IndexOf($w, $cmp) -lt 0) { $ok = $false; break } }
+            if ($ok) { $s | Add-Member -NotePropertyName Text -NotePropertyValue $t -PassThru }
+        })
+    $hits = @($hits | Sort-Object Modified -Descending)
+    $max = $(if ($All) { 100 } else { 12 })
+    $show = @($hits | Select-Object -First $max)
+    Write-JkHeader 'Screenshots with' "$(Format-JkCount $hits.Count 'screenshot') $($script:G.dot) $($u.Read) of $($u.Total) read" -Sub (($terms | ForEach-Object { if ($_.Contains(' ')) { "`"$_`"" } else { $_ } }) -join ' ')
+    if (-not $show.Count) { Say (Paint 'gray' '  None of the screenshots read so far has all of those words.') }
+    else {
+        Save-JkFindLast $show
+        $w = Get-JkWidth
+        $nameW = [int][Math]::Min(40, ($show | ForEach-Object { Get-JkTextWidth $_.Name } | Measure-Object -Maximum).Maximum)
+        $n = 0
+        foreach ($h in $show) {
+            $n++
+            $where = $(if ($h.Loose) { '' } else { $h.Folder })
+            $when = $(if (((Get-Date) - $h.Modified).TotalDays -lt 2) { Format-JkRelTime $h.Modified } else { Format-JkFindDate $h.Modified (Get-Date) })
+            Say ('  ' + (Paint 'gray' (Fit "$n" 3 -Right)) + '  ' + (Paint 'white' (Fit $h.Name $nameW)) + '  ' + (Paint 'muted' (Fit $when 14)) + (Paint 'gray' $where))
+            # the words in their place, picked out
+            $at = $h.Text.IndexOf($terms[0], $cmp); $from = [Math]::Max(0, $at - 30)
+            $snip = $h.Text.Substring($from, [Math]::Min($h.Text.Length - $from, [Math]::Max(20, $w - 10)))
+            if ($from -gt 0) { $snip = $script:G.ell + $snip.Substring(1) }
+            foreach ($t in $terms) { $snip = [regex]::Replace($snip, [regex]::Escape($t), { param($m) Paint 'bold yellow' $m.Value }, 'IgnoreCase') }
+            Say ('       ' + (Paint 'gray' $snip))
+        }
+        Say ''
+        if ($hits.Count -gt $show.Count) { Say (Paint 'gray' "  +$($hits.Count - $show.Count) older: another word narrows it, -All lists them") }
+        Say (Paint 'gray' "  jk find -o 1 opens one  $($script:G.dot)  jk find -e 1 shows it in Explorer")
+    }
+    if ($u.Left -gt 0) {
+        $bg = Start-JkShotsIndexing
+        Say (Paint 'gray' "  $($u.Left) older screenshots not read yet$(if ($bg) { ': reading them in the background now (a few minutes)' } else { ': run it again to read more' }); the morning task keeps new ones read")
+    }
+    Say (Paint 'gray' "  text read by Windows itself, kept on this PC only (jk shots forget deletes it)")
+}
+
 function Invoke-JkShots {
     $a = @($args)
     if ($a.Count -eq 0) { Show-JkShots; return }
@@ -118,6 +261,12 @@ function Invoke-JkShots {
     switch -Regex ($first) {
         '^(file|sort|apply)$' { Invoke-JkShotsFile @rest; return }
         '^(old|stale)$' { Invoke-JkShotsOld @rest; return }
+        '^(find|search|text|grep)$' { Invoke-JkShotsFind @rest; return }
+        '^(forget)$' {
+            Remove-Item -LiteralPath (Get-JkShotsIndexPath) -ErrorAction SilentlyContinue
+            Say (Paint 'green' "  the text read from your screenshots is deleted $($script:G.check)  (jk shots find reads it again)")
+            return
+        }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'shots'; return }
     }
     Show-JkShots @a
