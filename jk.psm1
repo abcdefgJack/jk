@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'grep', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'clock', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'grep', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'clock', 'course', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -74,7 +74,24 @@ function Invoke-JkCommand {
         try { Show-JkDashboard } catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
         return
     }
-    $name = Resolve-JkCommand ([string]$a[0])
+    # a course (jk cs341, jk co 367): that course on a screen, or a command for it. A word that
+    # plainly is one wins over a command it happens to start ("co" -> config); a looser match
+    # ("health") only when no command takes the word.
+    $first = ([string]$a[0]).ToLower()
+    $exact = $script:JkCommands.Contains($first) -or @($script:JkCommands.Values | Where-Object { $_.Aliases -contains $first }).Count
+    $courseish = $first -match '^[a-z]{2,8}\d{2,3}[a-z]?$' -or ($a.Count -ge 2 -and $first -match '^[a-z]{2,8}$' -and [string]$a[1] -match '^\d{2,3}[A-Za-z]?$')
+    $name = $null
+    if ($exact -or -not $courseish) { $name = Resolve-JkCommand $first }
+    if (-not $name) {
+        $cw = $null
+        try { $cw = Resolve-JkCourseWords ([string[]]$a) } catch { }
+        if ($cw) {
+            try { if ($cw.Rest.Count) { Invoke-JkCourseAction $cw.Course $cw.Rest } else { Show-JkCourseBrief $cw.Course } }
+            catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
+            return
+        }
+        if ($courseish -and -not $exact) { $name = Resolve-JkCommand $first }
+    }
     if (-not $name) {
         Write-Host (Paint 'red' "  jk: unknown command '$($a[0])'.") (Paint 'gray' "Try 'jk help'.")
         return

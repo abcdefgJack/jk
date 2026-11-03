@@ -387,7 +387,7 @@ function Show-JkHelp {
         }
         Say ''
     }
-    foreach ($pair in @(@('jk', 'dashboard: next exam, this week, to-dos, focus, machine'), @('jk help <command>', 'examples for one command   |   Tab completes commands, ids and options'))) {
+    foreach ($pair in @(@('jk', 'dashboard: next exam, this week, to-dos, focus, machine'), @('jk cs341', 'one course: its exam, deadlines, marks, classes, study today, newest files (jk cs341 exam, grade, grep <words>, due, files, go)'), @('jk help <command>', 'examples for one command   |   Tab completes commands, ids and options'))) {
         $lead = '  ' + (Fit $pair[0] 18)
         foreach ($chunk in (Split-JkWords $pair[1] ([Math]::Max(20, $w - 21)))) { Say (Paint 'gray' ($lead + $chunk)); $lead = ' ' * 20 }
     }
