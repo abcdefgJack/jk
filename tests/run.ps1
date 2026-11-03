@@ -1042,6 +1042,29 @@ Test 'disk filling up fast: a reading a day, 4 GB gone in three days is said' {
         if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
     }
 }
+Test 'jk <course>: one course on a screen; a word after it goes to that command' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        $d = Get-JkDueData
+        $co = Resolve-JkCourse $d 'co250' -Create
+        $null = New-JkEvent -Data $d -Course $co.key -Date ([datetime]'2026-10-30') -Time '23:59' -Title 'Assignment 6' -Kind 'due'
+        Save-JkDueData $d
+        $text = @(& { jk cs350 } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($text -match 'CS 350') "header: $text"
+        Assert-True ($text -match 'exam\s+Midterm\s+Thu Oct 29 4:30 pm \(in 7 days\)') 'its exam, with how far off'
+        Assert-True ($text -match '(?s)due\s+.*A2A Synchronization \(Wed Oct 28 8:00 pm\)') 'its deadlines'
+        Assert-True ($text -match 'marks\s+' -and $text -match 'classes\s+') 'marks and classes rows'
+        Assert-True ((@(& { jk cs 350 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'exam\s+Midterm') 'jk cs 350 too'
+        # "co" alone is the start of config, but co 250 is plainly a course
+        Assert-True ((@(& { jk co 250 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match '(?s)CO 250.*Assignment 6 \(Fri Oct 30 11:59 pm\)') 'jk co 250 is the course, not jk config'
+        Assert-True ((@(& { jk cs350 exam } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'CS 350 MIDTERM') 'jk cs350 exam = jk exam cs350'
+        Assert-True ((@(& { jk cs350 dance } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'after a course: exam, grade') 'an unknown word says what works'
+        Assert-True ((@(& { jk blorp } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match "unknown command 'blorp'") 'not a course either'
+        Assert-True ((@(& { jk rec 14 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -notmatch 'unknown command') 'a command prefix with a number still reaches the command when no course is called that'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'jk space: what grew since an earlier run (500 MB or more, 12 hours or more before)' {
     $p = Join-Path (Get-JkCacheDir) 'space.log'
     $saved = $null; if (Test-Path -LiteralPath $p) { $saved = [IO.File]::ReadAllText($p) }
