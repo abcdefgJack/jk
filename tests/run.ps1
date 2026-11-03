@@ -1101,6 +1101,32 @@ Test 'jk shots find: the words in screenshots, read once, newest first, kept whe
         Remove-Item -LiteralPath $idx, "$idx.langs" -ErrorAction SilentlyContinue
     }
 }
+Test 'jk clip ocr: the text in a snip on the clipboard, lines kept, put back as text' {
+    $ocr = $true; try { $null = Initialize-JkOcr } catch { $ocr = $false }
+    if (-not $ocr) { return }
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object Drawing.Bitmap 900, 170
+    $g = [Drawing.Graphics]::FromImage($bmp); $g.Clear([Drawing.Color]::White)
+    $font = New-Object Drawing.Font 'Segoe UI', 28
+    $g.DrawString('Forward Euler is explicit', $font, [Drawing.Brushes]::Black, 10, 15)
+    $g.DrawString('Backward Euler is implicit', $font, [Drawing.Brushes]::Black, 10, 90)
+    $font.Dispose(); $g.Dispose()
+    # the clipboard is stood in for: a test never touches the real one
+    $script:ClipPic = $bmp; $script:ClipOut = $null
+    function script:Get-Clipboard { [CmdletBinding()] param([string]$Format, [switch]$Raw) if ($Format -eq 'Image') { if ($script:ClipPic) { return $script:ClipPic.Clone() }; return $null }; if ($Format -eq 'FileDropList') { return $null }; '' }
+    function script:Set-Clipboard { [CmdletBinding()] param($Value) $script:ClipOut = $Value }
+    try {
+        $out = @(& { jk clip ocr } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ([string]$script:ClipOut -match '(?s)Forward Euler is explicit\s*\n\s*Backward Euler is implicit') "both lines, in order, on the clipboard: $script:ClipOut"
+        Assert-True ($out -match 'read .\s+\d+ words' -and $out -match 'on the clipboard now') "says what it read: $out"
+        Assert-True ((@(& { jk clip } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'holds a picture.*jk clip ocr') 'jk clip points a picture at jk clip ocr'
+        $script:ClipPic = $null
+        Assert-Throws { Invoke-JkClipOcr } 'no picture: says how to snip one'
+    } finally {
+        Remove-Item function:script:Get-Clipboard, function:script:Set-Clipboard -ErrorAction SilentlyContinue
+        $bmp.Dispose()
+    }
+}
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null

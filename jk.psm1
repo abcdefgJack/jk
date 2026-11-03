@@ -196,7 +196,7 @@ $script:JkActions = @{
     'find'   = @()
     'grep'   = @('all', 'help')
     'recent' = @()
-    'clip'   = @('unwrap', 'count', 'plain', 'help')
+    'clip'   = @('ocr', 'unwrap', 'count', 'plain', 'help')
     'help'   = @()
 }
 

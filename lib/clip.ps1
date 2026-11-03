@@ -66,7 +66,12 @@ function Get-JkClipText {
 }
 
 function Show-JkClip {
-    $t = Get-JkClipText
+    # a snip (Win+Shift+S) is a picture, not text: point at what reads it
+    $t = $null; try { $t = Get-JkClipboardText } catch { }
+    if (-not $t -or -not $t.Trim()) {
+        if (Test-JkClipPicture) { Say ((Paint 'white' '  The clipboard holds a picture.') + (Paint 'gray' '  jk clip ocr reads the text in it and puts that on the clipboard')); return }
+        throw 'the clipboard has no text'
+    }
     $m = Measure-JkText $t
     $w = Get-JkWidth
     Write-JkHeader 'Clipboard' (Format-JkTextCounts $m)
@@ -91,12 +96,55 @@ function Invoke-JkClipPlain {
     Say ((Paint 'green' "  plain text $($script:G.check)  ") + (Format-JkTextCounts (Measure-JkText $t)) + (Paint 'gray' '  (formatting dropped)'))
 }
 
+# Pictures on the clipboard: a snip saved to a temporary PNG, or image files copied in Explorer.
+# Returns the paths and the temporary ones to delete.
+function Get-JkClipPictures {
+    $paths = @(); $temp = @()
+    $img = $null
+    try { $img = Get-Clipboard -Format Image -ErrorAction Stop } catch { }
+    if ($img) {
+        $tmp = Join-Path $env:TEMP ("jk-clip-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.png')
+        try { $img.Save($tmp, [Drawing.Imaging.ImageFormat]::Png) } finally { $img.Dispose() }
+        $paths = @($tmp); $temp = @($tmp)
+    } else {
+        $files = @(); try { $files = @(Get-Clipboard -Format FileDropList -ErrorAction Stop) } catch { }
+        $paths = @($files | Where-Object { $_ -and ([string]$_.Extension) -match '^\.(png|jpe?g|bmp|gif|tiff?)$' } | ForEach-Object { $_.FullName })
+    }
+    [pscustomobject]@{ Paths = $paths; Temp = $temp }
+}
+
+function Test-JkClipPicture {
+    try { $i = Get-Clipboard -Format Image -ErrorAction Stop; if ($i) { $i.Dispose(); return $true } } catch { }
+    try { return @(Get-Clipboard -Format FileDropList -ErrorAction Stop | Where-Object { $_ -and ([string]$_.Extension) -match '^\.(png|jpe?g|bmp|gif|tiff?)$' }).Count -gt 0 } catch { return $false }
+}
+
+# jk clip ocr: the text in a picture on the clipboard (a Win+Shift+S snip, or image files copied in
+# Explorer), read by Windows' own OCR and put back on the clipboard as text, its lines kept.
+function Invoke-JkClipOcr {
+    Add-Type -AssemblyName System.Drawing
+    $pics = Get-JkClipPictures
+    if (-not $pics.Paths.Count) { throw 'no picture on the clipboard: snip one with Win+Shift+S (or copy image files in Explorer), then jk clip ocr' }
+    try {
+        $texts = @(foreach ($p in $pics.Paths) { Get-JkImageText $p -Lines })
+    } finally { foreach ($t in $pics.Temp) { Remove-Item -LiteralPath $t -ErrorAction SilentlyContinue } }
+    $text = (@($texts | Where-Object { $_ }) -join "`n`n").Trim()
+    if (-not $text) { Say (Paint 'yellow' '  no text found in the picture (Windows reads printed text, not handwriting)'); return }
+    Set-Clipboard -Value $text
+    $m = Measure-JkText $text
+    $w = Get-JkWidth
+    Say ((Paint 'green' "  read $($script:G.check)  ") + (Format-JkTextCounts $m) + (Paint 'gray' '  (on the clipboard now, ready to paste)'))
+    foreach ($l in @(($text -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 4)) { Say ('  ' + (Paint 'muted' (Fit $l.Trim() ($w - 3)).TrimEnd())) }
+    $missing = @(); try { $missing = @(Get-JkOcrMissing) } catch { }
+    if ($missing.Count) { Say (Paint 'gray' "  $($missing -join ', ') text is not read until Windows has that OCR language (jk shots find says where)") }
+}
+
 function Invoke-JkClip {
     $a = @($args)
     if ($a.Count -eq 0) { Show-JkClip; return }
     $first = ([string]$a[0]).ToLower()
     switch -Regex ($first) {
         '^(count|wc|words)$' { Show-JkClip; return }
+        '^(ocr|read|image|img|snip)$' { Invoke-JkClipOcr; return }
         '^(unwrap|join|fix|pdf)$' { Invoke-JkClipUnwrap; return }
         '^(plain|text|strip)$' { Invoke-JkClipPlain; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'clip'; return }
