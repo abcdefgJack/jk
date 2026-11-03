@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'clip-ocr'; Cmd = 'jk clip ocr'; Text = 'snip anything with Win+Shift+S, then this puts the text in it on the clipboard' },
     @{ Id = 'shots-find'; Cmd = 'jk shots find backward euler'; Text = 'your screenshots by the words in them (a slide, an error, a question you snapped)' },
     @{ Id = 'course'; Cmd = 'jk cs341'; Text = 'one course on a screen: its exam, deadlines, marks, classes, study today, newest files' },
     @{ Id = 'time'; Cmd = 'jk time'; Text = 'the time in Beijing (from your Chinese keyboard), 8pm beijing in your time, and when you are both up to call' },

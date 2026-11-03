@@ -156,8 +156,9 @@ function Get-JkOcrMissing {
 
 function Wait-JkWinRt($Op, [Type]$Type) { $t = $script:JkOcr.AsTask.MakeGenericMethod($Type).Invoke($null, @($Op)); $null = $t.Wait(-1); $t.Result }
 
-# The text in an image, on one line ('' when there is none or it cannot be read).
-function Get-JkImageText([string]$Path) {
+# The text in an image, on one line ('' when there is none or it cannot be read). -Lines keeps its
+# lines, from whichever language read the most (for the clipboard; the index joins them all).
+function Get-JkImageText([string]$Path, [switch]$Lines) {
     $o = Initialize-JkOcr
     $file = Wait-JkWinRt ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Path)) ([Windows.Storage.StorageFile])
     $stream = Wait-JkWinRt ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
@@ -166,8 +167,16 @@ function Get-JkImageText([string]$Path) {
         $max = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
         if ($dec.PixelWidth -gt $max -or $dec.PixelHeight -gt $max) { return '' }
         $bmp = Wait-JkWinRt ($dec.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-        $texts = foreach ($e in $o.Engines) { [string](Wait-JkWinRt ($e.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])).Text }
-        [regex]::Replace((@($texts) -join ' '), '\s+', ' ').Trim()
+        $results = @(foreach ($e in $o.Engines) { Wait-JkWinRt ($e.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult]) })
+        if ($Lines) {
+            $best = ''
+            foreach ($r in $results) {
+                $t = (@($r.Lines | ForEach-Object { $_.Text }) -join "`n").Trim()
+                if (($t -replace '\s', '').Length -gt ($best -replace '\s', '').Length) { $best = $t }
+            }
+            return $best
+        }
+        [regex]::Replace((@($results | ForEach-Object { [string]$_.Text }) -join ' '), '\s+', ' ').Trim()
     } finally { $stream.Dispose() }
 }
 

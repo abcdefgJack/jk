@@ -162,6 +162,8 @@ jk clip | jk clip count        what is on the clipboard: words (Chinese counted 
 jk clip unwrap                 text copied from a PDF: wrapped lines become paragraphs, "optimi-" + "zation" is
                                mended, bullets and blank lines stay; the result goes back on the clipboard
 jk clip plain                  the same text with its formatting dropped, ready to paste anywhere
+jk clip ocr                    the text in a picture on the clipboard (a Win+Shift+S snip, or image files
+                               copied in Explorer), read by Windows' own OCR and put on the clipboard as text
 '@
     'sys'    = @'
 jk sys                         CPU load, memory, every disk, battery, Wi-Fi/IP, apps using the most RAM
