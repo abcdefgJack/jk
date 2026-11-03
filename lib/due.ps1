@@ -1372,7 +1372,9 @@ function Invoke-JkDueRemind {
             }
         }
     } catch { }
-    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count -and -not $studyDay -and -not $movedNotes.Count) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
+    # freezing rain, deep snow, a bitter wind chill: worth the popup even on a quiet day
+    $wxWarn = ''; try { $wxWarn = Get-JkMorningWarning $now } catch { }
+    if ($soon.Count -eq 0 -and $classes.Count -eq 0 -and -not $weekLine -and -not $todos.Count -and -not $examsAhead.Count -and -not $studyDay -and -not $movedNotes.Count -and -not $wxWarn) { if (-not $Quiet) { Say (Paint 'green' "  nothing due in the next $Hours hours and no more classes today") }; return }
     $lines = @()
     if ($movedNotes.Count) {
         $more = ''; if ($movedNotes.Count -gt 3) { $more = "; +$($movedNotes.Count - 3) more" }
@@ -1480,6 +1482,9 @@ function Invoke-JkDueRemind {
         $title = "$(Format-JkCount $todos.Count 'to-do') due today"
         $late = @($todos | Where-Object { (Get-JkTodoDue $_).Date -lt $now.Date }).Count
         if ($late) { $title = "$(Format-JkCount $todos.Count 'to-do') due ($late overdue)" }
+    } elseif ($wxWarn) {
+        $accent = $script:JkPalette.cyan
+        $title = $wxWarn
     } else {
         # a Sunday with nothing in the next two days: the week ahead is the news
         $accent = $script:JkPalette.blue

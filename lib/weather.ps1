@@ -318,8 +318,34 @@ function Get-JkWeatherDay($W, [datetime]$Date, [datetime]$Now) {
     if ($gust -ge 60) { $advice += "gusts to $([int]$gust) km/h" }
     [pscustomobject]@{
         Date = $Date; High = ($hrs | Measure-Object Temp -Maximum).Maximum; Low = ($hrs | Measure-Object Temp -Minimum).Minimum
-        Sky = $sky; Spells = $spells; Text = $text; Advice = $advice
+        Sky = $sky; Spells = $spells; Text = $text; Advice = $advice; Coldest = $coldest; Gust = $gust
     }
+}
+
+# Weather that is a reason for the morning popup on its own, as its title: freezing rain, 5 cm or
+# more of snow, a wind chill of -20 or colder, thunderstorms, gusts of 70 km/h. '' on a day without.
+function Get-JkWeatherWarning($Day) {
+    if (-not $Day) { return '' }
+    $sp = @($Day.Spells)
+    $fz = @($sp | Where-Object { $_.Kind -eq 'freezing rain' })[0]
+    if ($fz) { return "Freezing rain $(Format-JkHourSpan $fz.Start $fz.End): icy sidewalks" }
+    $cm = ($sp | Measure-Object Cm -Sum).Sum
+    if ($cm -ge 5) { $s = @($sp | Where-Object { $_.Cm -gt 0 })[0]; return "$([int][Math]::Round($cm)) cm of snow from $(Format-JkHour $s.Start): boots" }
+    if ($Day.Coldest -le -20) { return "Feels like $(Format-JkDeg $Day.Coldest) today: bundle up" }
+    $st = @($sp | Where-Object { $_.Kind -eq 'thunderstorms' })[0]
+    if ($st) { return "Thunderstorms $(Format-JkHourSpan $st.Start $st.End)" }
+    if ($Day.Gust -ge 70) { return "Gusts to $([int]$Day.Gust) km/h today" }
+    ''
+}
+
+# Today's warning from the kept forecast (the morning task fetched it just before).
+function Get-JkMorningWarning([datetime]$Now) {
+    $place = Get-JkWeatherPlace -NoLookup
+    if (-not $place) { return '' }
+    $w = Get-JkWeather -Place $place -CacheOnly -MaxAgeHours 6
+    if (-not $w -or $w.Stale) { return '' }
+    $Now = ConvertTo-JkWeatherClock $w $Now
+    Get-JkWeatherWarning (Get-JkWeatherDay $w $Now.Date $Now)
 }
 
 # A day in a few characters for jk week: "12/0 rain", "17/2 clear"; Wet when a stretch of it is.

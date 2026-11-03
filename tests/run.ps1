@@ -1254,6 +1254,25 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
             Assert-True ($script:WxShown -match 'Weather: 8., rain at 4:30 pm; rain around then \(80%\), take an umbrella') "exam alert: $script:WxShown"
         } finally { Set-Item function:script:Show-JkNotify $origN; $env:JK_NOW = '2026-11-03T08:00:00' }
 
+        # bad weather is reason enough for the morning popup on a quiet day; ordinary weather is not
+        Assert-Eq (Get-JkMorningWarning ([datetime]'2026-11-06T06:00')) "Freezing rain 7$($script:G.dash)8 am: icy sidewalks" 'freezing rain'
+        Assert-Eq (Get-JkMorningWarning ([datetime]'2026-11-05T06:00')) '' '3 cm of snow is not a warning (5 is)'
+        Assert-Eq (Get-JkWeatherWarning ([pscustomobject]@{ Spells = @(); Coldest = -24.4; Gust = 20 })) "Feels like -24$($script:JkDeg) today: bundle up" 'a bitter wind chill'
+        Assert-Eq (Get-JkWeatherWarning ([pscustomobject]@{ Spells = @([pscustomobject]@{ Kind = 'snow'; Start = [datetime]'2026-12-01T21:00'; End = [datetime]'2026-12-02T03:00'; Cm = 8.4; Mm = 6 }); Coldest = -5; Gust = 20 })) '8 cm of snow from 9 pm: boots' 'deep snow'
+        $origN = ${function:Show-JkNotify}
+        try {
+            $script:WxTitle = $null
+            function script:Show-JkNotify { param([string]$Title, [string[]]$Lines, $Accent, [int]$Seconds) $script:WxTitle = $Title; $script:WxLines = $Lines -join ' | '; 'stub' }
+            $env:JK_NOW = '2026-11-06T06:00:00'
+            Invoke-JkDueRemind -Force -Quiet
+            Assert-Eq $script:WxTitle "Freezing rain 7$($script:G.dash)8 am: icy sidewalks" 'the warning opens a quiet morning'
+            Assert-True ($script:WxLines -match 'Weather: .*freezing rain 7.8 am') "with the day's weather: $script:WxLines"
+            $script:WxTitle = $null
+            $env:JK_NOW = '2026-11-04T06:00:00'
+            Invoke-JkDueRemind -Force -Quiet
+            Assert-True ($null -eq $script:WxTitle) 'an ordinary day with nothing due stays quiet'
+        } finally { Set-Item function:script:Show-JkNotify $origN; $env:JK_NOW = '2026-11-03T08:00:00' }
+
         # an older forecast: read up to two days on, marked stale; a failed refresh says why
         $wf = Join-Path (Get-JkCacheDir) 'weather.txt'
         $body = [IO.File]::ReadAllText($wf); $bar = $body.IndexOf('|')
