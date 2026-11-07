@@ -7,6 +7,12 @@
 $script:CondaRegion = '(?ms)^#region conda initialize\r?\n.*?^#endregion[^\r\n]*'
 
 function Get-JkProfileFiles {
+    # a sandbox has only its own profile: jk speed fix and undo must never reach the real ones
+    if ($env:JK_SANDBOX) {
+        $sp = Get-JkProfilePath
+        if (Test-Path -LiteralPath $sp) { [pscustomobject]@{ Kind = 'Sandbox'; Path = $sp } }
+        return
+    }
     @('CurrentUserAllHosts', 'CurrentUserCurrentHost', 'AllUsersAllHosts', 'AllUsersCurrentHost') | ForEach-Object {
         $p = $PROFILE.$_
         if ($p -and (Test-Path -LiteralPath $p)) { [pscustomobject]@{ Kind = $_; Path = $p } }
