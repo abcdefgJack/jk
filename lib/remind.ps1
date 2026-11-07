@@ -117,10 +117,16 @@ function Complete-JkReminder {
         $e = @($data.events | Where-Object { [int]$_.id -eq $dueId })[0]
         if (-not $e -or $e.done -or -not $e.time) { return }
         $due = Get-JkEventDue $e
-        # moved to another day or already past since the alert was set: nothing useful to say
+        # moved to another day since the alert was set: nothing useful to say
         $now = Get-JkNow
-        if ($due -le $now -or $due.Date -ne $at.Date) { return }
-        if ([string]$e.title -match '(?i)\s+closes?$') {
+        if ($due.Date -ne $at.Date) { return }
+        if ($due -le $now) {
+            # slept through the warning and the deadline. An exam or an interview is over either way;
+            # work still open gets a late word within a day, while something can still be done
+            if ($e.kind -in 'exam', 'appt' -or ($now - $due).TotalHours -ge 24) { return }
+            $lines += "Its deadline passed while this PC was off or asleep ($(Format-JkTime $e.time) $($due.ToString('ddd', $script:Inv)))"
+            $lines += "Handed in? jk due done $dueId"
+        } elseif ([string]$e.title -match '(?i)\s+closes?$') {
             # the end of an online window: the last chance to write it
             $lines += "Closes $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             if ($e.note) { $lines += [string]$e.note }
