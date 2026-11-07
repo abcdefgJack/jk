@@ -115,8 +115,6 @@ function Get-JkIcsTitle([string]$Summary, [string]$CourseCode) {
     [pscustomobject]@{ Title = $t; Weight = $weight }
 }
 
-# A calendar-feed link in some text (the clipboard, a paste): webcal://, or http(s) to an .ics or
-# a calendar/feed path such as LEARN's /d2l/le/calendar/feed/... Returns the link or $null.
 # What a title is about, for matching a feed item to one typed in by hand: "Assignment 3 closes",
 # "Assignment 3 Dropbox" and "Assignment 3" all give "assignment3".
 function Get-JkTitleKey([string]$Title) {
@@ -124,6 +122,8 @@ function Get-JkTitleKey([string]$Title) {
     ($t -replace '[^\p{L}\p{Nd}]', '').ToLower()
 }
 
+# A calendar-feed link in some text (the clipboard, a paste): webcal://, or http(s) to an .ics or
+# a calendar/feed path such as LEARN's /d2l/le/calendar/feed/... Returns the link or $null.
 function Find-JkFeedLink([string]$Text) {
     $t = ([string]$Text).Trim().Trim('"', "'", '<', '>')
     if ($t -notmatch '^(?i)(https?|webcal)://\S+$') { return $null }

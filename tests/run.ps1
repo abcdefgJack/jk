@@ -434,7 +434,28 @@ Test 'jk exam <course>: when, worth, prep, what lands the week before, and its f
         Assert-True ($h -match 'jk grep health105 <words>') 'points to jk grep'
         Assert-Throws { Show-JkExamBrief cs350 nonsense }
         Assert-True (((Invoke-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'UPCOMING EXAMS') 'no words: the list'
+        # "a1-final" is the last version of A1, not the final exam
+        New-Item -ItemType Directory (Join-Path $courses 'CS350\tmp\a1-final') -Force | Out-Null
+        foreach ($n in 'A1-final.txt', 'a2_final.pdf', 'report-final.docx', 'tmp\a1-final\page-4.png', 'Final-review.pdf', 'practice_final_2024.pdf', 'CS350 final.pdf') { Set-Content (Join-Path $courses "CS350\$n") 'x' }
+        $names = @((Get-JkDueFileHits (Get-JkDueData) ([pscustomobject]@{ course = 'cs350'; title = 'Final' })).Hits | ForEach-Object { $_.Name } | Sort-Object) -join '|'
+        Assert-Eq $names (@('Final-review.pdf', 'practice_final_2024.pdf', 'CS350 final.pdf' | Sort-Object) -join '|')
+        # a week or more off, a bare weekday would read as the coming one; hours before, no prep estimate
+        $savedNow = $env:JK_NOW
+        try {
+            $env:JK_NOW = '2026-10-15T09:00:00'
+            $far = @(& { jk exam cs350 } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            Assert-True ($far -match 'A2A Synchronization\s+\(Wed\s+Oct\s+28\s+8:00\s+pm\)') "names the date: $far"
+            $env:JK_NOW = '2026-10-29T15:00:00'
+            $soon = @(& { jk exam cs350 } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            Assert-True ($soon -match 'CS 350 MIDTERM' -and $soon -notmatch 'prep\s+about') "no prep estimate 90 minutes out: $soon"
+        } finally { $env:JK_NOW = $savedNow }
     } finally { Set-JkConfig 'tidy.courses' $saved }
+}
+Test 'jk week refuses a silly length instead of drawing it for a quarter of an hour' {
+    Assert-Throws { Show-JkDueWeek 99999 }
+    Assert-Throws { Show-JkDueWeek 0 }
+    Assert-Throws { Show-JkDueWeek -1 }
+    Assert-True (@(Show-JkDueWeek 26 6>&1).Count -gt 0) 'half a year still draws'
 }
 Test 'weekly review renders, counts slipped items' {
     Show-JkReview
@@ -1391,6 +1412,15 @@ Test 'jk next: an exam soon, a class soon, work due tonight, then the study plan
         $texts = @(Get-JkNextSteps (Get-JkNow))
         Assert-True (@($texts | Where-Object { $_.Text -eq 'CS 370 Reading, due today' }).Count -eq 1) "no time, 16 hours off, still today: $(@($texts | ForEach-Object { $_.Text }) -join ' / ')"
         Assert-True (@($texts | Where-Object { $_.Text -match 'Quiz closes' }).Count -eq 0) 'a quiz closing 16 hours off is not yet now'
+        # during an exam that is what is happening; after it, it is not
+        $d = Get-JkDueData
+        $null = New-JkEvent -Data $d -Course $c370.key -Date ([datetime]'2026-11-12') -Time '10:00' -End '12:00' -Title 'Long exam' -Kind 'exam' -Note 'in person, MC 1'
+        Save-JkDueData $d
+        $env:JK_NOW = '2026-11-12T11:00:00'
+        $during = @(Get-JkNextSteps (Get-JkNow))
+        Assert-True ($during[0].Text -match '^CS 370 Long exam, under way until 12:00 pm$' -and $during[0].Hint -match 'in person, MC 1') "during: $($during[0].Text) / $($during[0].Hint)"
+        $env:JK_NOW = '2026-11-12T12:30:00'
+        Assert-True (-not @(Get-JkNextSteps (Get-JkNow) | Where-Object { $_.Text -match 'Long exam' }).Count) 'over at its end time'
         $env:JK_NOW = '2026-11-10T13:00:00'
         $texts = @(Get-JkNextSteps (Get-JkNow))
         $q = @($texts | Where-Object { $_.Text -match '^HEALTH 105 Quiz closes 11:59 pm \(in 10h 59m\)' })
@@ -2095,6 +2125,9 @@ Test 'term phases: no section nudge after classes; next-term pointer; bigger exa
         $after = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($after -match 'jk due sync\s+\+\s+jk class import\s+\S.* is over' -and $after -notmatch 'add your class sections') 'after the term: next-term pointer, command first'
         # a week past the exams the next term is under way: named by season, old term no longer described
+        $stored = (Get-JkDueData).term
+        $env:JK_NOW = ([datetime]::ParseExact([string]$stored.examsEnd, 'yyyy-MM-dd', $null)).AddDays(7).ToString('s')
+        Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) 'Winter 2027' "the last of December is past $($stored.name), though the month is still its season"
         $env:JK_NOW = '2027-01-06T09:00:00'
         Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) 'Winter 2027'
         $jan = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
@@ -2633,6 +2666,18 @@ Test 'needed-on-the-rest math' {
     Assert-Eq (Get-JkNeededText 95 $m)[1] 'orange'
     Assert-Eq (Get-JkNeededText 99 $m)[1] 'red' 'needs more than 100%'
     Show-JkGrade cs350; Show-JkGradeOverview
+    # weight not entered yet is still to come, not gone: a 100 on a 30% midterm can still reach 80
+    $one = { param($w, $s) [pscustomobject]@{ Key = "k$w"; Title = "Item $w"; Weight = [double]$w; Score = $s; Date = ''; Extra = $false } }
+    $part = Measure-JkGrade @(& $one 30 100.0) @()
+    Assert-Eq "$($part.Remaining) $($part.Unlisted)" '0 70'
+    Assert-Eq (Get-JkNeededText 80 $part)[0] '71%' 'not "out of reach"'
+    # all of it entered: over is over, and a rounding short of 100 changes nothing
+    foreach ($w in 100, 99.6) {
+        $full = Measure-JkGrade @(& $one $w 70.0) @()
+        Assert-Eq $full.Unlisted 0 "weights of $w"
+        Assert-Eq (Get-JkNeededText 80 $full)[0] 'out of reach' "weights of $w"
+    }
+    Assert-Eq (Get-JkNeededText 60 (Measure-JkGrade @(& $one 100 70.0) @()))[0] 'done'
 }
 Test 'jk grade <course> if <item> <mark>: the course as it would stand, nothing saved' {
     $file = Join-Path $env:JK_HOME 'grades.json'

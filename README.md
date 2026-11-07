@@ -67,7 +67,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
 | | `jk exam cs370` | One exam on a screen: when and where, worth, what you need on it, the prep `jk plan` expects and has scheduled, what lands the week before, and its review files (`jk find -o 1` opens one) |
 | | `jk grep cs370 condition number` | Words inside your course files, page by page: lecture PDFs, slides (`.pptx`), Word files, notebooks (by cell), notes and code across this term's course folders (`jk grep all ...` for every term), each hit with its page and the words picked out; `jk find -o 1` opens a PDF at that page. PDF text is read once (pdftotext from MiKTeX or Git, else pypdf) and kept by file size and time, so later searches take a fraction of a second; handwritten PDFs are counted, not searched |
-| | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `tomorrow`, `+3`, `oct 28`, `12/2` |
+| | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `next week`, `tomorrow`, `+3`, `oct 28`, `Mon Nov 9`, `12/2` |
 | | `jk due sync` | Pulls deadlines from LEARN's calendar feed (or any `.ics` link or file). The first time, it offers a link already on your clipboard, or opens LEARN's calendar and reads the link once you copy it from Subscribe. Re-syncs update moved dates and keep your own edits, and the morning task syncs daily |
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due files cs341 a2` | The files in that course's folder named after the deadline (`A2.tex`, `A2\...`, `a2a.pdf`), or its newest files; `jk find -o 1` opens one |
