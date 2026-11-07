@@ -794,6 +794,13 @@ function Format-JkRelDay([datetime]$Date, [datetime]$Now = (Get-JkNow)) {
     "$(-$n) days ago"
 }
 
+# A day gone by, for "overdue since ...": its weekday while that names one day ("Tue"), with the
+# date from a week back on ("Tue Oct 6"), where the weekday alone would point at the wrong week.
+function Format-JkPastDay([datetime]$Date, [datetime]$Now = (Get-JkNow)) {
+    if (($Now.Date - $Date.Date).TotalDays -ge 7) { return $Date.ToString('ddd MMM d', $script:Inv) }
+    $Date.ToString('ddd', $script:Inv)
+}
+
 # A path as typed, made full. Inside a folder with [ in its name, PowerShell 5.1 finds nothing by a
 # relative -LiteralPath, so anything a person types goes through this before it is looked up.
 function Get-JkFullPath([string]$Path) {

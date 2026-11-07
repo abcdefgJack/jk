@@ -195,7 +195,7 @@ function Show-JkSpace {
     foreach ($r in $rows) {
         $sz = 'muted'; if ($r.Bytes -ge 5GB) { $sz = 'bold red' } elseif ($r.Bytes -ge 1GB) { $sz = 'orange' } elseif ($r.Bytes -ge 200MB) { $sz = 'yellow' }
         $g = Get-JkSpaceGrowth $log $r.Key $r.Bytes $now
-        $grew = $(if ($g) { Paint 'orange' "  +$(Format-JkSize $g.Grew) since $($g.Since.ToString('ddd', $script:Inv))" } else { '' })
+        $grew = $(if ($g) { Paint 'orange' "  +$(Format-JkSize $g.Grew) since $(Format-JkPastDay $g.Since $now)" } else { '' })
         Say ('  ' + (Paint 'white' (Fit $r.Name 28)) + (Paint $sz (Fit (Format-JkSize $r.Bytes) 10 -Right)) + '  ' + (Get-JkBar ($r.Bytes / $max) 18 'teal') + $grew)
         Say ('      ' + (Paint 'gray' (Fit $r.Fix ($w - 8)).TrimEnd()))
     }

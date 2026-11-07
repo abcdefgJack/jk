@@ -1438,7 +1438,7 @@ function Invoke-JkDueRemind {
         $names = @($todos | Select-Object -First 3 | ForEach-Object {
                 $td = Get-JkTodoDue $_
                 $t = [string]$_.text
-                if ($td.Date -lt $now.Date) { $t += " (overdue since $($td.ToString('ddd', $script:Inv)))" }
+                if ($td.Date -lt $now.Date) { $t += " (overdue since $(Format-JkPastDay $td $now))" }
                 elseif ($td.TimeOfDay.TotalMinutes -gt 0) { $t += " by $(Format-JkTime $td.ToString('HH:mm', $script:Inv))" }
                 $t
             })
