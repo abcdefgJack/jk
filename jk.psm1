@@ -97,13 +97,16 @@ function Format-JkErrorText([string]$Message, [string]$Command = '') {
     if ($Message -match "^A parameter cannot be found that matches parameter name '(.*)'\.") { return "there is no -$($Matches[1]) option$help" }
     if ($Message -match "^Missing an argument for parameter '(\w+)'") { return "-$($Matches[1]) needs a value$help" }
     if ($Message -match "^Parameter cannot be processed because the parameter name '(\w+)' is ambiguous") { return "-$($Matches[1]) could mean more than one option$help" }
-    if ($Message -match '^Cannot validate argument on parameter') { return 'that number is out of range' }
-    if ($Message -match '(?s)^Exception calling "[\w.]+" with "\d+" argument\(s\): "(.*)"\s*$') {
-        $inner = $Matches[1]
-        if ($inner -match '(?i)out of (the )?range|un-representable') { return 'that number is out of range' }
-        return $inner
+    if ($Message -match "^Cannot validate argument on parameter '(\w+)'\. The argument `".*`" does not belong to the set `"(.*)`" specified") {
+        $param = $Matches[1]
+        return "-$param takes $((@($Matches[2] -split '[;,]' | Where-Object { $_ })) -join ', ')"
     }
-    $Message
+    if ($Message -match '^Cannot validate argument on parameter .*(minimum|maximum) allowed') { return 'that number is out of range' }
+    $inner = $Message
+    if ($Message -match '(?s)^Exception calling "[\w.]+" with "\d+" argument\(s\): "(.*)"\s*$') { $inner = $Matches[1] }
+    if ($inner -match '(?i)out of (the )?range|un-representable') { return 'that number is out of range' }
+    if ($inner -match "^Illegal characters in path|^The given path's format is not supported") { return 'that path has characters Windows does not allow (: * ? " < > |)' }
+    $inner
 }
 
 function Invoke-JkCommand {

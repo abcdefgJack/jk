@@ -734,6 +734,12 @@ function Format-JkRelDay([datetime]$Date, [datetime]$Now = (Get-JkNow)) {
     "$(-$n) days ago"
 }
 
+# A path as typed, made full. Inside a folder with [ in its name, PowerShell 5.1 finds nothing by a
+# relative -LiteralPath, so anything a person types goes through this before it is looked up.
+function Get-JkFullPath([string]$Path) {
+    try { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path) } catch { $Path }
+}
+
 # Whether a program that takes its arguments through the Windows code page (g++, javac, pdftotext)
 # can be handed this path: anything outside the code page reaches it as "?" and the file is not found.
 function Test-JkAnsiPath([string]$Path) {

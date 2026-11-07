@@ -15,6 +15,7 @@ function Get-JkShotsPath {
 # level and each subfolder are listed on their own: a folder given as C:\Users\JACKWA~1\... lists
 # its children under the long name, so cutting one path by the other's length goes wrong.
 function Get-JkShots([string]$Path) {
+    $Path = Get-JkFullPath $Path
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     $root = Get-Item -LiteralPath $Path
     $row = { param($f, $folder, $loose) [pscustomobject]@{ Name = $f.Name; Folder = $folder; Size = $f.Length; Modified = $f.LastWriteTime; Path = $f.FullName; Loose = $loose; Item = $f } }
@@ -69,6 +70,7 @@ function Get-JkShotsToFile($Shots, [datetime]$Now) {
 # jk tidy logs a batch, so jk tidy undo puts them back.
 function Invoke-JkShotsFile {
     param([string]$Path = (Get-JkShotsPath))
+    $Path = Get-JkFullPath $Path
     $todo = @(Get-JkShotsToFile @(Get-JkShots $Path) (Get-Date))
     if (-not $todo.Count) { Say (Paint 'green' "  Nothing to file: only this month's screenshots are loose. $($script:G.check)"); return }
     $log = New-Object System.Collections.Generic.List[object]

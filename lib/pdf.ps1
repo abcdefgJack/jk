@@ -113,7 +113,7 @@ function Resolve-JkPdfInputs([string[]]$Items) {
     foreach ($it in @($Items | Where-Object { $_ })) {
         # a name that exists as typed is that file, even with brackets in it ("page[1].png") or in
         # the folder it is in; only then is it a pattern
-        $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($it)
+        $full = Get-JkFullPath $it
         if ([IO.File]::Exists($full)) { $full; continue }
         if (-not [Management.Automation.WildcardPattern]::ContainsWildcardCharacters($it)) { throw "no such file: $it" }
         $dir = Split-Path $full -Parent
