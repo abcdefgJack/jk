@@ -9,7 +9,7 @@ jk due all | past | exams      whole term | what's behind you | every remaining 
 jk exam cs370 [midterm]        one exam on a screen: when, worth, what you need on it, prep planned,
                                what lands the week before, its files in the course folder (jk find -o 1)
 jk due week                    two-week grid (Mon-Sun columns)
-jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, fri, tomorrow, in 3 days, tonight, 8pm, 2026-12-02)
+jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, Mon Nov 9, fri, next week, tomorrow, in 3 days, tonight, 8pm, 2026-12-02)
 jk due add cs341 Midterm 3 nov 30 7-9pm -Exam          quotes optional; 7-9pm sets the end time
 jk due done 23 | jk due done a2a                        mark done by id or by part of the title
 jk due done cs341 midterm 2                             or course and title words (a1 = Assignment 1)

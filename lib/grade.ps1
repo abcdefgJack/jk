@@ -106,7 +106,10 @@ function Measure-JkGrade {
     }
     $avg = $null
     if ($graded -gt 0) { $avg = 100 * $banked / $graded }
-    [pscustomobject]@{ Banked = $banked; Graded = $graded; Remaining = $remaining; Total = $graded + $remaining; Average = $avg; Dropped = @($dropped | ForEach-Object { $_.Key }) }
+    # weight not entered yet is still to come: with only a 30% midterm in, the course is not over
+    $total = $graded + $remaining
+    $unlisted = $(if ($total -lt 99.5) { 100 - $total } else { 0.0 })
+    [pscustomobject]@{ Banked = $banked; Graded = $graded; Remaining = $remaining; Unlisted = $unlisted; Total = $total; Average = $avg; Dropped = @($dropped | ForEach-Object { $_.Key }) }
 }
 
 function Get-JkTarget($GradeData, [string]$CourseKey) {
@@ -154,10 +157,11 @@ function Format-JkPct($v, [int]$Digits = 1) {
 }
 
 function Get-JkNeededText([double]$Target, $M) {
-    if ($M.Remaining -le 0.0001) {
+    $rest = $M.Remaining + [double]$M.Unlisted
+    if ($rest -le 0.0001) {
         if ($M.Banked -ge $Target) { return @('done', 'green') } else { return @('out of reach', 'red') }
     }
-    $need = 100 * ($Target - $M.Banked) / $M.Remaining
+    $need = 100 * ($Target - $M.Banked) / $rest
     if ($need -le 0) { return @('locked in', 'green') }
     if ($need -gt 100) { return @(('{0:N0}% (!)' -f $need), 'red') }
     $st = 'white'
@@ -231,7 +235,8 @@ function Show-JkGrade {
 
 # "to finish with 50% 60% ... / you need ..." for what is left of the course.
 function Write-JkNeedTable($M, [double]$Target) {
-    if ($M.Remaining -le 0) { return }
+    $rest = $M.Remaining + [double]$M.Unlisted
+    if ($rest -le 0) { return }
     Say ''
     $targets = @(50, 60, 70, 80, 90) + @($Target) | Sort-Object -Unique
     # the cells narrow with the window; the explanation gets a line of its own
@@ -246,7 +251,7 @@ function Write-JkNeedTable($M, [double]$Target) {
     }
     Say $row1
     Say $row2
-    Say (Paint 'gray' "  (the average you need on the remaining $(Format-JkPct $M.Remaining 1) of the course)")
+    Say (Paint 'gray' "  (the average you need on the remaining $(Format-JkPct $rest 1) of the course$(if ($M.Unlisted -gt 0) { ", $(Format-JkPct $M.Unlisted 1) of it not entered yet" }))")
 }
 
 # jk grade cs370 if midterm 70[, a2 85]: the course as it would stand with those marks (nothing is
@@ -292,7 +297,7 @@ function Show-JkGradeWhatIf {
     $now = $(if ($null -ne $real.Average) { " (now $(Format-JkPct $real.Average) over $(Format-JkPct $real.Graded 1))" } else { ' (nothing recorded yet)' })
     Say ('  then: ' + $then + (Paint 'gray' $now))
     Write-JkNeedTable $m $target
-    if ($m.Remaining -le 0) { Say ''; Say ('  ' + (Paint 'bold white' "final mark $(Format-JkPct $m.Average)")) }
+    if ($m.Remaining + $m.Unlisted -le 0) { Say ''; Say ('  ' + (Paint 'bold white' "final mark $(Format-JkPct $m.Average)")) }
 }
 
 function Set-JkGrade {

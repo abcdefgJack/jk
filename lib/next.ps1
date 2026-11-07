@@ -1,6 +1,6 @@
 # next.ps1 - jk next: the one thing to do now, and what follows it.
-# In order: an exam within 6 hours, a class starting within 45 minutes, work due within 12 hours,
-# to-dos due today, then the study jk plan has for today; each with the command that does it.
+# In order: an exam under way or within 6 hours, a class starting within 45 minutes, work due within
+# 12 hours, to-dos due today, then the study jk plan has for today; each with the command that does it.
 
 function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
     $data = Get-JkDueData
@@ -16,6 +16,16 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
     $clock = { param($x) "$(Format-JkTime $x.E.time) (in $(Format-JkDuration (Get-JkTimeLeft $x.Due $Now)))" }
     $shown = New-Object System.Collections.Generic.List[string]
 
+    # an exam under way: until it ends, nothing else is what is happening now
+    foreach ($e in @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'exam' -and $_.time -and (Get-JkProp $_ 'end' '') })) {
+        $start = Get-JkEventDue $e
+        $part = ([string]$e.end).Split(':')
+        $stop = $start.Date.AddHours([int]$part[0]).AddMinutes([int]$part[1])
+        if ($Now -ge $start -and $Now -lt $stop) {
+            $where = Get-JkExamNote $e
+            & $add "$(& $name $e), under way until $(Format-JkTime ([string]$e.end))" $(if ($where) { $where } else { 'the rest can wait until it ends' })
+        }
+    }
     # an exam within 6 hours: the last review, then getting there
     foreach ($x in @($ahead | Where-Object { $_.E.kind -eq 'exam' -and -not $_.Closes -and (& $within $_ 6) })) {
         $where = Get-JkExamNote $x.E

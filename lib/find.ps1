@@ -282,7 +282,9 @@ function Get-JkDueFileHits($Data, $Item) {
     $tokens = @(Get-JkTitleFileTokens ([string]$Item.title))
     $hits = @()
     if ($tokens.Count) {
-        $rx = '(?i)(?<![a-z0-9])(' + (($tokens | ForEach-Object { [regex]::Escape($_) -replace '\\ ', '[ _-]?' }) -join '|') + ')(?![0-9])'
+        # "a1-final" and "report_final" are the last version of something else, not the final exam
+        $notVersion = '(?<!(?:a|hw|asst|assignment|lab|project|p|q|quiz|report|essay|draft|submission)\d{0,2}[ _-])'
+        $rx = '(?i)(?<![a-z0-9])(' + (($tokens | ForEach-Object { if ($_ -eq 'final') { $notVersion + 'final' } else { [regex]::Escape($_) -replace '\\ ', '[ _-]?' } }) -join '|') + ')(?![0-9])'
         $skip = (Split-Path $dir -Leaf).Length
         $hits = @($all | ForEach-Object {
                 $inName = $_.Name -match $rx

@@ -252,7 +252,10 @@ function Get-JkTermInfo {
     # calendar import; a LEARN sync brings only the deadlines): name it by the season and stop
     # describing the old one
     if ($phase -eq 'after' -and $today -ge $exEnd.AddDays(7)) {
-        return [pscustomobject]@{ Name = (Get-JkSeasonName $today); Start = $null; ClassesEnd = $null; ExamsStart = $null; ExamsEnd = $null; Week = $null; TotalWeeks = $null; Phase = 'next'; InBreak = $false; BreakName = ''; DaysToEnd = $null; DaysToExams = $null; Previous = [string]$t.name }
+        # the last days of December are still "Fall" by the month, but Fall is the term that just ended
+        $season = Get-JkSeasonName $today
+        if ($season -eq [string]$t.name) { $season = Get-JkSeasonName $today.AddMonths(1) }
+        return [pscustomobject]@{ Name = $season; Start = $null; ClassesEnd = $null; ExamsStart = $null; ExamsEnd = $null; Week = $null; TotalWeeks = $null; Phase = 'next'; InBreak = $false; BreakName = ''; DaysToEnd = $null; DaysToExams = $null; Previous = [string]$t.name }
     }
     $inBreak = $breakMondays -contains (& $monday $today)
     $breakName = ''
@@ -543,7 +546,7 @@ function Show-JkExamBrief {
     $target = Get-JkTarget $gd $e.course
     if ($wt -gt 0) {
         $share = ''
-        if ($m.Graded -gt 0 -and $m.Remaining -gt 0) { $share = "  ($([Math]::Round($wt / $m.Remaining * 100))% of the marks still to come)" }
+        if ($m.Graded -gt 0 -and $m.Remaining -gt 0) { $share = "  ($([Math]::Round($wt / ($m.Remaining + $m.Unlisted) * 100))% of the marks still to come)" }
         & $row 'worth' ((Paint 'white' "$(Format-JkPct $wt 0) of $(Get-JkCourseLabel $e $cmap)") + (Paint 'gray' $share))
     }
     if ($m.Graded -gt 0) {
@@ -571,7 +574,8 @@ function Show-JkExamBrief {
         $p = Get-JkPlanToday
         $it = $null
         if ($p) { $it = @($p.Items | Where-Object { $_.Key -eq "$($e.course)|#$($e.id)" })[0] }
-        if ($it) {
+        # hours before it starts, an estimate of the hours it deserved no longer helps
+        if ($it -and ($x.End - $now).TotalHours -ge 3) {
             $before = 0.0; $today = 0.0
             foreach ($d in @($p.Schedule)) { $mins = [double]$d.Alloc[$it.Key]; $before += $mins; if ($d.Day -eq $now.Date) { $today = $mins } }
             $txt = "about $(Format-JkMinutes $it.Effort) of prep for $(Format-JkPct $wt 0)"
@@ -594,6 +598,8 @@ function Show-JkExamBrief {
                 # a week out, the exam's own weekday is today's too: "today", not "Mon"
                 $day = $dd.ToString('ddd', $script:Inv)
                 if ($dd.Date -eq $now.Date) { $day = 'today' } elseif ($dd.Date -eq $now.Date.AddDays(1)) { $day = 'tomorrow' }
+                # further off, a bare "Mon" reads as the coming Monday: say which
+                elseif (($dd.Date - $now.Date).TotalDays -ge 7) { $day = $dd.ToString('ddd MMM d', $script:Inv) }
                 "$(Get-JkCourseLabel $_ $cmap) $t ($verb$day $(Format-JkTime $dd.ToString('HH:mm')))"
             }) -join "  $($script:G.dot)  "
         & $wrapRow 'before' $txt 'muted'
@@ -694,6 +700,8 @@ function Show-JkCourses {
 
 function Show-JkDueWeek {
     param([int]$Weeks = 2)
+    # a term and a half at most: "jk due week 99999" would draw 99999 weeks, for a quarter of an hour
+    if ($Weeks -lt 1 -or $Weeks -gt 26) { throw 'jk week takes 1 to 26 weeks (jk due all lists everything)' }
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
     $now = Get-JkNow
