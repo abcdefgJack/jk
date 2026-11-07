@@ -15,6 +15,8 @@ $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 function Find-JkJobsFile {
     $cfg = Get-JkConfig 'jobs.file'
     if ($cfg) {
+        # %USERPROFILE%\... reads like the other path settings
+        $cfg = [Environment]::ExpandEnvironmentVariables($cfg)
         if (Test-Path -LiteralPath $cfg) { return $cfg }
         throw "jobs.file not found: $cfg  (jk config reset jobs.file searches the Desktop again)"
     }
