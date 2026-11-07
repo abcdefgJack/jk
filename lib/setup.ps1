@@ -398,10 +398,19 @@ function Invoke-JkDoctor {
     } catch { & $bad 'job tracker' $_.Exception.Message }
     # windowless timers and the morning task log failures here instead of showing them
     $log = Get-JkPath 'background.log'
-    $recent = @()
+    $recent = @(); $lines = @()
     if (Test-Path -LiteralPath $log) {
         $since = (Get-Date).AddDays(-7)
-        $recent = @(Get-Content -LiteralPath $log | Where-Object { $_ -match '^(\d{4}-\d{2}-\d{2}T[\d:]+)' -and [datetime]::Parse($Matches[1], $script:Inv) -ge $since })
+        $lines = @(Get-Content -LiteralPath $log)
+        # each morning run's own summary line is a record, not an error
+        $recent = @($lines | Where-Object { $_ -notmatch '^\S+ tick: ' -and $_ -match '^(\d{4}-\d{2}-\d{2}T[\d:]+)' -and [datetime]::Parse($Matches[1], $script:Inv) -ge $since })
+    }
+    # the last morning run: when, and whether it got a forecast
+    $tick = @($lines | Where-Object { $_ -match '^(\S+) tick: ' })
+    if ($tick.Count -and $tick[-1] -match '^(\S+) tick: .*weather (\w+)') {
+        $when = Format-JkRelTime ([datetime]::Parse($Matches[1], $script:Inv)); $wx = $Matches[2]
+        if ($wx -in 'fresh', 'skipped') { & $ok 'last morning run' "$when $($script:G.dot) forecast $wx" }
+        else { & $meh 'last morning run' "$when $($script:G.dot) no fresh forecast ($wx): jk weather says why" }
     }
     if ($recent.Count) { & $meh 'background errors' "$($recent.Count) this week, latest: $(Fit ($recent[-1] -replace '^\S+\s+', '') 60)  ($log)" }
     else { & $ok 'background errors' 'none this week' }

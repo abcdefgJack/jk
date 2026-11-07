@@ -967,10 +967,12 @@ Test 'doctor flags a stale LEARN feed and this week''s background errors' {
         Save-JkJson 'state.json' ([pscustomobject]@{ lastSync = (Get-Date).AddDays(-5).ToString('s', $script:Inv) })
         Set-Content -LiteralPath (Get-JkPath 'background.log') -Value @(
             ((Get-Date).AddDays(-30).ToString('s', $script:Inv) + ' old: ignored'),
-            ((Get-Date).AddHours(-2).ToString('s', $script:Inv) + ' sync: The remote name could not be resolved'))
+            ((Get-Date).AddHours(-2).ToString('s', $script:Inv) + ' sync: The remote name could not be resolved'),
+            ((Get-Date).AddHours(-1).ToString('s', $script:Inv) + ' tick: cache C:\x; weather stale; place set'))
         $out = (Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($out -match 'LEARN feed\s+last synced 5 days ago') 'stale feed'
-        Assert-True ($out -match 'background errors\s+1 this week, latest: sync: The remote name') 'recent error only'
+        Assert-True ($out -match 'background errors\s+1 this week, latest: sync: The remote name') 'recent error only; a morning run''s summary is not an error'
+        Assert-True ($out -match 'last morning run\s+.*no fresh forecast \(stale\)') "the morning run, as it last went: $out"
         # the forecast: none kept yet, and why the last try failed
         $ef = Join-Path (Get-JkCacheDir) 'weather.error'
         $wf = Join-Path (Get-JkCacheDir) 'weather.txt'

@@ -97,7 +97,8 @@ function Update-JkDiskLog([double]$Free = -1, [datetime]$Now = (Get-JkNow)) {
     try { if ([IO.File]::Exists($p)) { $lines = @([IO.File]::ReadAllLines($p) | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}\t\d+$' }) } } catch { }
     if (@($lines | Where-Object { $_.StartsWith("$day`t") }).Count) { return }
     $keep = @(@($lines | Where-Object { $_.Substring(0, 10) -lt $day }) | Select-Object -Last 20)
-    try { [IO.File]::WriteAllLines($p, [string[]](@($keep) + "$day`t$([long]$Free)")) } catch { }
+    # a failure is the caller's to report (the morning task logs it; jk space carries on without it)
+    [IO.File]::WriteAllLines($p, [string[]](@($keep) + "$day`t$([long]$Free)"))
 }
 
 function Get-JkDiskLog {
