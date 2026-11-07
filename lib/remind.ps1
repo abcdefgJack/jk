@@ -492,21 +492,31 @@ function Invoke-JkRemind {
             if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
             try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
             try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
-            try { Update-JkDiskLog } catch { }
+            # every step says when it fails: a quiet catch here hid two mornings without weather
+            $note = { param($what, $why) Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + " ${what}: $why") }
+            try { Update-JkDiskLog } catch { & $note 'disk log' $_.Exception.Message }
             # a fresh forecast for the brief, the dashboard and the popup. Just woken, the Wi-Fi can
             # take a while to come back: try again for up to 45 s (offline mornings keep the old one)
             try {
                 $tries = $(if ((Get-JkWeatherPlace) -and -not $env:JK_NOW) { 4 } else { 0 })
+                $wx = $null
                 for ($try = 0; $try -lt $tries; $try++) {
                     if ($try) { Start-Sleep -Seconds 15 }
                     $wx = Get-JkWeather -TimeoutSec 10
                     if ($wx -and -not $wx.Stale) { break }
                 }
-            } catch { }
+                if ($tries -and (-not $wx -or $wx.Stale)) { & $note 'weather' "no fresh forecast after $tries tries ($($script:JkWeatherError))" }
+                elseif ($script:JkWeatherError) { & $note 'weather' $script:JkWeatherError }
+            } catch { & $note 'weather' $_.Exception.Message }
+            # one line a run, so "did the morning task work?" has an answer: jk doctor reads it
+            try {
+                $wxState = $(if (-not $tries) { 'skipped' } elseif (-not $wx) { 'none' } elseif ($wx.Stale) { 'stale' } else { 'fresh' })
+                & $note 'tick' "cache $(Get-JkCacheDir); weather $wxState; place $(if ($tries) { 'set' } else { 'none' })"
+            } catch { & $note 'tick' "summary failed: $($_.Exception.Message)" }
             Invoke-JkDueRemind -Quiet
             # yesterday's screenshots read for jk shots find, once it has been used (after the popup,
             # at low priority, two minutes at most)
-            try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { }
+            try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { & $note 'screenshot index' $_.Exception.Message }
             return
         }
         '^(now|due)$' { Invoke-JkDueRemind -Force @rest; return }

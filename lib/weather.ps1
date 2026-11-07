@@ -197,7 +197,7 @@ function Get-JkWeather {
             # read before it is kept: a garbled reply is never cached
             $w = ConvertFrom-JkWeatherJson $new $Place $at
             if (-not $NoSave) {
-                try { Write-JkText $file ($at.ToString('o', $script:Inv) + "|$id`n" + $new) } catch { }
+                try { Write-JkText $file ($at.ToString('o', $script:Inv) + "|$id`n" + $new) } catch { $script:JkWeatherError = "fetched, but could not save it: $($_.Exception.Message)" }
                 try { [IO.File]::Delete($errFile) } catch { }
             }
             return $w
