@@ -200,7 +200,7 @@ function Read-JkShotsIndex {
 # Reads screenshots not in the index yet, newest first, for up to $Seconds (videos aside).
 # Returns how many are read and how many are left.
 function Update-JkShotsIndex {
-    param([double]$Seconds = 30, [switch]$Progress, [switch]$LowPriority, [string]$Path = (Get-JkShotsPath))
+    param([double]$Seconds = 30, [switch]$Progress, [switch]$LowPriority, [string]$Path = (Get-JkShotsPath), [string]$StopFile)
     if ($LowPriority) { try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'BelowNormal' } catch { } }
     $p = Get-JkShotsIndexPath
     # read with other languages than last time (Chinese just installed): everything again
@@ -217,10 +217,21 @@ function Update-JkShotsIndex {
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     $batch = New-Object System.Collections.Generic.List[string]
     $n = 0
-    $flush = { if ($batch.Count) { [IO.File]::AppendAllText($p, (($batch -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false)); $batch.Clear() } }
+    # another reader may be writing this very moment (the morning task, the background one)
+    $flush = {
+        if ($batch.Count) {
+            for ($i = 1; $i -le 10; $i++) {
+                try { [IO.File]::AppendAllText($p, (($batch -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false)); break }
+                catch [IO.IOException] { if ($i -eq 10) { throw }; Start-Sleep -Milliseconds 100 }
+            }
+            $batch.Clear()
+        }
+    }
     try {
         foreach ($s in $todo) {
             if ([DateTime]::UtcNow -gt $deadline) { break }
+            # jk shots forget took this away: stop, and leave nothing behind
+            if ($StopFile -and -not [IO.File]::Exists($StopFile)) { $batch.Clear(); break }
             $text = ''
             try { $text = Get-JkImageText $s.Path } catch { if ($_.Exception.Message -match 'no text recognition') { throw } }
             $batch.Add((Get-JkShotKey $s) + "`t" + $text.Replace("`t", ' '))
@@ -236,16 +247,23 @@ function Update-JkShotsIndex {
     [pscustomobject]@{ Read = $shots.Count - ($todo.Count - $n); Total = $shots.Count; Left = $todo.Count - $n; Now = $n }
 }
 
+function Get-JkShotsIndexMark { Join-Path (Get-JkCacheDir) 'shots-index.running' }
+
+# True while the background reader is at work (it gives up within 25 minutes, so an older mark is
+# one a crash left behind).
+function Test-JkShotsIndexing {
+    $mark = Get-JkShotsIndexMark
+    [IO.File]::Exists($mark) -and ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($mark)).TotalMinutes -lt 30
+}
+
 # The rest in a background process at low priority, one at a time, never in tests or the sandbox.
 function Start-JkShotsIndexing {
     if ($env:JK_NOW -or $env:JK_NONINTERACTIVE -or $env:JK_SANDBOX) { return $false }
-    $mark = Join-Path (Get-JkCacheDir) 'shots-index.running'
-    try {
-        if ([IO.File]::Exists($mark) -and ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($mark)).TotalMinutes -lt 30) { return $false }
-        [IO.File]::WriteAllText($mark, '')
-    } catch { return $false }
+    if (Test-JkShotsIndexing) { return $false }
+    $mark = Get-JkShotsIndexMark
+    try { [IO.File]::WriteAllText($mark, '') } catch { return $false }
     $m = $mark.Replace("'", "''")
-    $null = Start-JkBackground -Script "try { `$null = Update-JkShotsIndex -Seconds 1500 -LowPriority } finally { Remove-Item -LiteralPath '$m' -ErrorAction SilentlyContinue }"
+    $null = Start-JkBackground -Script "try { `$null = Update-JkShotsIndex -Seconds 1500 -LowPriority -StopFile '$m' } finally { Remove-Item -LiteralPath '$m' -ErrorAction SilentlyContinue }"
     $true
 }
 
@@ -254,14 +272,16 @@ function Invoke-JkShotsFind {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words, [switch]$All, [string]$Path = (Get-JkShotsPath))
     $terms = @($Words | Where-Object { $_ } | ForEach-Object { $_.Trim() })
     if (-not $terms.Count) { throw 'which words? jk shots find error message   (jk shots find "exact phrase" for one)' }
+    # the background reader is on it: search what it has so far rather than read the same files twice
+    $busy = Test-JkShotsIndexing
     $u = $null
-    try { $u = Update-JkShotsIndex -Seconds 30 -Progress -Path $Path } catch { Say (Paint 'yellow' "  $($_.Exception.Message)") }
+    if (-not $busy) { try { $u = Update-JkShotsIndex -Seconds 30 -Progress -Path $Path } catch { Say (Paint 'yellow' "  $($_.Exception.Message)") } }
     $idx = Read-JkShotsIndex
     if (-not $u) {
-        # nothing can be read here: search what an earlier read left
-        $all = @(Get-JkShots $Path | Where-Object { $_.Item.Extension -match '^\.(png|jpe?g|bmp|gif)$' })
-        $read = @($all | Where-Object { $idx.ContainsKey((Get-JkShotKey $_)) }).Count
-        $u = [pscustomobject]@{ Read = $read; Total = $all.Count; Left = 0; Now = 0 }
+        # nothing can be read here, or not now: search what an earlier read left
+        $images = @(Get-JkShots $Path | Where-Object { $_.Item.Extension -match '^\.(png|jpe?g|bmp|gif)$' })
+        $read = @($images | Where-Object { $idx.ContainsKey((Get-JkShotKey $_)) }).Count
+        $u = [pscustomobject]@{ Read = $read; Total = $images.Count; Left = $(if ($busy) { $images.Count - $read } else { 0 }); Now = 0 }
     }
     $cmp = [StringComparison]::OrdinalIgnoreCase
     $hits = @(foreach ($s in @(Get-JkShots $Path)) {
@@ -297,7 +317,7 @@ function Invoke-JkShotsFind {
         Say (Paint 'gray' "  jk find -o 1 opens one  $($script:G.dot)  jk find -e 1 shows it in Explorer")
     }
     if ($u.Left -gt 0) {
-        $bg = Start-JkShotsIndexing
+        $bg = $busy -or (Start-JkShotsIndexing)
         Say (Paint 'gray' "  $($u.Left) older screenshots not read yet$(if ($bg) { ': reading them in the background now (a few minutes)' } else { ': run it again to read more' }); the morning task keeps new ones read")
     }
     Say (Paint 'gray' "  text read by Windows itself, kept on this PC only (jk shots forget deletes it)")
@@ -318,6 +338,9 @@ function Invoke-JkShots {
         '^(old|stale)$' { Invoke-JkShotsOld @rest; return }
         '^(find|search|text|grep)$' { Invoke-JkShotsFind @rest; return }
         '^(forget)$' {
+            # the mark first: a background reader sees it gone and stops, writing nothing more
+            Remove-Item -LiteralPath (Get-JkShotsIndexMark) -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 300
             Remove-Item -LiteralPath (Get-JkShotsIndexPath), "$(Get-JkShotsIndexPath).langs" -ErrorAction SilentlyContinue
             Say (Paint 'green' "  the text read from your screenshots is deleted $($script:G.check)  (jk shots find reads it again)")
             return

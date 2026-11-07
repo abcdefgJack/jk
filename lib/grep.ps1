@@ -285,25 +285,47 @@ function Format-JkGrepSnippet($Hit, [string[]]$Terms, [int]$Width) {
 
 # ---------------------------------------------------------------- jk grep
 
+# The course a search names with its first words, or $null. Only when they plainly name it: its code
+# or key whole ("cs341", "cs 341", "health", "health105"), or its number ("350"). A looser match reads
+# ordinary words as courses: "in" is inside intv, "he" inside health.
+function Resolve-JkGrepCourse($Data, [string[]]$W) {
+    $named = {
+        param([string]$Text)
+        $n = Get-JkNormKey $Text
+        foreach ($c in @($Data.courses)) { if ((Get-JkNormKey ([string]$c.key)) -eq $n -or (Get-JkNormKey ([string]$c.code)) -eq $n) { return $c } }
+        if ($n -match '^\d{3}[a-z]?$') { return (Resolve-JkCourse $Data $n) }
+    }
+    if ($W.Count -gt 2 -and $W[0] -match '^[A-Za-z]{2,8}$' -and $W[1] -match '^\d{2,3}[A-Za-z]?$') {
+        $c = & $named "$($W[0]) $($W[1])"
+        if ($c) { return [pscustomobject]@{ Course = $c; Rest = @($W | Select-Object -Skip 2) } }
+    }
+    if ($W.Count -gt 1) {
+        $c = & $named $W[0]
+        if ($c) { return [pscustomobject]@{ Course = $c; Rest = @($W | Select-Object -Skip 1) } }
+    }
+    $null
+}
+
 function Get-JkGrepFolders($Data, [string[]]$Words, [switch]$All) {
     $folders = Get-JkCourseFolders
     $w = @($Words)
-    $label = ''
+    # a course's folder goes by its code ("HEALTH 105" is HEALTH105) or its key
+    $folderOf = { param($c) foreach ($k in @((Get-JkNormKey ([string]$c.code)), (Get-JkNormKey ([string]$c.key)))) { if ($k -and $folders.ContainsKey($k)) { return $folders[$k] } } }
     if ($w.Count -gt 1 -and $w[0] -match '^(all|every)$') { $All = $true; $w = @($w | Select-Object -Skip 1) }
     if (-not $All -and $w.Count -gt 1) {
-        $sp = Split-JkCourseWords $Data $w
-        $key = $null
-        if ($sp[0]) { $key = $sp[0].key; $w = @($sp[1]); $label = [string]$sp[0].code }
-        elseif ($folders.ContainsKey((Get-JkNormKey $w[0]))) { $key = Get-JkNormKey $w[0]; $label = $w[0].ToUpper(); $w = @($w | Select-Object -Skip 1) }
-        if ($key) {
-            if (-not $folders.ContainsKey($key)) { throw "no folder for $label under $((@((Get-JkConfig 'tidy.courses') -split ';') + 'the Desktop')[0]) (jk config set tidy.courses <folder>)" }
-            return , @(@($folders[$key]), $w, $label)
+        $hit = Resolve-JkGrepCourse $Data $w
+        if ($hit) {
+            $dir = & $folderOf $hit.Course
+            if ($dir) { return , @(@($dir), @($hit.Rest), [string]$hit.Course.code) }
+            # no folder: a real course says so; a word like "oa" or "intv" is just a word to search for
+            if ([string]$hit.Course.code -match '\d') { throw "no folder found for $($hit.Course.code) (jk config set tidy.courses <the folder holding your course folders>)" }
         }
+        elseif ($folders.ContainsKey((Get-JkNormKey $w[0]))) { return , @(@($folders[(Get-JkNormKey $w[0])]), @($w | Select-Object -Skip 1), $w[0].ToUpper()) }
     }
     if ($All) { return , @(@($folders.Values), $w, 'every course') }
     # this term's courses, the ones with deadlines; without any, every course folder
-    $now = @($Data.courses | ForEach-Object { $_.key } | Where-Object { $folders.ContainsKey($_) })
-    if ($now.Count) { return , @(@($now | ForEach-Object { $folders[$_] }), $w, "this term's courses") }
+    $now = @(foreach ($c in @($Data.courses)) { & $folderOf $c })
+    if ($now.Count) { return , @($now, $w, "this term's courses") }
     , @(@($folders.Values), $w, 'every course')
 }
 
