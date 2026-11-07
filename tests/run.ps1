@@ -506,6 +506,26 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
             Complete-JkReminder -Id ([int]$a.id)
             Assert-True ($script:PopupLines[0] -like 'Closes 11:59 pm*' -and $script:PopupLines[-1] -eq "Written it? jk due done $($cl.id)") "closes: $($script:PopupLines -join ' / ')"
             $script:PopupCalls--
+            # asleep through the warning and the deadline: open work gets a late word within a day;
+            # after that, or for an exam that is over, nothing useful is left to say
+            $nowSaved = $env:JK_NOW
+            try {
+                $env:JK_NOW = '2026-10-29T10:20:00'
+                $a = New-JkReminder -At ([datetime]'2026-10-28T18:00') -Text 'x' -DueId ([int]$r.dueId)
+                Complete-JkReminder -Id ([int]$a.id)
+                Assert-Eq $script:PopupCalls 2 'a late word for work still open'
+                Assert-True ($script:PopupLines[0] -like 'Its deadline passed while this PC was off or asleep (8:00 pm Wed)*') "late: $($script:PopupLines[0])"
+                Assert-Eq $script:PopupLines[1] "Handed in? jk due done $($r.dueId)"
+                $script:PopupCalls--
+                $env:JK_NOW = '2026-10-30T10:00:00'
+                $a = New-JkReminder -At ([datetime]'2026-10-28T18:00') -Text 'x' -DueId ([int]$r.dueId)
+                Complete-JkReminder -Id ([int]$a.id)
+                Assert-Eq $script:PopupCalls 1 'more than a day late: quiet'
+                $env:JK_NOW = '2026-10-29T18:00:00'
+                $a = New-JkReminder -At ([datetime]'2026-10-29T14:30') -Text 'x' -DueId ([int]$mid.id)
+                Complete-JkReminder -Id ([int]$a.id)
+                Assert-Eq $script:PopupCalls 1 'an exam that is over: quiet'
+            } finally { $env:JK_NOW = $nowSaved }
             # moved to another day after the alert was set: stay quiet
             $d = Get-JkDueData
             @($d.events | Where-Object { [int]$_.id -eq [int]$r.dueId })[0].date = '2026-10-29'
