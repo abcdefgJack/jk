@@ -28,6 +28,7 @@ function Stop-JkProcessTree([int]$ProcessId) {
 # "25", "25m", "1h", "1h30m", "90s", "1:30" (h:mm) -> seconds
 function ConvertTo-JkSeconds([string]$Text) {
     $t = $Text.Trim().ToLower()
+    if ($t -match '^0+(\.0+)?$|^0+:00$') { throw "a duration can't be zero (try 25, 25m, 1h30m, 90s)" }
     if ($t -match '^\d+(\.\d+)?$') { return [int]([double]$t * 60) }
     if ($t -match '^(\d+):(\d{2})$') { return [int]$Matches[1] * 3600 + [int]$Matches[2] * 60 }
     # "1h30": the minutes without their m

@@ -561,17 +561,43 @@ function Get-JkNow {
     Get-Date
 }
 
-$script:MonthMap = @{ jan = 1; feb = 2; mar = 3; apr = 4; may = 5; jun = 6; jul = 7; aug = 8; sep = 9; sept = 9; oct = 10; nov = 11; dec = 12 }
-$script:DowMap = @{ sun = 0; mon = 1; tue = 2; tues = 2; wed = 3; thu = 4; thur = 4; thurs = 4; fri = 5; sat = 6 }
+$script:JkMonthNames = @('january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december')
+$script:JkDayNames = @('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday')
 
-function Resolve-JkYear([int]$Month, [int]$Day, [datetime]$Today) {
-    $d = New-Object DateTime $Today.Year, $Month, $Day
-    if ($d -lt $Today.AddDays(-60)) { $d = $d.AddYears(1) }
-    $d
+# Where a name cut short sits in a list ("sep", "sept", "thur"), or -1. Only the name itself counts,
+# not any word that starts like one ("novel 2" is not Nov 2, "sunny" is not Sunday).
+function Get-JkNameIndex([string[]]$Names, [string]$Word) {
+    if ($Word.Length -lt 3) { return -1 }
+    for ($i = 0; $i -lt $Names.Count; $i++) { if ($Names[$i].StartsWith($Word, [StringComparison]::Ordinal)) { return $i } }
+    -1
 }
 
-# Accepts: today, tomorrow/tmr, yesterday, +3, 3d, 2w, mon..sun, next fri,
-# oct 28, 28 oct, october 28 2026, 10/28, 2026-10-28, bare day-of-month (28).
+# A real month with a day it does not have is a typo to report, not something to read around:
+# "nov 31" must not become Dec 31 with "nov" left over for a title.
+function New-JkDate([int]$Year, [int]$Month, [int]$Day) {
+    if ($Month -lt 1 -or $Month -gt 12) { throw "there is no month $Month (dates go month/day, as in 10/28)" }
+    if ($Day -lt 1 -or $Day -gt [DateTime]::DaysInMonth($Year, $Month)) {
+        throw "no such date: $((New-Object DateTime 2000, $Month, 1).ToString('MMM', $script:Inv)) $Day $Year"
+    }
+    New-Object DateTime $Year, $Month, $Day
+}
+
+# The errors that callers trying other readings of the words have to let through.
+function Test-JkNoSuchDate($Err) { ([string]$Err.Exception.Message).StartsWith('no such date') }
+
+# This year's unless that is over 60 days ago, then next year's. Feb 29 is judged by the end of this
+# year's February, so it means the coming February or nothing, never a leap year further off.
+function Resolve-JkYear([int]$Month, [int]$Day, [datetime]$Today) {
+    if ($Month -lt 1 -or $Month -gt 12) { return (New-JkDate $Today.Year $Month $Day) }
+    $year = $Today.Year
+    $near = [Math]::Max(1, [Math]::Min($Day, [DateTime]::DaysInMonth($year, $Month)))
+    if ((New-Object DateTime $year, $Month, $near) -lt $Today.AddDays(-60)) { $year++ }
+    New-JkDate $year $Month $Day
+}
+
+# Accepts: today, tomorrow/tmr, yesterday, +3, 3d, 2w, next week, mon..sun, this fri, next fri,
+# oct 28, 28 oct, 28th of oct, october 28 2026, 10/28, 2026-10-28, bare day-of-month (28), and a
+# weekday in front of a date, as jk prints it (Mon Nov 9), which has to agree with the date.
 function ConvertTo-JkDate {
     param([string]$Text, [datetime]$Now = (Get-JkNow))
     if ($Text -is [datetime]) { return ([datetime]$Text).Date }
@@ -583,32 +609,51 @@ function ConvertTo-JkDate {
     if ($t -match '^\+(\d+)$') { return $today.AddDays([int]$Matches[1]) }
     if ($t -match '^\+?(\d+) ?d(ays?)?$') { return $today.AddDays([int]$Matches[1]) }
     if ($t -match '^\+?(\d+) ?w(eeks?)?$') { return $today.AddDays(7 * [int]$Matches[1]) }
-    if ($t -match '^(next )?([a-z]+)$' -and $script:DowMap.ContainsKey($Matches[2].Substring(0, [Math]::Min(3, $Matches[2].Length))) -and $Matches[2].Length -ge 3) {
-        $key = $Matches[2]
-        $abbr = $key.Substring(0, 3)
-        $valid = @('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday') | Where-Object { $_.StartsWith($key) }
-        if ($valid) {
-            $target = $script:DowMap[$abbr]
+    if ($t -eq 'next week') { return $today.AddDays(7) }
+    if ($t -match '^(next |this )?([a-z]+)$') {
+        $isNext = $Matches[1] -eq 'next '
+        $target = Get-JkNameIndex $script:JkDayNames $Matches[2]
+        if ($target -ge 0) {
             $delta = ($target - [int]$today.DayOfWeek + 7) % 7
-            if ($Matches[1]) { $delta += 7 }
+            if ($isNext) { $delta += 7 }
             return $today.AddDays($delta)
         }
     }
-    if ($t -match '^(\d{4})-(\d{1,2})-(\d{1,2})$') { return New-Object DateTime ([int]$Matches[1]), ([int]$Matches[2]), ([int]$Matches[3]) }
+    # "Mon Nov 9": a wrong weekday means one of the two is wrong, and only the typist knows which.
+    # A plain number after it stays a time: "fri 5" is Friday at 5.
+    if ($t -match '^([a-z]{3,9}) (\S.*)$') {
+        $wd = Get-JkNameIndex $script:JkDayNames $Matches[1]
+        $rest = $Matches[2]
+        if ($wd -ge 0 -and $rest -match '\d' -and $rest -match '[a-z/-]') {
+            $d = ConvertTo-JkDate $rest -Now $Now
+            if ([int]$d.DayOfWeek -ne $wd) { throw "no such date: $($d.ToString('MMM d yyyy', $script:Inv)) is a $($d.DayOfWeek), not a $((Get-Culture).TextInfo.ToTitleCase($script:JkDayNames[$wd]))" }
+            return $d
+        }
+    }
+    if ($t -match '^(\d{4})-(\d{1,2})-(\d{1,2})$') { return New-JkDate ([int]$Matches[1]) ([int]$Matches[2]) ([int]$Matches[3]) }
     if ($t -match '^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$') {
         $y = [int]$Matches[3]; if ($y -lt 100) { $y += 2000 }
-        return New-Object DateTime $y, ([int]$Matches[1]), ([int]$Matches[2])
+        return New-JkDate $y ([int]$Matches[1]) ([int]$Matches[2])
     }
-    if ($t -match '^(\d{1,2})[/-](\d{1,2})$') { return Resolve-JkYear ([int]$Matches[1]) ([int]$Matches[2]) $today }
-    if ($t -match '^([a-z]{3,9}) ?(\d{1,2})(?:st|nd|rd|th)?(?: (\d{4}))?$' -and $script:MonthMap.ContainsKey($Matches[1].Substring(0, 3))) {
-        $m = $script:MonthMap[$Matches[1].Substring(0, 3)]
-        if ($Matches[3]) { return New-Object DateTime ([int]$Matches[3]), $m, ([int]$Matches[2]) }
-        return Resolve-JkYear $m ([int]$Matches[2]) $today
+    if ($t -match '^(\d{1,2})/(\d{1,2})$') { return Resolve-JkYear ([int]$Matches[1]) ([int]$Matches[2]) $today }
+    # with a dash it may not be a date at all ("Read 4-31 fri"), so an impossible one is just not a date
+    if ($t -match '^(\d{1,2})-(\d{1,2})$') {
+        $first = [int]$Matches[1]; $second = [int]$Matches[2]
+        try { return Resolve-JkYear $first $second $today } catch { throw "can't understand the date '$Text' (try 2026-10-28, oct 28, fri, tomorrow, +3)" }
     }
-    if ($t -match '^(\d{1,2})(?:st|nd|rd|th)? ?([a-z]{3,9})(?: (\d{4}))?$' -and $script:MonthMap.ContainsKey($Matches[2].Substring(0, 3))) {
-        $m = $script:MonthMap[$Matches[2].Substring(0, 3)]
-        if ($Matches[3]) { return New-Object DateTime ([int]$Matches[3]), $m, ([int]$Matches[1]) }
-        return Resolve-JkYear $m ([int]$Matches[1]) $today
+    if ($t -match '^([a-z]{3,9}) ?(\d{1,2})(?:st|nd|rd|th)?(?: (\d{4}))?$') {
+        $m = (Get-JkNameIndex $script:JkMonthNames $Matches[1]) + 1
+        if ($m -ge 1) {
+            if ($Matches[3]) { return New-JkDate ([int]$Matches[3]) $m ([int]$Matches[2]) }
+            return Resolve-JkYear $m ([int]$Matches[2]) $today
+        }
+    }
+    if ($t -match '^(\d{1,2})(?:st|nd|rd|th)?(?: of)? ?([a-z]{3,9})(?: (\d{4}))?$') {
+        $m = (Get-JkNameIndex $script:JkMonthNames $Matches[2]) + 1
+        if ($m -ge 1) {
+            if ($Matches[3]) { return New-JkDate ([int]$Matches[3]) $m ([int]$Matches[1]) }
+            return Resolve-JkYear $m ([int]$Matches[1]) $today
+        }
     }
     if ($t -match '^(\d{1,2})(?:st|nd|rd|th)?$') {
         # the next date with that day number (skipping months that are too short)
@@ -648,6 +693,8 @@ function ConvertTo-JkTime {
         $h = [int]$Matches[1]; $mi = 0
         if ($Matches[2]) { $mi = [int]$Matches[2] }
         $ap = $Matches[3]
+        # "15:00 am" and "0 pm" contradict themselves; "15:20pm" and "0:30 am" only say a thing twice
+        if (($ap -like 'a*' -and $h -gt 12) -or ($ap -like 'p*' -and $h -eq 0)) { throw "invalid time '$Text'" }
         if ($ap -like 'p*' -and $h -lt 12) { $h += 12 }
         if ($ap -like 'a*' -and $h -eq 12) { $h = 0 }
         if ($h -gt 23 -or $mi -gt 59) { throw "invalid time '$Text'" }
