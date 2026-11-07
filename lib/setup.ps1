@@ -49,6 +49,9 @@ function Invoke-JkConfig {
                 if (-not $near.Count) { $near = @($script:JkConfigDefaults.Keys) }
                 throw "there is no setting '$key' (try: $($near -join ', '))"
             }
+            # the mirror takes jk backup mirror's checks (a full path, outside the data folder) and its
+            # first snapshot
+            if ($key -eq 'backup.mirror') { Invoke-JkBackupMirror @('mirror', $val); return }
             if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
             if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
             if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
@@ -97,11 +100,21 @@ function Sync-JkBackupMirror([datetime]$Now = (Get-Date)) {
         $src = Get-JkPath $name
         if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $dir $name) -Force; $n++ }
     }
+    # only day folders jk wrote are pruned. A mirror set on a folder that already had dated folders
+    # of its own (photo imports, exports) used to lose every one older than 30 days, for good.
     $cut = $Now.AddDays(-30).ToString('yyyy-MM-dd', $script:Inv)
-    Get-ChildItem -LiteralPath $mirror -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -lt $cut } |
-        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    foreach ($old in @(Get-ChildItem -LiteralPath $mirror -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -lt $cut })) {
+        if (Test-JkSnapshotDir $old.FullName) { Remove-Item -LiteralPath $old.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    }
     [pscustomobject]@{ Dir = $dir; Files = $n }
+}
+
+# A day folder of jk's backups: no subfolders and no files but the data files they copy. One that
+# cannot be listed is not.
+function Test-JkSnapshotDir([string]$Dir) {
+    try { $items = @(Get-ChildItem -LiteralPath $Dir -Force -ErrorAction Stop) } catch { return $false }
+    foreach ($i in $items) { if ($i.PSIsContainer -or $script:JkBackupFiles -notcontains $i.Name) { return $false } }
+    $true
 }
 
 function Invoke-JkBackupMirror([string[]]$A) {
