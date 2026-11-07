@@ -29,6 +29,7 @@ function Get-JkShots([string]$Path) {
 function Show-JkShots {
     # jk shots 20: the newest 20 (a bare word is never taken for the folder)
     param([Parameter(Position = 0)][int]$Newest = 8, [string]$Path = (Get-JkShotsPath))
+    if ($Newest -lt 1) { throw 'jk shots <n>: how many of the newest to list, 1 or more' }
     $shots = @(Get-JkShots $Path)
     $total = ($shots | Measure-Object Size -Sum).Sum
     Write-JkHeader 'Screenshots' "$(Format-JkCount $shots.Count 'file') $($script:G.dot) $(Format-JkSize ([double]$total))" -Sub (Get-JkShortPath $Path)
@@ -92,6 +93,8 @@ function Invoke-JkShotsFile {
 function Invoke-JkShotsOld {
     # jk shots old 6: older than six months
     param([Parameter(Position = 0)][int]$Months = 12, [string]$Path = (Get-JkShotsPath), [switch]$Recycle)
+    # 0 or less would make every screenshot "old", and -Recycle would bin them all
+    if ($Months -lt 1) { throw 'jk shots old takes 1 or more months' }
     $cut = (Get-Date).AddMonths(-$Months)
     $old = @(Get-JkShots $Path | Where-Object { $_.Modified -lt $cut } | Sort-Object Modified)
     $size = [double](($old | Measure-Object Size -Sum).Sum)

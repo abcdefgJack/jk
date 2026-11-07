@@ -85,6 +85,27 @@ function Resolve-JkRoute([string[]]$Words) {
     $null
 }
 
+# What PowerShell says when a word does not fit a command, in words that mean something here. Every
+# command goes through this, so no command has to guard each of its options against it.
+function Format-JkErrorText([string]$Message, [string]$Command = '') {
+    $short = { param([string]$v) if ($v.Length -gt 30) { $v.Substring(0, 30) + $script:G.ell } else { $v } }
+    $help = $(if ($Command) { " (jk help $Command)" } else { '' })
+    $number = 'to type "System\.(?:Int32|Int64|Double)"'
+    if ($Message -match "(?s)^Cannot process argument transformation on parameter '(\w+)'\. Cannot convert value `"(.*)`" $number") { return "expected a number for $($Matches[1].ToLower()), not '$(& $short $Matches[2])'" }
+    if ($Message -match "(?s)^Cannot convert value `"(.*)`" $number") { return "expected a number, not '$(& $short $Matches[1])'" }
+    if ($Message -match "(?s)^A positional parameter cannot be found that accepts argument '(.*)'\.") { return "unexpected word '$(& $short $Matches[1])'$help" }
+    if ($Message -match "^A parameter cannot be found that matches parameter name '(.*)'\.") { return "there is no -$($Matches[1]) option$help" }
+    if ($Message -match "^Missing an argument for parameter '(\w+)'") { return "-$($Matches[1]) needs a value$help" }
+    if ($Message -match "^Parameter cannot be processed because the parameter name '(\w+)' is ambiguous") { return "-$($Matches[1]) could mean more than one option$help" }
+    if ($Message -match '^Cannot validate argument on parameter') { return 'that number is out of range' }
+    if ($Message -match '(?s)^Exception calling "[\w.]+" with "\d+" argument\(s\): "(.*)"\s*$') {
+        $inner = $Matches[1]
+        if ($inner -match '(?i)out of (the )?range|un-representable') { return 'that number is out of range' }
+        return $inner
+    }
+    $Message
+}
+
 function Invoke-JkCommand {
     $script:JkUseColor = Test-JkColor
     $script:JkConfigCache = $null
@@ -92,13 +113,13 @@ function Invoke-JkCommand {
     if ($light -ne [bool]$script:JkLightTheme) { $script:JkLightTheme = $light; $script:PaintCache = @{} }
     $a = @($args)
     if ($a.Count -eq 0) {
-        try { Show-JkDashboard } catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
+        try { Show-JkDashboard } catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + (Format-JkErrorText $_.Exception.Message))) }
         return
     }
     $route = Resolve-JkRoute ([string[]]$a)
     if ($route -and $route.Course) {
         try { if ($route.Course.Rest.Count) { Invoke-JkCourseAction $route.Course.Course $route.Course.Rest } else { Show-JkCourseBrief $route.Course.Course } }
-        catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message)) }
+        catch { if ($env:JK_DEBUG) { throw }; Write-Host (Paint 'red' ('  jk: ' + (Format-JkErrorText $_.Exception.Message))) }
         return
     }
     $name = $null; if ($route) { $name = $route.Command }
@@ -113,7 +134,7 @@ function Invoke-JkCommand {
         & $fn @rest
     } catch {
         if ($env:JK_DEBUG) { throw }
-        Write-Host (Paint 'red' ('  jk: ' + $_.Exception.Message))
+        Write-Host (Paint 'red' ('  jk: ' + (Format-JkErrorText $_.Exception.Message $name)))
     }
 }
 

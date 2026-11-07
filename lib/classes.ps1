@@ -325,7 +325,11 @@ function Remove-JkClass {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Ids)
     if (-not $Ids) { throw 'usage: jk class rm <id> [...]   (ids: jk class list)' }
     $d = Get-JkClassData
-    $nums = @($Ids | ForEach-Object { [int]($_.TrimStart('#')) })
+    $nums = @($Ids | ForEach-Object {
+            $n = 0
+            if (-not [int]::TryParse($_.TrimStart('#'), [ref]$n)) { throw "'$_' is not a class id (jk class list shows them)" }
+            $n
+        })
     $gone = @($d.items | Where-Object { $nums -contains [int]$_.id })
     if (-not $gone) { throw "no class with id $($Ids -join ', ')" }
     $d.items = @($d.items | Where-Object { $nums -notcontains [int]$_.id })

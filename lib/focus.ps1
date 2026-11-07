@@ -249,6 +249,7 @@ function Show-JkFocusStatus {
 
 function Show-JkFocusLog {
     param([int]$Days = 7)
+    if ($Days -lt 1 -or $Days -gt 366) { throw 'jk focus log takes 1 to 366 days' }
     $d = Get-JkFocusData
     $today = (Get-Date).Date
     $since = $today.AddDays(-($Days - 1))
