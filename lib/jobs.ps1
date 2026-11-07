@@ -52,9 +52,11 @@ function Get-JkJobs {
     if ($Cached -and $script:JkJobsCache -and $script:JkJobsCache.Stamp -eq $stamp) { return $script:JkJobsCache.Rows }
     $cols = @{ date = 0; company = 1; role = 2; where = 3; status = 4; link = 5 }
     $rows = New-Object System.Collections.Generic.List[object]
+    $bad = New-Object System.Collections.Generic.List[string]
     $n = 0
-    foreach ($ln in [IO.File]::ReadAllLines($Path, [Text.Encoding]::UTF8)) {
-        $t = $ln.Trim()
+    $all = [IO.File]::ReadAllLines($Path, [Text.Encoding]::UTF8)
+    for ($li = 0; $li -lt $all.Count; $li++) {
+        $t = $all[$li].Trim()
         if (-not $t.StartsWith('|')) { continue }
         # "\|" inside a cell is a literal bar, not a column break
         $cells = @(($t.Trim('|') -replace '\\\|', [string][char]1).Split('|') | ForEach-Object { $_.Replace([string][char]1, '|').Trim() })
@@ -75,9 +77,16 @@ function Get-JkJobs {
         $cell = @{}
         foreach ($k in @($cols.Keys)) { $cell[$k] = $(if ($cols[$k] -lt $cells.Count) { $cells[$cols[$k]] } else { '' }) }
         if ($cell.date -notmatch '^\d{4}-\d{2}-\d{2}$') { continue }
+        # a slip such as 2026-09-31 leaves out that row and says so, instead of failing jk jobs and
+        # quietly dropping the dashboard's JOBS lines
+        $date = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact($cell.date, 'yyyy-MM-dd', $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$date)) {
+            $bad.Add("line $($li + 1), no such date $($cell.date) ($($cell.company))")
+            continue
+        }
         $rows.Add([pscustomobject]@{
                 N        = $n
-                Date     = [datetime]::ParseExact($cell.date, 'yyyy-MM-dd', $script:Inv)
+                Date     = $date
                 Company  = $cell.company
                 Role     = $cell.role
                 Where    = $cell.where
@@ -101,8 +110,68 @@ function Get-JkJobs {
             if ((Get-JkJobKey $a.Role) -eq $k) { $r.Resolved = $true; break }
         }
     }
-    $script:JkJobsCache = @{ Stamp = $stamp; Rows = $rows.ToArray() }
+    $script:JkJobsCache = @{ Stamp = $stamp; Rows = $rows.ToArray(); Bad = $bad.ToArray() }
     $rows.ToArray()
+}
+
+# The rows the last Get-JkJobs left out, as "line 12, no such date 2026-09-31 (Acme)".
+function Get-JkJobsUnread { if ($script:JkJobsCache) { @($script:JkJobsCache.Bad) } else { @() } }
+
+# Search words: lowercase, accents dropped, split at anything but letters, digits, + and #
+# ("Soci<e-acute>t<e-acute> G<e-acute>n<e-acute>rale, C/C++ Co-op" -> societe generale c c++ co op).
+function Get-JkJobTokens([string]$Text) {
+    $t = ([string]$Text).Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}+', ''
+    @($t.ToLowerInvariant() -split '[^\p{L}\p{N}+#]+') -ne ''
+}
+
+# One typed word: it starts a word of the row and may run on through the next ones, so "coop" finds
+# "Co-op", "janestreet" finds "Jane Street", and "ea" is not found inside "research".
+function New-JkJobWordRegex([string]$Word) {
+    $body = @($Word.ToCharArray() | ForEach-Object { [regex]::Escape([string]$_) }) -join ' ?'
+    # Chinese and Japanese names have no spaces to start at
+    if ($Word -match '[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}]') { return [regex]::new($body) }
+    [regex]::new('(?:^| )' + $body)
+}
+
+# When no row has every word: the companies some of the words name ("amd canada" -> AMD), else the
+# ones a word is a slip away from ("nvdia" -> NVIDIA), so a slip never reads as "not applied yet".
+function Get-JkJobNearMiss($Rows, [string[]]$Words, $Regexes) {
+    $cos = @(foreach ($g in @($Rows | Group-Object Company)) {
+            $tok = @(Get-JkJobTokens $g.Name)
+            if ($tok.Count) { [pscustomobject]@{ Group = $g; Tokens = $tok; Hay = ($tok -join ' ') } }
+        })
+    # a word inside many names ("canada", "technologies") names none of them unless it starts the
+    # name: "ubisoft canada" is not about Huawei Canada
+    $common = @(for ($i = 0; $i -lt $Words.Count; $i++) { @($cos | Where-Object { $Regexes[$i].IsMatch($_.Hay) }).Count -ge 3 })
+    $out = foreach ($c in $cos) {
+        $score = 0; $try = @()
+        for ($i = 0; $i -lt $Words.Count; $i++) {
+            $m = $Regexes[$i].Match($c.Hay)
+            if (-not $m.Success) { continue }
+            # a word that starts the name ("amd") ranks above one inside it ("borealis")
+            if ($m.Index -eq 0) { $score += 15 } elseif (-not $common[$i]) { $score += 10 } else { continue }
+            $try += $Words[$i]
+        }
+        if (-not $score) {
+            $best = 99
+            foreach ($wd in $Words) {
+                if ($wd.Length -lt 4) { continue }
+                $allow = 1; if ($wd.Length -ge 7) { $allow = 2 }
+                foreach ($t in @($c.Tokens + (-join $c.Tokens))) {
+                    if ($t.Length -lt 3) { continue }
+                    # 0 is a word found above (or left out there as too common)
+                    $dist = Get-JkEditDistance $wd $t
+                    if ($dist -ge 1 -and $dist -le $allow -and $dist -lt $best) { $best = $dist; $try = @($t) }
+                }
+            }
+            if ($best -lt 99) { $score = 3 - $best }
+        }
+        if ($score) {
+            $g = $c.Group
+            [pscustomobject]@{ Company = $g.Name; Rows = $g.Count; Applied = @($g.Group | Where-Object { $_.State -eq 'applied' }).Count; Try = ($try -join ' '); Score = $score }
+        }
+    }
+    @($out | Sort-Object @{ e = 'Score'; Descending = $true }, @{ e = 'Rows'; Descending = $true } | Select-Object -First 4)
 }
 
 # Applications blocked on you in the last JkJobStaleDays, newest first (for the dashboard).
@@ -163,6 +232,11 @@ function Show-JkJobs {
     $freshTxt = ''
     if ($todo.Count) { $freshTxt = Paint 'gray' " ($fresh from the last $($script:JkJobStaleDays) days)" }
     Say ('  ' + (Paint 'green' "$($script:G.check) $($applied.Count) applied") + '   ' + (Paint 'amber' "! $($todo.Count) waiting on you") + $freshTxt + '   ' + (Paint 'gray' "$($script:G.dash) $($skip.Count) ruled out"))
+    $unread = @(Get-JkJobsUnread)
+    if ($unread.Count) {
+        $more = ''; if ($unread.Count -gt 1) { $more = " (+$($unread.Count - 1) more)" }
+        Say ('  ' + (Paint 'amber' "$(Format-JkCount $unread.Count 'row') not read: $($unread[0])$more"))
+    }
 
     # applications per week (Mon-Sun), the last 8 weeks
     $monday = $now.Date.AddDays(-(([int]$now.DayOfWeek + 6) % 7))
@@ -204,19 +278,31 @@ function Show-JkJobList {
     foreach ($r in $pick) { Say (Format-JkJobLine $r $w) }
 }
 
-# "Did I already apply?": every row whose company, role or location has all the words.
+# "Did I already apply?": every row whose company, role or location has all the words, each at the
+# start of a word there (see New-JkJobWordRegex).
 function Find-JkJobs {
     param([string]$Query)
     $rows = @(Get-JkJobs)
     $w = Get-JkWidth
-    $words = @($Query.ToLower() -split '\s+' | Where-Object { $_ })
+    # each typed word without its inner marks: "co-op" -> coop, "j.p." -> jp
+    $words = @(@(-split $Query | ForEach-Object { -join @(Get-JkJobTokens $_) }) -ne '')
+    if (-not $words.Count) { Show-JkJobs; return }
+    $res = @($words | ForEach-Object { New-JkJobWordRegex $_ })
     $hits = @($rows | Where-Object {
-            $hay = "$($_.Company) $($_.Role) $($_.Where)".ToLower()
-            -not @($words | Where-Object { -not $hay.Contains($_) }).Count
+            $hay = @(Get-JkJobTokens "$($_.Company) $($_.Role) $($_.Where)") -join ' '
+            -not @($res | Where-Object { -not $_.IsMatch($hay) }).Count
         } | Sort-Object Date, N -Descending)
     $nApplied = @($hits | Where-Object { $_.State -eq 'applied' }).Count
     Write-JkHeader "Jobs $($script:G.dot) $Query" "$($hits.Count) row$(if ($hits.Count -ne 1) { 's' }) $($script:G.dot) $nApplied applied"
     if (-not $hits.Count) {
+        $near = @(Get-JkJobNearMiss $rows $words $res)
+        if ($near.Count) {
+            Say ('  ' + (Paint 'amber' "No row has every word of '$Query'.") + (Paint 'gray' ' The closest companies in the tracker:'))
+            foreach ($c in $near) {
+                Say ('  ' + (Paint 'bold white' (Fit $c.Company 26)) + ' ' + (Paint 'gray' "$(Format-JkCount $c.Rows 'row'), $($c.Applied) applied") + (Paint 'gray' "  $($script:G.dot)  ") + (Paint 'cyan' "jk jobs $($c.Try)"))
+            }
+            return
+        }
         Say ('  ' + (Paint 'green' "Not in the tracker: no application matches '$Query' yet."))
         return
     }
@@ -229,17 +315,20 @@ function Find-JkJobs {
 function Invoke-JkJobs {
     $a = @($args | ForEach-Object { [string]$_ })
     if ($a.Count -eq 0) { Show-JkJobs; return }
-    switch -Regex ($a[0].ToLower()) {
-        '^(todo|waiting|blocked)$' { Show-JkJobList -State todo; return }
-        '^(skipped|skip|ruled)$' { Show-JkJobList -State skip; return }
-        '^(edit|open)$' {
-            $p = Find-JkJobsFile
-            if (-not $p) { throw 'no tracker found; jk config set jobs.file <path>' }
-            Invoke-Item -LiteralPath $p
-            return
+    # a word on its own is a subcommand; with more words it is a search ("jk jobs open text" looks
+    # for OpenText instead of opening the tracker)
+    if ($a.Count -eq 1) {
+        switch -Regex ($a[0].ToLower()) {
+            '^(todo|waiting|blocked)$' { Show-JkJobList -State todo; return }
+            '^(skipped|skip|ruled)$' { Show-JkJobList -State skip; return }
+            '^(edit|open|path|file|where)$' {
+                $p = Find-JkJobsFile
+                if (-not $p) { throw 'no tracker found; jk config set jobs.file <path>' }
+                if ($a[0] -match '^(edit|open)$') { Invoke-Item -LiteralPath $p } else { Say $p }
+                return
+            }
+            '^help$' { Show-JkHelp 'jobs'; return }
         }
-        '^(path|file|where)$' { Say (Find-JkJobsFile); return }
-        '^help$' { Show-JkHelp 'jobs'; return }
-        default { Find-JkJobs ($a -join ' ') }
     }
+    Find-JkJobs ($a -join ' ')
 }

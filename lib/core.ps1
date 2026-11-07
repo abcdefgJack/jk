@@ -530,6 +530,33 @@ function Format-JkCount([int]$N, [string]$Noun, [string]$Plural = '') {
     "$N $Plural"
 }
 
+# Typing slips between two words: letters added, dropped, changed or swapped ("nvdia" -> "nvidia" is 1,
+# "tesal" -> "tesla" is 1). Words whose lengths differ by more than 2 are not compared (99).
+function Get-JkEditDistance([string]$A, [string]$B) {
+    $n = $A.Length; $m = $B.Length
+    if ([Math]::Abs($n - $m) -gt 2) { return 99 }
+    # row i of the table is d[i*w .. i*w+m]
+    $w = $m + 1
+    $d = New-Object 'int[]' (($n + 1) * $w)
+    for ($i = 0; $i -le $n; $i++) { $d[$i * $w] = $i }
+    for ($j = 0; $j -le $m; $j++) { $d[$j] = $j }
+    for ($i = 1; $i -le $n; $i++) {
+        for ($j = 1; $j -le $m; $j++) {
+            $cost = 1; if ($A[$i - 1] -ceq $B[$j - 1]) { $cost = 0 }
+            $up = $d[($i - 1) * $w + $j] + 1
+            $left = $d[$i * $w + $j - 1] + 1
+            $diag = $d[($i - 1) * $w + $j - 1] + $cost
+            $v = [Math]::Min([Math]::Min($up, $left), $diag)
+            if ($i -gt 1 -and $j -gt 1 -and $A[$i - 1] -ceq $B[$j - 2] -and $A[$i - 2] -ceq $B[$j - 1]) {
+                $swap = $d[($i - 2) * $w + $j - 2] + 1
+                if ($swap -lt $v) { $v = $swap }
+            }
+            $d[$i * $w + $j] = $v
+        }
+    }
+    $d[$n * $w + $m]
+}
+
 function Get-JkWidth {
     if ($env:JK_WIDTH) { return [int]$env:JK_WIDTH }
     try {

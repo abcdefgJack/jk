@@ -265,7 +265,9 @@ jk config reset <key> | jk config edit | jk config path
     'jobs'   = @'
 jk jobs                        applied / waiting on you / ruled out, applications per week, most-applied companies
 jk jobs stripe                 did I already apply? every row for a company or role, with links
-jk jobs robinhood backend      all words must match (company, role or location)
+jk jobs robinhood backend      all words must match (company, role or location), each at the start of a word;
+                               accents and inner marks don't matter (coop finds Co-op, janestreet Jane Street)
+                               and with no full match it names the closest companies, typos included
 jk jobs todo                   everything still waiting on you: sign-ins, MFA, take-homes, queued
 jk jobs skipped                what was ruled out, and why
 jk jobs edit | jk jobs path    open the tracker | print where it is
