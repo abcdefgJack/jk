@@ -891,7 +891,7 @@ function ConvertFrom-JkWhen([string]$Text) {
 
 function Set-JkDueDone {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Refs, [switch]$Undo)
-    if (-not $Refs) { throw 'usage: jk due done <id|text> [...]' }
+    if (-not $Refs) { throw "usage: jk due $(if ($Undo) { 'undone' } else { 'done' }) <id|text> [...]" }
     $data = Get-JkDueData
     $cmap = Get-JkCourseMap $data
     $hits = Find-JkEvents $data $Refs -DoneOnly:$Undo

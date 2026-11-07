@@ -1,7 +1,8 @@
 # jk test suite. Run from anywhere:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File "<repo>\tests\run.ps1"
 # Uses a throwaway data folder and a pinned clock (Thu 2026-10-22 14:00), so it never
-# touches your real ~\.jk data.
+# touches your real ~\.jk data. JK_SANDBOX points the profile, module link and morning task at a
+# throwaway place too, and the last test fails if the real ones changed during the run.
 #   -Culture de-DE   run with another culture's formats (decimal comma, day-first dates) for this
 #                    process only; Windows' regional settings are left alone
 #   -TimeZone UTC    run as if this machine were in another time zone ('Pacific Standard Time'), for
@@ -33,8 +34,24 @@ if ($TimeZone) {
     Write-Host "time zone: $([TimeZoneInfo]::Local.Id)  (now $((Get-Date).ToString('HH:mm zzz')))"
 }
 $root = Split-Path -Parent $PSScriptRoot
+# The real install as it stands, read directly (jk's own functions are redirected below). A test
+# once ran jk setup uninstall and jk speed undo for real: the morning task, the module link and the
+# profile block were gone for four days before anyone noticed.
+function global:Get-RealInstallStamp {
+    $docs = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell'
+    $files = foreach ($n in 'profile.ps1', 'Microsoft.PowerShell_profile.ps1') {
+        $p = Join-Path $docs $n
+        if (Test-Path -LiteralPath $p) { "$n=$((Get-Item -LiteralPath $p).LastWriteTimeUtc.Ticks)" } else { "$n=none" }
+    }
+    $link = Get-Item -LiteralPath (Join-Path $docs 'Modules\jk') -Force -ErrorAction SilentlyContinue
+    $task = 'none'
+    try { $svc = New-Object -ComObject Schedule.Service; $svc.Connect(); $task = "$($svc.GetFolder('\').GetTask('jk-remind').Definition.Triggers.Count) triggers" } catch { }
+    (@($files) + "link=$(if ($link) { $link.Target } else { 'none' })" + "task=$task") -join '; '
+}
+$global:JkRealInstall = Get-RealInstallStamp
 $env:JK_HOME = Join-Path $env:TEMP ('jk-tests-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $env:JK_CACHE = "$env:JK_HOME-cache"   # beside the data folder: one test deletes that wholesale
+$env:JK_SANDBOX = "$env:JK_HOME-sandbox"   # the profile, module link and morning task are never the real ones
 $env:JK_NOW = '2026-10-22T14:00:00'
 $env:JK_COLOR = 'never'
 $env:JK_WIDTH = '100'
@@ -1126,6 +1143,68 @@ Test 'jk clip ocr: the text in a snip on the clipboard, lines kept, put back as 
         Remove-Item function:script:Get-Clipboard, function:script:Set-Clipboard -ErrorAction SilentlyContinue
         $bmp.Dispose()
     }
+}
+Test 'the suite is sandboxed: jk setup and jk speed cannot reach the real profile, link or task' {
+    # checked first: if any of these fails, the commands below are never run
+    Assert-True ($env:JK_SANDBOX) 'JK_SANDBOX is set'
+    Assert-True ((Get-JkModuleLink).StartsWith($env:JK_SANDBOX)) "module link: $(Get-JkModuleLink)"
+    Assert-True ((Get-JkProfilePath).StartsWith($env:JK_SANDBOX)) "profile: $(Get-JkProfilePath)"
+    Assert-True ($null -eq (Get-JkTaskInfo)) 'the real task is not reported'
+    Assert-Eq @(Get-JkProfileFiles).Count 0 'jk speed sees no profile outside the sandbox'
+    $before = Get-RealInstallStamp
+    foreach ($label in 'setup uninstall', 'speed undo', 'speed fix', 'remind uninstall') {
+        $argv = @($label -split ' ')
+        $null = @(& { jk @argv } 6>&1 2>&1)
+    }
+    Assert-Eq (Get-RealInstallStamp) $before 'the real install is as it was'
+    # and a profile in the sandbox is the one jk speed works on
+    $sp = Get-JkProfilePath
+    New-Item -ItemType Directory (Split-Path $sp) -Force | Out-Null
+    Set-Content -LiteralPath $sp -Value '# sandbox profile'
+    try { Assert-Eq @(Get-JkProfileFiles)[0].Path $sp } finally { Remove-Item -LiteralPath $sp -ErrorAction SilentlyContinue }
+}
+Test 'every safe command and action runs on an empty install without a PowerShell error' {
+    # What runs here is listed, rather than what to skip: a skip list that named "setup" and "speed"
+    # let jk setup uninstall and jk speed undo through. A new command or action fails this test until
+    # it is placed on one side or the other.
+    $run = @(
+        'due', 'due add', 'due done', 'due undone', 'due edit', 'due rm', 'due files', 'due all', 'due past', 'due week', 'due exams', 'due courses', 'due course',
+        'class', 'class week', 'class list', 'class next', 'class add', 'class rm', 'week', 'exams', 'plan', 'review',
+        'todo', 'todo add', 'todo done', 'todo undo', 'todo rm', 'todo clear', 'todo edit', 'todo all', 'focus status', 'focus log',
+        'remind', 'remind list', 'remind cancel', 'remind status', 'grade', 'grade set', 'grade clear', 'grade add', 'grade target',
+        'next', 'time', 'time add', 'time rm', 'time off', 'weather', 'weather set', 'weather off', 'brief', 'config', 'config path', 'backup', 'backup list', 'help'
+    )
+    # these reach past the data folder: timers and popups, a browser or editor, the clipboard, the
+    # network, real folders, the profile and the morning task, or they wait for someone at the keyboard
+    $leave = @(
+        'in', 'at', 'focus', 'focus 25', 'focus 50', 'focus 15', 'focus stop', 'plan start', 'due cal', 'due ics', 'due sync', 'due remind', 'due import',
+        'class pick', 'class import', 'jobs', 'jobs todo', 'jobs skipped', 'jobs edit', 'jobs path', 'remind now', 'remind install', 'remind uninstall', 'remind test',
+        'grade fill', 'grade import', 'tidy', 'tidy scan', 'tidy apply', 'tidy undo', 'tidy dupes', 'tidy old',
+        'cp', 'cp new', 'cp listen', 'cp test', 'cp run', 'cp add', 'cp stress', 'cp open', 'cp clean', 'go', 'mark', 'find', 'grep', 'grep all', 'recent', 'repos', 'sys', 'pdf',
+        'clip', 'clip ocr', 'clip unwrap', 'clip count', 'clip plain', 'shots', 'shots find', 'shots file', 'shots old', 'shots forget',
+        'net', 'net speed', 'port', 'space', 'space clean', 'speed', 'speed fix', 'speed undo', 'config set', 'config reset', 'config edit',
+        'backup restore', 'backup mirror', 'update', 'doctor', 'setup', 'setup install', 'setup uninstall', 'setup status'
+    )
+    $all = @(foreach ($c in $script:JkCommands.Keys) { $c; foreach ($x in @($script:JkActions[$c]) | Where-Object { $_ -and $_ -ne 'help' }) { "$c $x" } })
+    Assert-Eq (@($all | Where-Object { $run -notcontains $_ -and $leave -notcontains $_ }) -join ', ') '' 'on neither list'
+    Assert-Eq (@($run | Where-Object { $leave -contains $_ }) -join ', ') '' 'on both lists'
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'empty-install'; $script:JkConfigCache = $null
+    $bad = '(?i)exception|you cannot call a method|null-valued|is not recognized as|cannot be found|cannot index into'
+    $problems = @()
+    try {
+        foreach ($label in $run) {
+            $argv = @($label -split ' ')
+            $out = @(& { jk @argv } 6>&1 2>&1 | ForEach-Object { "$_" })
+            $hit = @($out | Where-Object { $_ -match $bad })[0]
+            if ($hit) { $problems += "$label -> $($hit.Trim())" }
+        }
+        Assert-Eq ($problems -join ' | ') '' 'no command fails on empty data'
+        # a bare action asks for what it needs, by its own name
+        Assert-True ((@(& { jk due undone } 6>&1 | ForEach-Object { "$_" }) -join ' ') -match 'usage: jk due undone') 'jk due undone'
+        Assert-True ((@(& { jk todo undo } 6>&1 | ForEach-Object { "$_" }) -join ' ') -match 'usage: jk todo undo') 'jk todo undo'
+        Assert-True ((@(& { jk todo edit } 6>&1 | ForEach-Object { "$_" }) -join ' ') -match 'usage: jk todo edit <id>') 'jk todo edit'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
 Test 'jk next: an exam soon, a class soon, work due tonight, then the study planned' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
@@ -3283,10 +3362,18 @@ Test 'jk help <command> names every action' {
     }
     Assert-Eq (@($missing) -join ', ') ''
 }
+Test 'this whole run left the real install alone: profiles, module link, morning task' {
+    Assert-Eq (Get-RealInstallStamp) $global:JkRealInstall 'a test reached the real machine'
+}
 
 Remove-Module jk
 Remove-Item $env:JK_HOME, $env:JK_CACHE -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item env:JK_NOW, env:JK_HOME, env:JK_CACHE, env:JK_COLOR, env:JK_WIDTH, env:JK_NONINTERACTIVE -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $env:JK_SANDBOX) {
+    # a junction must go on its own: a recursive delete can walk through it into the jk folder itself
+    if (@(Get-ChildItem -LiteralPath $env:JK_SANDBOX -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue).Count) { Write-Host "left $env:JK_SANDBOX in place: it holds a link" -ForegroundColor Yellow }
+    else { Remove-Item -LiteralPath $env:JK_SANDBOX -Recurse -Force -ErrorAction SilentlyContinue }
+}
+Remove-Item env:JK_NOW, env:JK_HOME, env:JK_CACHE, env:JK_SANDBOX, env:JK_COLOR, env:JK_WIDTH, env:JK_NONINTERACTIVE -ErrorAction SilentlyContinue
 
 Write-Host ''
 if ($script:failed.Count) {

@@ -149,7 +149,7 @@ function Find-JkTodo($Data, [string[]]$Refs, [switch]$DoneOnly, [switch]$Any) {
 
 function Set-JkTodoDone {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Refs, [switch]$Undo)
-    if (-not $Refs) { throw 'usage: jk todo done <id> [...]' }
+    if (-not $Refs) { throw "usage: jk todo $(if ($Undo) { 'undo' } else { 'done' }) <id> [...]" }
     $d = Get-JkTodoData
     foreach ($i in @(Find-JkTodo $d $Refs -DoneOnly:$Undo)) {
         $i.done = -not $Undo
@@ -185,6 +185,7 @@ function Clear-JkTodo {
 
 function Edit-JkTodo {
     param([Parameter(Position = 0)][string]$Ref, [Parameter(Position = 1, ValueFromRemainingArguments = $true)][string[]]$Text, [string]$Due, [switch]$NoDue)
+    if (-not $Ref) { throw 'usage: jk todo edit <id> [new text] [-Due fri] [-NoDue]' }
     $d = Get-JkTodoData
     $i = @(Find-JkTodo $d @($Ref) -Any)[0]
     $words = @($Text | Where-Object { $_ })
