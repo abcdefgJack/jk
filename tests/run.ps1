@@ -1169,7 +1169,7 @@ Test 'jk time: the gap and when it changes, call windows, places from languages,
     $win = @(Get-JkCallWindows $cn $et (& $U '2026-11-01T03:00:00'))
     Assert-Eq "$($win[0].Start.ToString('MM-dd HH:mm', $script:Inv))-$($win[0].End.ToString('HH:mm', $script:Inv))" '11-01 08:00-09:00' 'after 11 pm here: 8-9 am, their 9-10 pm'
     Assert-Eq "$($win[1].Start.ToString('HH:mm', $script:Inv))" '20:00' 'then from 8 pm, their 9 am'
-    Assert-Eq (Format-JkCallWindows $win ([datetime]'2026-10-31T23:00')) "8$($script:G.dash)9 am tomorrow, 8$($script:G.dash)10 pm tomorrow"
+    Assert-Eq (Format-JkCallWindows $win ([datetime]'2026-10-31T23:00')) "8$($script:G.dash)9 am tomorrow, 8$($script:G.dash)11 pm tomorrow" 'the second runs to 11 pm, past where the next 24 hours end'
     $places = @(Get-JkClockAutoPlaces @('en-US', 'zh-Hans-CN', 'en-CA') 'CA')
     Assert-Eq "$($places.Name)|$($places.Zone.Id)" 'Beijing|China Standard Time' 'a Chinese (PRC) keyboard means Beijing'
     Assert-Eq (@(Get-JkClockAutoPlaces @('ko-KR', 'zh-Hant-TW', 'fr-CA') 'CA').Name -join ',') 'Seoul,Taipei' 'home country and English ones aside'
@@ -1200,7 +1200,7 @@ Test 'jk time: the gap and when it changes, call windows, places from languages,
         Assert-True ($one -match 'Beijing\s+\w{3} \d{1,2}:\d{2} [ap]m\s+\d+h ahead' -and $one -notmatch 'jk time add') "on the list: $one"
         $two = @(& { jk time new york } 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($two -match 'New York\s+\w{3} \d{1,2}:\d{2} [ap]m' -and $two -match 'jk time add new york keeps it') "not on it: $two"
-        Assert-True ((@(& { jk time nowhereville } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match "can't find a time") 'neither a place nor a time still says so'
+        Assert-True ((@(& { jk time nowhereville } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match "can't read 'nowhereville' as a place or a time") 'neither a place nor a time still says so'
         jk time add london
         Assert-Eq ([string](Get-JkConfig 'time.zones')) 'Beijing=China Standard Time;London=GMT Standard Time' 'added'
         jk time rm beijing
@@ -1208,6 +1208,58 @@ Test 'jk time: the gap and when it changes, call windows, places from languages,
         Assert-Eq ([string](Get-JkConfig 'time.zones')) 'off' 'emptied by hand stays empty (not refilled from languages)'
         Assert-Eq @(Get-JkClockPlaces).Count 0 'off'
         Assert-Throws { Invoke-JkTime add nowhereville } 'an unknown city is refused'
+    } finally { $env:JK_NOW = $savedNow; Set-JkConfig 'time.zones' $savedZones }
+}
+Test 'jk time reads every word: a day after the time, a place anywhere, typos named, the skipped hour refused' {
+    # jk at as well: the day can come after the time; words that only might be a day stay in the message
+    $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') ([datetime]'2026-10-22 14:00'); "$($x.At.ToString('MM-dd HH:mm', $script:Inv))/$($x.K)" }
+    Assert-Eq (& $at '8pm tomorrow call') '10-23 20:00/2' 'the day after the time'
+    Assert-Eq (& $at '9am dec 25 xmas') '12-25 09:00/3'
+    Assert-Eq (& $at '5 fri leave') '10-23 17:00/2' 'a bare hour after a day is pm, as in fri 5'
+    Assert-Eq (& $at '8 pm tomorrow') '10-23 20:00/3'
+    Assert-Eq (& $at '7pm tom call') '10-22 19:00/1' 'tom is a name as often as tomorrow'
+    Assert-Eq (& $at '5pm 3d printer') '10-22 17:00/1' 'not three days on'
+    Assert-Eq (& $at '5pm 3 things') '10-22 17:00/1' 'not the 3rd'
+    Assert-Eq (& $at '6pm march madness') '10-22 18:00/1'
+    Assert-Throws { Resolve-JkAtTime @('8pm', 'nov', '31') ([datetime]'2026-10-22 14:00') } 'nov 31 is a typo to report'
+
+    $cn = [TimeZoneInfo]::FindSystemTimeZoneById('China Standard Time')
+    $et = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $savedNow = $env:JK_NOW; $savedZones = [string](Get-JkConfig 'time.zones')
+    try {
+        Set-JkConfig 'time.zones' 'Beijing=China Standard Time'
+        $env:JK_NOW = '2026-10-22T14:00:00'
+        # their tomorrow, read on their clock: not the next 8 pm there with "tomorrow" dropped
+        $there = [TimeZoneInfo]::ConvertTimeFromUtc((Get-JkNow).ToUniversalTime(), $cn)
+        $next = "$($there.Date.AddDays(1).ToString('ddd', $script:Inv)) 8:00 pm in Beijing"
+        Assert-Eq (@(Convert-JkClockTime @('8pm', 'tomorrow', 'beijing'))[0].From) $next 'the day after the time'
+        Assert-Eq (@(Convert-JkClockTime @('8pm', 'beijing', 'tomorrow'))[0].From) $next 'the place in the middle'
+        $xmas = @(Convert-JkClockTime @('8pm', 'dec', '25', 'beijing'))[0]
+        Assert-Eq $xmas.From 'Fri Dec 25 8:00 pm in Beijing' 'a date weeks off, shown with its date'
+        Assert-True ($xmas.To -match '^\w{3} Dec 2[45] \d') "both sides: $($xmas.To)"
+        # a word that is not read is named, with the fix
+        $why = try { $null = Convert-JkClockTime @('8pm', 'bejing'); '' } catch { $_.Exception.Message }
+        Assert-True ($why -match "'bejing' is not a place or a day" -and $why -match 'jk time 8pm beijing$') "not 8 pm here with the place dropped: $why"
+        $why = try { $null = Convert-JkClockTime @('8pm', 'tomorow', 'beijing'); '' } catch { $_.Exception.Message }
+        Assert-True ($why -match 'Did you mean tomorrow\?\s+jk time 8pm tomorrow beijing$') $why
+        $why = try { $null = Convert-JkClockTime @('8pm', 'xyz', 'beijing'); '' } catch { $_.Exception.Message }
+        Assert-True ($why -match "'xyz' is not a place or a day \(") "no guess for a short word: $why"
+        $one = @(& { jk time bejing } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($one -match 'Did you mean Beijing\?\s+jk time beijing') $one
+        # the hour the clocks skip has no answer; the hour they repeat is said
+        $why = try { $null = Convert-JkClockTime @('1:30am', 'mar', '28', 'london'); '' } catch { $_.Exception.Message }
+        Assert-True ($why -like 'there is no 1:30 am in London on Sun Mar 28*') "London goes from 1 to 2 am on Mar 28 2027: $why"
+        $r = @(Convert-JkClockTime @('1:30am', 'sun', 'london'))[0]
+        Assert-True ($r.Twice -like '1:30 am comes twice in London*') "Oct 25, as London goes back: [$($r.Twice)]"
+        $second = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::SpecifyKind([datetime]'2026-10-25T01:30', 'Utc'), [TimeZoneInfo]::Local)
+        Assert-Eq $r.To "$($second.ToString('ddd', $script:Inv)) $(Format-JkTime $second.ToString('HH:mm', $script:Inv)) here" 'the second 1:30, in GMT'
+        # a gap of 13 characters keeps a space before awake/asleep
+        $wide = @(& { jk time 'Chatham Islands Standard Time' } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($wide -match '\d+h 45m (ahead|behind)\s+(awake|asleep)') $wide
+        Assert-Eq (Format-JkClockName 'utc') 'UTC'
+        # a call window that starts in the next 24 hours runs to its real end
+        $win = @(Get-JkCallWindows $et $et ([datetime]::SpecifyKind([datetime]'2026-10-22T18:00', 'Utc')))
+        Assert-Eq (Format-JkCallWindows $win ([datetime]'2026-10-22T14:00')) "now$($script:G.dash)10 pm, 9 am$($script:G.dash)10 pm tomorrow" 'not 9 am-2 pm, where the 24 hours stop'
     } finally { $env:JK_NOW = $savedNow; Set-JkConfig 'time.zones' $savedZones }
 }
 Test 'disk filling up fast: a reading a day, 4 GB gone in three days is said' {
