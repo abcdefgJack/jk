@@ -180,31 +180,49 @@ function Show-JkClock {
         Say (Paint 'gray' '  No other places yet.  jk time add beijing  (any big city, or a Windows zone name)')
         return
     }
-    foreach ($p in $places) {
-        $x = [TimeZoneInfo]::ConvertTimeFromUtc($utc, $p.Zone)
-        $gap = Get-JkClockGap $p.Zone $here $utc
-        $xm = $x.Hour + $x.Minute / 60
-        $up = $xm -ge 8 -and $xm -lt 22.5
-        $state = $(if ($up) { Paint 'green' 'awake' } else { Paint 'gray' 'asleep' })
-        $day = $x.ToString('ddd', $script:Inv)
-        Say ('  ' + (Paint 'bold white' (Fit $p.Name 13)) + (Paint 'white' (Fit "$day $(Format-JkTime $x.ToString('HH:mm', $script:Inv))" 14)) + (Paint 'muted' (Fit (Format-JkClockGap $gap) 13)) + $state)
-        $ch = Get-JkClockGapChange $p.Zone $here $utc
-        if ($ch) {
-            # as the clock reads just before: "2 am", not the "1 am" it turns into
-            $when = [TimeZoneInfo]::ConvertTimeFromUtc($ch.Utc.AddMinutes(-1), $here).AddMinutes(1)
-            $rel = Format-JkRelDay $when.Date $hn.Date
-            if ($rel -like 'in *') { $rel = $when.ToString('ddd MMM d', $script:Inv) }
-            if ($rel -eq 'tomorrow' -and $when.Hour -lt 6 -and $hn.Hour -ge 18) { $rel = 'tonight' }
-            $who = $(if ($ch.Side -eq 'here') { 'the clocks here' } else { "the clocks in $($p.Name)" })
-            $dir = $(if ($ch.Side -eq 'here') { $(if ($here.GetUtcOffset($ch.Utc) -lt $here.GetUtcOffset($ch.Utc.AddHours(-2))) { 'go back' } else { 'go forward' }) } else { $(if ($p.Zone.GetUtcOffset($ch.Utc) -lt $p.Zone.GetUtcOffset($ch.Utc.AddHours(-2))) { 'go back' } else { 'go forward' }) })
-            Say ((' ' * 15) + (Paint 'amber' "$(Format-JkClockGap $ch.After) from $(Format-JkClockTime $when) $rel") + (Paint 'gray' ", when $who $dir an hour"))
-        }
-        $win = @(Get-JkCallWindows $p.Zone $here $utc)
-        if ($win.Count) { Say ((' ' * 15) + (Paint 'gray' 'both up for a call: ') + (Paint 'muted' (Format-JkCallWindows $win $hn)) + (Paint 'gray' ' (your time)')) }
-    }
+    foreach ($p in $places) { Write-JkClockPlace $p $here $utc $hn }
     Say ''
     if (@($places | Where-Object { $_.Auto }).Count) { Say (Paint 'gray' "  $((@($places | Where-Object { $_.Auto } | ForEach-Object { $_.Name })) -join ', ') from your installed languages") }
     Say (Paint 'gray' "  jk time 8pm $($places[0].Name.ToLower())  $($script:G.dot)  jk time 9am  $($script:G.dot)  jk time add <city>  $($script:G.dot)  jk time rm <city>")
+}
+
+# One place: its time, the gap, awake or asleep, any change coming, and when you are both up.
+function Write-JkClockPlace($P, [TimeZoneInfo]$Here, [datetime]$Utc, [datetime]$HereNow) {
+    $x = [TimeZoneInfo]::ConvertTimeFromUtc($Utc, $P.Zone)
+    $gap = Get-JkClockGap $P.Zone $Here $Utc
+    $xm = $x.Hour + $x.Minute / 60
+    $up = $xm -ge 8 -and $xm -lt 22.5
+    $state = $(if ($up) { Paint 'green' 'awake' } else { Paint 'gray' 'asleep' })
+    $day = $x.ToString('ddd', $script:Inv)
+    Say ('  ' + (Paint 'bold white' (Fit $P.Name 13)) + (Paint 'white' (Fit "$day $(Format-JkTime $x.ToString('HH:mm', $script:Inv))" 14)) + (Paint 'muted' (Fit (Format-JkClockGap $gap) 13)) + $state)
+    $ch = Get-JkClockGapChange $P.Zone $Here $Utc
+    if ($ch) {
+        # as the clock reads just before: "2 am", not the "1 am" it turns into
+        $when = [TimeZoneInfo]::ConvertTimeFromUtc($ch.Utc.AddMinutes(-1), $Here).AddMinutes(1)
+        $rel = Format-JkRelDay $when.Date $HereNow.Date
+        if ($rel -like 'in *') { $rel = $when.ToString('ddd MMM d', $script:Inv) }
+        if ($rel -eq 'tomorrow' -and $when.Hour -lt 6 -and $HereNow.Hour -ge 18) { $rel = 'tonight' }
+        $who = $(if ($ch.Side -eq 'here') { 'the clocks here' } else { "the clocks in $($P.Name)" })
+        $dir = $(if ($ch.Side -eq 'here') { $(if ($Here.GetUtcOffset($ch.Utc) -lt $Here.GetUtcOffset($ch.Utc.AddHours(-2))) { 'go back' } else { 'go forward' }) } else { $(if ($P.Zone.GetUtcOffset($ch.Utc) -lt $P.Zone.GetUtcOffset($ch.Utc.AddHours(-2))) { 'go back' } else { 'go forward' }) })
+        Say ((' ' * 15) + (Paint 'amber' "$(Format-JkClockGap $ch.After) from $(Format-JkClockTime $when) $rel") + (Paint 'gray' ", when $who $dir an hour"))
+    }
+    $win = @(Get-JkCallWindows $P.Zone $Here $Utc)
+    if ($win.Count) { Say ((' ' * 15) + (Paint 'gray' 'both up for a call: ') + (Paint 'muted' (Format-JkCallWindows $win $HereNow)) + (Paint 'gray' ' (your time)')) }
+}
+
+# "jk time beijing": that place now, on your list or not; $false when the words name no place.
+function Show-JkClockFor([string[]]$Words) {
+    $text = (@($Words) -join ' ').Trim()
+    $known = @(Get-JkClockPlaces | Where-Object { $_.Name -ieq $text })[0]
+    $zone = $(if ($known) { $known.Zone } else { Resolve-JkClockZone $text })
+    if (-not $zone) { return $false }
+    $here = [TimeZoneInfo]::Local
+    $utc = Get-JkClockNowUtc
+    Say ''
+    Write-JkClockPlace ([pscustomobject]@{ Name = $(if ($known) { $known.Name } else { Format-JkClockName $text }); Zone = $zone }) $here $utc ([TimeZoneInfo]::ConvertTimeFromUtc($utc, $here))
+    Say ''
+    if (-not $known) { Say (Paint 'gray' "  jk time add $($text.ToLower()) keeps it on your list") }
+    $true
 }
 
 # "8pm beijing" (there -> here), "beijing sun 8pm", "9am" (here -> every place)
@@ -278,6 +296,7 @@ function Invoke-JkTime {
         }
         '^(off)$' { Set-JkConfig 'time.zones' 'off'; Say (Paint 'green' '  no places (jk time add <city> starts again)'); return }
     }
+    if (Show-JkClockFor $a) { return }
     $rows = @(Convert-JkClockTime $a)
     Say ''
     foreach ($r in $rows) {
