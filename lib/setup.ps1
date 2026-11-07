@@ -393,7 +393,12 @@ function Invoke-JkDoctor {
     } else { & $meh 'backup mirror' 'off (optional): backups live inside the data folder - jk backup mirror <folder elsewhere>' }
     try {
         $jf = Find-JkJobsFile
-        if ($jf) { & $ok 'job tracker' "$(Format-JkCount @(Get-JkJobs $jf).Count 'row') $($script:G.dot) $jf" }
+        if ($jf) {
+            $n = @(Get-JkJobs $jf).Count
+            $unread = @(Get-JkJobsUnread)
+            if ($unread.Count) { & $meh 'job tracker' "$(Format-JkCount $n 'row') $($script:G.dot) $(Format-JkCount $unread.Count 'row') not read: $($unread[0])" }
+            else { & $ok 'job tracker' "$(Format-JkCount $n 'row') $($script:G.dot) $jf" }
+        }
         else { & $meh 'job tracker' 'none found (optional) - jk config set jobs.file <path>' }
     } catch { & $bad 'job tracker' $_.Exception.Message }
     # windowless timers and the morning task log failures here instead of showing them

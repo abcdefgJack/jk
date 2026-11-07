@@ -1913,6 +1913,46 @@ Test 'review fixes: ics unescape, course codes, drive roots, exact role match' {
     $rows = @(Get-JkJobs -Path $md)
     Assert-True (-not $rows[0].Resolved) 'a different role does not resolve the blocked one'
 }
+Test 'jobs search: whole words, spelling variants, near misses, a misread date, subcommand words' {
+    $md = Join-Path $env:JK_HOME 'tracker-search.md'
+    $e = [string][char]0xE9
+    [IO.File]::WriteAllLines($md, @(
+            '| Date | Company | Role | Location / term | Status | Link |', '|---|---|---|---|---|---|',
+            '| 2026-09-20 | AMD | Software Engineering Intern/Co-op | Markham, Winter 2027 | Submitted successfully via AMD Canada iCIMS | |',
+            '| 2026-09-21 | AMD | Graphics Intern/Co-op | Markham | Submitted successfully via AMD iCIMS | |',
+            '| 2026-09-22 | NVIDIA | Developer Technology Intern | Toronto | Submitted via Workday | |',
+            '| 2026-09-23 | Jane Street | Software Engineer Internship | New York | Submitted via Greenhouse | |',
+            '| 2026-09-24 | Tower Research Capital | Software Developer Intern | New York | Submitted via Greenhouse | |',
+            "| 2026-09-25 | Soci${e}t${e} G${e}n${e}rale | Quant Intern | Montr${e}al | Submitted via Workday | |",
+            '| 2026-09-26 | OpenText | Software Developer Co-op | Waterloo | Submitted via WaterlooWorks | |',
+            '| 2026-09-27 | Huawei Canada | Software Intern | Ottawa | Submitted via Workday | |',
+            '| 2026-09-27 | RTX / Pratt & Whitney Canada | Software Intern | Longueuil | Submitted via Workday | |',
+            '| 2026-09-27 | Amazon Development Centre Canada ULC | SDE Intern | Toronto | Submitted via Amazon Jobs | |',
+            '| 2026-02-30 | Typo Corp | Intern | Remote | Submitted via Lever | |'), (New-Object Text.UTF8Encoding $false))
+    Set-JkConfig 'jobs.file' $md
+    function script:Invoke-Item { Say 'OPENED THE TRACKER' }
+    try {
+        $find = { param($q) (Find-JkJobs $q 6>&1 | ForEach-Object { "$_" }) -join "`n" }
+        $rows = @(Get-JkJobs)
+        Assert-Eq $rows.Count 10 'a row with no such date is left out, and the rest still read'
+        Assert-True ((& $find 'ea') -match '0 rows') 'a short word matches whole words: "ea" is not inside "research"'
+        Assert-True ((& $find 'coop') -match '3 rows') 'co-op found as coop'
+        Assert-True ((& $find 'janestreet') -match '1 row') 'a name typed run together'
+        Assert-True ((& $find 'societe generale') -match '1 row') 'accents ignored'
+        Assert-True ((& $find 'intern markham') -match '2 rows') 'the start of a word still finds it'
+        $near = & $find 'amd canada'
+        Assert-True ($near -notmatch 'Not in the tracker' -and $near -match 'AMD\s+2 rows, 2 applied' -and $near -notmatch 'Huawei') "the company alone matched: $near"
+        Assert-True ((& $find 'ubisoft canada') -match 'Not in the tracker') 'a word in many names (canada) names none of them'
+        Assert-True ((& $find 'pratt toronto') -match 'RTX / Pratt') 'a rarer word inside a name still does'
+        $typo = & $find 'nvdia'
+        Assert-True ($typo -notmatch 'Not in the tracker' -and $typo -match 'NVIDIA\s+1 row, 1 applied') "one typo away: $typo"
+        Assert-True ((& $find 'ubisoft') -match 'Not in the tracker') 'truly absent still says so'
+        $open = (Invoke-JkJobs open text 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($open -notmatch 'OPENED' -and $open -match 'OpenText') "two words starting with a subcommand are a search: $open"
+        $sum = (Show-JkJobs 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($sum -match '1 row not read: line 13, no such date 2026-02-30 \(Typo Corp\)') "the summary names the row it skipped: $sum"
+    } finally { Remove-Item function:script:Invoke-Item -ErrorAction SilentlyContinue; Invoke-JkConfig reset jobs.file }
+}
 Test 'review fixes 2: weekly windows, done exams, state writes, log trim, doctor' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'review2-home'
