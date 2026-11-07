@@ -1331,7 +1331,9 @@ function Get-JkWeekAheadLine($Data, $Cmap, [datetime]$Now) {
         $k = "$($e.course)|$t"
         if ($seen.ContainsKey($k)) { continue }
         $seen[$k] = $true
-        "$(Get-JkCourseLabel $e $Cmap) $t $((Get-JkEventDue $e).ToString('ddd', $script:Inv))"
+        $dd = Get-JkEventDue $e
+        # this morning's is "today", and next Sunday's has its date: a bare "Sun" reads as today
+        "$(Get-JkCourseLabel $e $Cmap) $t $(if ($dd.Date -eq $Now.Date) { 'today' } else { Format-JkComingDay $dd $Now })"
     })
     $other = @($week | Where-Object { $_.kind -ne 'exam' }).Count
     $txt = "This week: $other due"

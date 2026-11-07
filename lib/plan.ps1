@@ -202,7 +202,8 @@ function Show-JkPlan {
         $color = Get-JkCourseColor $it.Course $cmap
         $code = Get-JkCourseLabel ([pscustomobject]@{ course = $it.Course }) $cmap
         $days = [int]($it.Due.Date - $now.Date).TotalDays
-        $when = $it.Due.ToString('ddd', $script:Inv); if ($days -eq 0) { $when = 'today' } elseif ($days -eq 1) { $when = 'tmrw' }
+        # the plan looks two weeks ahead: past the first, "Mon" would name the wrong Monday
+        $when = Format-JkComingDay $it.Due $now -Short; if ($days -eq 0) { $when = 'today' } elseif ($days -eq 1) { $when = 'tmrw' }
         $blocks = Paint "#$color" ($script:G.full * [int]($m / $script:PlanBlock))
         $left = [Math]::Max(0, $it.Effort - $it.Done)
         Say ('  ' + (Paint "bold #$color" (Fit $code 11)) + (Paint 'white' (Fit "$($it.Title)" $titleW)) + (Paint 'muted' (Fit "$when $($script:G.dot) $($it.Weight)%" 13)) + (Paint 'bold white' (Fit (Format-JkMinutes $m) 7 -Right)) + '  ' + $blocks + (Paint 'gray' "   ~$(Format-JkMinutes $left) of work left"))
