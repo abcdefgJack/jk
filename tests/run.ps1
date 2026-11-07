@@ -1588,6 +1588,42 @@ Test 'jk next: an exam soon, a class soon, work due tonight, then the study plan
         Assert-True (@($texts | Where-Object { $_.Text -match '^Study .*(Reading|Quiz)' }).Count -eq 0) 'what is listed as due is not listed again as study'
     } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
+Test 'overdue since and the next deadline say which day: a date from a week back, the clock later today' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'pastday-home'; $script:JkConfigCache = $null
+    $origNotify = ${function:Show-JkNotify}; $origPlan = ${function:Get-JkPlanToday}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:PastLines = $Lines; 'stub' }
+    # no study planned, so jk next can have nothing pressing
+    function script:Get-JkPlanToday { $null }
+    try {
+        $env:JK_NOW = '2026-10-22T09:00:00'
+        Add-JkTodo return library book -Due 'oct 6'
+        Add-JkTodo email the TA -Due 'oct 20'
+        $script:PastLines = $null
+        Invoke-JkDueRemind -Quiet -Force
+        Assert-Eq (@($script:PastLines | Where-Object { $_ -like 'To-do:*' }) -join '') 'To-do: return library book (overdue since Tue Oct 6), email the TA (overdue since Tue)' 'the popup: two Tuesdays, told apart'
+        $steps = @(Get-JkNextSteps (Get-JkNow))
+        Assert-True (@($steps | Where-Object { $_.Text -eq 'return library book (overdue since Tue Oct 6)' }).Count -eq 1) "jk next, 16 days back: $(@($steps | ForEach-Object { $_.Text }) -join ' / ')"
+        Assert-True (@($steps | Where-Object { $_.Text -eq 'email the TA (overdue since Tue)' }).Count -eq 1) 'two days back, the weekday is enough'
+        # nothing pressing and the next deadline tonight: its clock, not "(in 0 days)"
+        $td = Get-JkTodoData; foreach ($i in $td.items) { $i.done = $true }; Save-JkTodoData $td
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'cs341' -Create
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-10-22') -Time '23:59' -Title 'A5' -Kind 'due'
+        Save-JkDueData $dd
+        $q = @(Get-JkNextSteps (Get-JkNow))[0].Text
+        Assert-True ($q -match '^Nothing pressing\. Next: CS 341 A5, today 11:59 pm \(in 14h 59m\)$') "later today: $q"
+        $env:JK_NOW = '2026-10-21T09:00:00'
+        $q = @(Get-JkNextSteps (Get-JkNow))[0].Text
+        Assert-True ($q -match '^Nothing pressing\. Next: CS 341 A5, tomorrow 11:59 pm \(in ') "tomorrow, not (in 1 days): $q"
+        $env:JK_NOW = '2026-10-15T09:00:00'
+        Assert-Eq @(Get-JkNextSteps (Get-JkNow))[0].Text 'Nothing pressing. Next: CS 341 A5, Thu Oct 22 (in 7 days)' 'a week off: the date'
+        # the helper jk space's "+2 GB since ..." uses too: a week back is today's weekday, so it takes the date
+        Assert-Eq "$(Format-JkPastDay ([datetime]'2026-10-16') ([datetime]'2026-10-22'))|$(Format-JkPastDay ([datetime]'2026-10-15T18:00') ([datetime]'2026-10-22T09:00'))" 'Fri|Thu Oct 15'
+    } finally {
+        Set-Item function:script:Show-JkNotify $origNotify; Set-Item function:script:Get-JkPlanToday $origPlan
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null

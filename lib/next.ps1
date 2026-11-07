@@ -58,7 +58,7 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
     try {
         foreach ($t in @((Get-JkTodoData).items | Where-Object { -not $_.done -and ($d = Get-JkTodoDue $_) -and $d.Date -le $Now.Date } | Sort-Object { Get-JkTodoDue $_ })) {
             $d = Get-JkTodoDue $t
-            $when = $(if ($d.Date -lt $Now.Date) { "overdue since $($d.ToString('ddd', $script:Inv))" } elseif ($d.TimeOfDay.TotalMinutes -gt 0) { "by $(Format-JkTime $d.ToString('HH:mm', $script:Inv))" } else { 'today' })
+            $when = $(if ($d.Date -lt $Now.Date) { "overdue since $(Format-JkPastDay $d $Now)" } elseif ($d.TimeOfDay.TotalMinutes -gt 0) { "by $(Format-JkTime $d.ToString('HH:mm', $script:Inv))" } else { 'today' })
             & $add "$($t.text) ($when)" "jk todo done $($t.id)"
         }
     } catch { }
@@ -76,7 +76,12 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
     if (-not $out.Count) {
         $n = @($ahead)[0]
         $txt = 'Nothing pressing.'
-        if ($n) { $txt += " Next: $(& $name $n.E), $($n.Due.ToString('ddd MMM d', $script:Inv)) (in $([int]($n.Due.Date - $Now.Date).TotalDays) days)" }
+        if ($n) {
+            # later today or tomorrow: the clock and the hours left, not "(in 0 days)"
+            $rel = Format-JkRelDay $n.Due.Date $Now.Date
+            $when = $(if ($rel -like 'in *') { "$($n.Due.ToString('ddd MMM d', $script:Inv)) ($rel)" } elseif ($n.E.time) { "$rel $(& $clock $n)" } else { $rel })
+            $txt += " Next: $(& $name $n.E), $when"
+        }
         & $add $txt 'jk for the week'
     }
     $out.ToArray()
