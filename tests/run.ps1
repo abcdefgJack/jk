@@ -956,6 +956,46 @@ Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled o
         Assert-Eq $again[0].Company 'Robinhood'
     } finally { Invoke-JkConfig reset jobs.file }
 }
+Test 'jk review -Days 14 says 14 days throughout and keeps the strip''s last days; jk todo rm alone says how' {
+    $p = Get-JkPath 'deadlines.json'
+    $saved = $null; if (Test-Path -LiteralPath $p) { $saved = [IO.File]::ReadAllText($p) }
+    $md = Join-Path (Get-JkHome) 'review-jobs.md'
+    [IO.File]::WriteAllLines($md, @('| Date | Company | Role | Location | Status | Link |', '|---|---|---|---|---|---|',
+            '| 2026-10-20 | Alpha | Intern | Remote | Submitted via Ashby | |', '| 2026-10-01 | Beta | Intern | Remote | Submitted via Ashby | |',
+            '| 2026-09-20 | Gamma | Intern | Remote | Submitted via Ashby | |'), (New-Object Text.UTF8Encoding $false))
+    Set-JkConfig 'jobs.file' $md
+    try {
+        # one deadline a day for the next 14 days, on top of whatever the suite has there already
+        $data = Get-JkDueData
+        $c = Resolve-JkCourse $data 'rv101' -Create
+        foreach ($i in 0..14) { $null = New-JkEvent -Data $data -Course $c.key -Date (Get-JkNow).Date.AddDays($i) -Time '23:59' -Title "Rv$i" -Weight '1%' -Kind 'due' }
+        Save-JkDueData $data
+        $out = @(Show-JkReview -Days 14 6>&1 | ForEach-Object { "$_" })
+        $text = $out -join "`n"
+        Assert-True ($text -match 'Last 14 days' -and $text -notmatch 'Last 7 days') 'looking back'
+        Assert-True ($text -match 'Next 14 days') 'looking ahead'
+        # Oct 9-22, against Sep 25-Oct 8
+        Assert-True ($text -match 'job search\s+1 application sent \(14 days before: 1\)') "jobs: $(@($out | Where-Object { $_ -match 'job search' })[0])"
+        Assert-True ($text -match 'due in the next 14 days' -and $text -notmatch 'this week') 'where the marks are'
+        # the strip: every day's dot is on screen, not cut off at the edge
+        $start = [Array]::FindIndex([string[]]$out, [Predicate[string]] { param($l) $l -match '^\s+tod ' })
+        $strip = @(for ($i = $start; $i -ge 0 -and $i -lt $out.Count -and $out[$i].Trim(); $i++) { $out[$i] })
+        $want = @((Get-JkDueData).events | Where-Object { -not $_.done -and $_.kind -ne 'exam' -and (Get-JkEventDue $_) -ge (Get-JkNow) -and (Get-JkEventDue $_).Date -le (Get-JkNow).Date.AddDays(14) }).Count
+        $dots = ([regex]::Matches(($strip -join ''), [regex]::Escape($script:G.ring))).Count
+        Assert-Eq $dots $want "a dot for each deadline in the 15 days: $($strip -join ' / ')"
+        Assert-True (@($strip | Where-Object { (Get-JkVisibleLength $_) -gt [int]$env:JK_WIDTH -or $_.EndsWith($script:G.ell) }).Count -eq 0) 'no strip line runs off the screen'
+        Assert-True ($strip.Count -ge 2) 'a fortnight takes more than one line'
+        # the week keeps its words
+        $week = (Show-JkReview 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($week -match 'Last 7 days' -and $week -match '\(week before: ' -and $week -match 'due this week') 'jk review'
+        Assert-Throws { Remove-JkTodo } 'jk todo rm with nothing named says how, rather than nothing'
+    } finally {
+        Invoke-JkConfig reset jobs.file
+        Remove-Item -LiteralPath $md -ErrorAction SilentlyContinue
+        if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
+        $script:JkDueCache = $null; Clear-JkBriefCache
+    }
+}
 Test 'doctor flags a stale LEARN feed and this week''s background errors' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'doctor-home'

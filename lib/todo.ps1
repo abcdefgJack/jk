@@ -162,6 +162,7 @@ function Set-JkTodoDone {
 
 function Remove-JkTodo {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Refs)
+    if (-not $Refs) { throw 'usage: jk todo rm <id|text> [...]' }
     $d = Get-JkTodoData
     $hits = @(Find-JkTodo $d $Refs -Any)
     $ids = @($hits | ForEach-Object { [int]$_.id })

@@ -33,7 +33,9 @@ function Show-JkReview {
     if (-not $focusMin) { $focusMin = 0 }
     $slipped = @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'due' -and ($due = Get-JkEventDue $_) -lt $now -and $due -ge $from } | Sort-Object { Get-JkEventDue $_ })
 
-    Say (' ' + (Paint 'bold white' 'Last 7 days'))
+    # the words for the window: "-Days 14" is a fortnight, not a week with a week's labels
+    $span = Format-JkCount $Days 'day'
+    Say (' ' + (Paint 'bold white' "Last $span"))
     $bits = @(
         (Paint 'green' "$($script:G.check) $($doneDue.Count) deadline$(if ($doneDue.Count -ne 1) {'s'}) done"),
         (Paint 'green' "$($script:G.check) $($doneTodo.Count) to-do$(if ($doneTodo.Count -ne 1) {'s'})"),
@@ -68,7 +70,8 @@ function Show-JkReview {
             $thisWk = @($sent | Where-Object { $_.Date -ge $from -and $_.Date -le $now.Date }).Count
             $prevWk = @($sent | Where-Object { $_.Date -ge $from.AddDays(-$Days) -and $_.Date -lt $from }).Count
             $waiting = @(Get-JkJobsWaiting $now).Count
-            $txt = "$thisWk application$(if ($thisWk -ne 1) {'s'}) sent" + (Paint 'gray' " (week before: $prevWk)")
+            $before = $(if ($Days -eq 7) { 'week before' } else { "$span before" })
+            $txt = "$thisWk application$(if ($thisWk -ne 1) {'s'}) sent" + (Paint 'gray' " ($($before): $prevWk)")
             if ($waiting) { $txt += (Paint 'gray' "  $($script:G.dot)  ") + (Paint 'amber' "$waiting waiting on you") }
             Say ''
             Say ('  ' + (Paint 'purple' "$($script:G.circle) job search  ") + $txt + (Paint 'gray' "   $($script:G.arrow) jk jobs"))
@@ -78,7 +81,7 @@ function Show-JkReview {
     # ---- looking ahead
     $ahead = @($data.events | Where-Object { -not $_.done -and ($due = Get-JkEventDue $_) -ge $now -and $due -lt $to.AddDays(1) } | Sort-Object { Get-JkEventDue $_ })
     Say ''
-    Say (' ' + (Paint 'bold white' "Next $Days days") + (Paint 'gray' "  $($now.ToString('MMM d', $script:Inv)) $($script:G.dash) $($to.ToString('MMM d', $script:Inv))"))
+    Say (' ' + (Paint 'bold white' "Next $span") + (Paint 'gray' "  $($now.ToString('MMM d', $script:Inv)) $($script:G.dash) $($to.ToString('MMM d', $script:Inv))"))
     if ($ahead.Count -eq 0) { Say (Paint 'green' '  Nothing due. A good week to get ahead.'); return }
     $exams = @($ahead | Where-Object { $_.kind -eq 'exam' }).Count
     $byDay = $ahead | Group-Object { (Get-JkEventDue $_).Date.ToString('yyyy-MM-dd') } | Sort-Object Count -Descending
@@ -87,7 +90,8 @@ function Show-JkReview {
     if ($busiest.Count -gt 1) { $busyTxt = "  $($script:G.dot)  busiest: " + ([datetime]::ParseExact($busiest.Name, 'yyyy-MM-dd', $script:Inv)).ToString('ddd MMM d', $script:Inv) + " ($($busiest.Count) items)" }
     Say ('  ' + (Paint 'white' (Format-JkCount $ahead.Count 'item')) + (Paint 'gray' "  $($script:G.dot)  $(Format-JkCount $exams 'exam')$busyTxt"))
 
-    # day strip: one cell per day with a dot per item (exams solid)
+    # day strip: one cell per day with a dot per item (exams solid), onto a new line when the screen
+    # is full, so a long window keeps its last days
     $strip = '  '
     for ($i = 0; $i -le $Days; $i++) {
         $d = $now.Date.AddDays($i)
@@ -99,9 +103,13 @@ function Show-JkReview {
         }
         $label = $d.ToString('ddd', $script:Inv)
         if ($i -eq 0) { $label = 'tod' }
-        $strip += (Paint 'muted' $label) + ' ' + $dots + (' ' * [Math]::Max(1, 5 - $items.Count)) + ' '
+        # past the first week a weekday alone repeats: the date says which
+        elseif ($Days -gt 7 -and $d.DayOfWeek -eq [DayOfWeek]::Monday) { $label = $d.ToString('MMM d', $script:Inv) }
+        $cell = (Paint 'muted' $label) + ' ' + $dots + (' ' * [Math]::Max(1, 5 - $items.Count)) + ' '
+        if ($strip.Trim() -and (Get-JkVisibleLength ($strip + $cell)) -gt $w) { Say $strip.TrimEnd(); $strip = '  ' }
+        $strip += $cell
     }
-    Say $strip
+    Say $strip.TrimEnd()
 
     # where the weight is: per course, sum of grade weight due this week
     $weights = $ahead | Where-Object { (Get-JkWeightValue $_.weight) -gt 0 } | Group-Object course | ForEach-Object {
@@ -119,7 +127,8 @@ function Show-JkReview {
     } | Sort-Object Weight -Descending
     if ($weights) {
         Say ''
-        Say (' ' + (Paint 'bold white' 'Where the marks are') + (Paint 'gray' '  (share of each course''s grade due this week)'))
+        $when = $(if ($Days -eq 7) { 'this week' } else { "in the next $span" })
+        Say (' ' + (Paint 'bold white' 'Where the marks are') + (Paint 'gray' "  (share of each course's grade due $when)"))
         $max = ($weights | Measure-Object -Property Weight -Maximum).Maximum
         foreach ($r in $weights) {
             $color = Get-JkCourseColor $r.Course $cmap
