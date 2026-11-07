@@ -1163,6 +1163,20 @@ Test 'the suite is sandboxed: jk setup and jk speed cannot reach the real profil
     Set-Content -LiteralPath $sp -Value '# sandbox profile'
     try { Assert-Eq @(Get-JkProfileFiles)[0].Path $sp } finally { Remove-Item -LiteralPath $sp -ErrorAction SilentlyContinue }
 }
+Test 'a missing, disabled or silent morning task is said on the dashboard' {
+    $now = [datetime]'2026-11-06T09:00'
+    $task = { param($state, $last) [pscustomobject]@{ State = $state; LastRunTime = $last; NextRunTime = $null; LastTaskResult = 0; PinnedToUtc = $false } }
+    $gone = @(Get-JkTaskProblem $null $now)
+    Assert-True ($gone[0] -eq 'jk setup install' -and $gone[1] -match 'gone.*no morning popup') "gone: $gone"
+    $off = @(Get-JkTaskProblem (& $task 'Disabled' ([datetime]'2026-11-06T07:45')) $now)
+    Assert-True ($off[0] -eq 'jk remind install' -and $off[1] -match 'switched off') "off: $off"
+    $quiet = @(Get-JkTaskProblem (& $task 'Ready' ([datetime]'2026-11-02T07:45')) $now)
+    Assert-True ($quiet[0] -eq 'jk remind install' -and $quiet[1] -match 'has not run since Mon Nov 2') "silent: $quiet"
+    Assert-Eq @(Get-JkTaskProblem (& $task 'Ready' ([datetime]'2026-11-06T07:45')) $now).Count 0 'ran this morning'
+    Assert-Eq @(Get-JkTaskProblem (& $task 'Ready' $null) $now).Count 0 'just installed, never run yet'
+    # a sandbox has no task, so the dashboard does not cry wolf there (or in these tests)
+    Assert-True (((Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n") -notmatch 'morning task') 'no warning in a sandbox'
+}
 Test 'every safe command and action runs on an empty install without a PowerShell error' {
     # What runs here is listed, rather than what to skip: a skip list that named "setup" and "speed"
     # let jk setup uninstall and jk speed undo through. A new command or action fails this test until

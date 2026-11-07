@@ -321,7 +321,11 @@ function Show-JkDashboard {
     # comes first, so a narrow window that cuts the line still shows what to type.
     $upcoming = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $now }).Count
     $nudge = { param([string]$Cmd, [string]$Why) Write-JkTip ('  ' + (Paint 'cyan' "$($script:G.star) $Cmd") + '  ') (6 + (Get-JkTextWidth $Cmd)) $Why -Indent 4 }
-    if (-not @($data.events).Count -and $phase -ne 'next') {
+    # the morning task first: without it nothing else reminds you of anything (a sandbox has none)
+    $taskProblem = @(); if (-not $env:JK_SANDBOX) { try { $taskProblem = @(Get-JkTaskNudge $now) } catch { } }
+    if ($taskProblem.Count) {
+        & $nudge $taskProblem[0] $taskProblem[1]
+    } elseif (-not @($data.events).Count -and $phase -ne 'next') {
         # a brand-new setup: the first thing worth doing
         & $nudge 'jk due sync' 'bring in your deadlines: in LEARN, Calendar > Subscribe, copy the link, then run it'
     } elseif ($phase -eq 'after') {
