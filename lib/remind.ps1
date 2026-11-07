@@ -298,8 +298,10 @@ function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
     for ($k = [Math]::Min(5, $a.Count); $k -ge 1; $k--) {
         $head = ($a[0..($k - 1)]) -join ' '
         $dt = $null
+        $timeOnly = $false
         try {
             $t = ConvertTo-JkTime $head
+            $timeOnly = $true
             $p = $t.Split(':')
             $dt = $now.Date.AddHours([int]$p[0]).AddMinutes([int]$p[1])
             # "jk at 5" without am/pm means the next 5 o'clock: 5 pm if it's already past 5 am
@@ -317,6 +319,19 @@ function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
         if ($dt) { $found = @{ At = $dt; K = $k }; break }
     }
     if (-not $found) { throw "can't find a time in '$($a -join ' ')' (try: jk at 3:30pm ..., jk at tomorrow 9am ...)" }
+    # the day after the time: "8pm tomorrow", "9am dec 25", "5 fri" (a bare hour after a day is pm, as
+    # "fri 5" is). Only words that can only be a day count, so "5pm 3d printer" and "7pm tom" keep theirs.
+    if ($timeOnly) {
+        for ($j = [Math]::Min(3, $a.Count - $found.K); $j -ge 1; $j--) {
+            $dTxt = (($a[$found.K..($found.K + $j - 1)]) -join ' ').Trim().ToLower() -replace '^tonight$', 'today'
+            if ($dTxt -notmatch '^(?!(tom|tod|now)$)[a-z]|^\d{4}-\d{1,2}-\d{1,2}$|^\d{1,2}/\d{1,2}(/\d{2,4})?$|^\d{1,2}(st|nd|rd|th)?( of)? [a-z]{3,}') { continue }
+            try { $d = ConvertTo-JkDate $dTxt -Now $now } catch { if (Test-JkNoSuchDate $_) { throw }; continue }
+            $headTxt = ($a[0..($found.K - 1)]) -join ' '
+            $p = (ConvertTo-JkTime (Get-JkDayTimeText $headTxt)).Split(':')
+            $found = @{ At = $d.AddHours([int]$p[0]).AddMinutes([int]$p[1]); K = $found.K + $j }
+            break
+        }
+    }
     if ($found.At -le $now) { throw 'that time has already passed' }
     [pscustomobject]$found
 }

@@ -69,7 +69,7 @@ A popup slides in when time is up, even if Windows notifications are off.
     'remind' = @'
 jk in 20m take the laundry out      popup in 20 minutes (20m, 1h30, 2 hours, an hour, half an hour, 90s, 45)
 jk at 3:30pm call home              popup at a time today (or tomorrow if already past)
-jk at tomorrow 9am submit form      also: fri 17:00, dec 3 10am
+jk at tomorrow 9am submit form      also: fri 17:00, dec 3 10am, 9am tomorrow, 5pm fri
 jk remind | jk remind list          pending reminders + daily-task status
 jk remind cancel 3
 jk remind install                   morning brief popup (today's classes, deadlines within 48h, exams within 3 days) at remind.time
@@ -217,8 +217,10 @@ Also: jk now, jk what.
 jk time                        the time in each of your places, how far ahead or behind, awake or asleep,
                                when you are both up for a call (8 am-11 pm here, 9 am-10 pm there), and
                                when the gap changes because the clocks go back or forward
-jk time 8pm beijing            a time there in your time (beijing sun 8pm, tomorrow 9am shanghai work too)
-jk time 9am                    a time here in each place
+jk time 8pm beijing            a time there in your time (beijing sun 8pm, 8pm tomorrow shanghai, 9am dec 25
+                               tokyo work too; their tomorrow, read on their clock). Every word has to be
+                               a time, a day or a place: a typo is named, not skipped.
+jk time 9am                    a time here in each place (9am fri, 9am dec 3)
 jk time add london             another place (a big city, or a Windows zone such as 'GMT Standard Time')
 jk time rm london              take one off;  jk time off  none at all
 With nothing added, the places come from your installed languages (Chinese (PRC) -> Beijing).

@@ -48,7 +48,91 @@ function Resolve-JkClockZone([string]$Text) {
 }
 
 function Format-JkClockName([string]$Text) {
-    (Get-Culture).TextInfo.ToTitleCase(($Text -replace '\s+', ' ').Trim().ToLowerInvariant())
+    $t = ($Text -replace '\s+', ' ').Trim().ToLowerInvariant()
+    # UTC, GMT, NYC
+    if ($t -match '^[a-z]{2,3}$') { return $t.ToUpperInvariant() }
+    (Get-Culture).TextInfo.ToTitleCase($t)
+}
+
+# The place or day word a typo was meant to be ("bejing" -> Beijing, "tomorow" -> tomorrow), or $null.
+# One letter off, or two in a long word; short words are left alone (too many near neighbours).
+function Get-JkClockGuess([string]$Text) {
+    $t = ($Text -replace '\s+', ' ').Trim().ToLowerInvariant()
+    if ($t.Length -lt 4) { return $null }
+    $days = @('today', 'tomorrow', 'tonight') + $script:JkDayNames + $script:JkMonthNames
+    $pool = @(foreach ($id in $script:JkCityZones.Keys) { $script:JkCityZones[$id] }) + @(Get-JkConfigPlaceNames) + $days
+    $max = $(if ($t.Length -ge 7) { 2 } else { 1 })
+    $best = $null; $bestD = $max + 1
+    foreach ($c in $pool) {
+        $c = ([string]$c).ToLowerInvariant()
+        if ($c -eq $t) { return $null }
+        $d = Get-JkEditDistance $t $c
+        if ($d -lt $bestD) { $best = $c; $bestD = $d }
+    }
+    if (-not $best) { return $null }
+    [pscustomobject]@{ Word = $best; Shown = $(if ($days -contains $best) { $best } else { Format-JkClockName $best }) }
+}
+
+function Get-JkConfigPlaceNames {
+    @(([string](Get-JkConfig 'time.zones')) -split ';' | ForEach-Object { ($_.Split('=', 2))[0].Trim() } | Where-Object { $_ -and $_ -notmatch '^(off|none)$' })
+}
+
+# "Sun 8:00 pm", or "Fri Dec 25 8:00 pm" when the weekday alone would not say which day
+function Format-JkClockMoment([datetime]$T, [bool]$WithDate) {
+    $fmt = $(if ($WithDate) { 'ddd MMM d' } else { 'ddd' })
+    "$($T.ToString($fmt, $script:Inv)) $(Format-JkTime $T.ToString('HH:mm', $script:Inv))"
+}
+
+# A time on a zone's clock, to UTC. The hour skipped when the clocks go forward has no answer; the
+# hour repeated when they go back is read the second time round, and Twice says so.
+function ConvertTo-JkClockUtc([datetime]$At, [TimeZoneInfo]$Zone, [string]$Where) {
+    $at = [datetime]::SpecifyKind($At, 'Unspecified')
+    if ($Zone.IsInvalidTime($at)) {
+        throw "there is no $(Format-JkTime $at.ToString('HH:mm', $script:Inv)) $Where on $($at.ToString('ddd MMM d', $script:Inv)): the clocks go forward an hour that night"
+    }
+    [pscustomobject]@{ Utc = [TimeZoneInfo]::ConvertTimeToUtc($at, $Zone); Twice = $Zone.IsAmbiguousTime($at) }
+}
+
+# The moment in the words that are left once the place is taken out, read on that clock ($Now).
+# Every word has to be read: one left over ("8pm bejing") would otherwise be dropped without a word,
+# and the answer given for a time nobody asked about.
+function Read-JkClockWhen([string[]]$Words, [datetime]$Now, [string[]]$All) {
+    $said = (@($All) -join ' ')
+    $r = $null
+    try { $r = Resolve-JkAtTime $Words $Now } catch {
+        if (-not ([string]$_.Exception.Message).StartsWith("can't find a time")) { throw }
+        $text = (@($Words) -join ' ')
+        $g = Find-JkClockTypo $Words
+        if ($g) { throw "can't read '$text' as a place or a time. Did you mean $($g.Shown)?  jk time $(Join-JkClockFix $said $g.Typo $g.Word)" }
+        throw "can't read '$text' as a place or a time (jk time beijing, jk time 8pm beijing, jk time 9am fri)"
+    }
+    if ($r.K -lt @($Words).Count) {
+        $read = (@($Words)[0..($r.K - 1)]) -join ' '
+        $leftWords = @(@($Words)[$r.K..(@($Words).Count - 1)])
+        $g = Find-JkClockTypo $leftWords
+        $fix = $(if ($g) { ". Did you mean $($g.Shown)?  jk time $(Join-JkClockFix $said $g.Typo $g.Word)" } else { ' (jk time 8pm fri beijing, jk time 9am dec 3)' })
+        throw "'$read' is a time, but '$($leftWords -join ' ')' is not a place or a day$fix"
+    }
+    $r.At
+}
+
+# The words, or one of them, as a typo for a place or a day: Typo (as typed), Word, Shown; or $null.
+function Find-JkClockTypo([string[]]$Words) {
+    $all = (@($Words) -join ' ')
+    $g = Get-JkClockGuess $all
+    if ($g) { return [pscustomobject]@{ Typo = $all; Word = $g.Word; Shown = $g.Shown } }
+    foreach ($w in @($Words)) {
+        $isTime = $true; try { $null = ConvertTo-JkTime $w } catch { $isTime = $false }
+        if ($isTime) { continue }
+        $g = Get-JkClockGuess $w
+        if ($g) { return [pscustomobject]@{ Typo = $w; Word = $g.Word; Shown = $g.Shown } }
+    }
+    $null
+}
+
+# The words as typed, with the typo swapped for the guess
+function Join-JkClockFix([string]$Said, [string]$Typo, [string]$Guess) {
+    ([regex]('(?i)(?<!\S)' + [regex]::Escape($Typo) + '(?!\S)')).Replace($Said, $Guess, 1)
 }
 
 # The places jk time shows: time.zones ("Beijing=China Standard Time;London=GMT Standard Time"), or
@@ -129,20 +213,25 @@ function Get-JkClockGapChange([TimeZoneInfo]$There, [TimeZoneInfo]$Here, [dateti
     $null
 }
 
-# Stretches in the next day when it is 8 am-11 pm here and 9 am-10 pm there, as local times here.
+# Stretches starting in the next day when it is 8 am-11 pm here and 9 am-10 pm there, as local times
+# here. One that starts before the day is out runs to its real end, not to where the day stops.
 function Get-JkCallWindows([TimeZoneInfo]$There, [TimeZoneInfo]$Here, [datetime]$UtcNow) {
     $start = [datetime]::SpecifyKind($UtcNow, 'Utc')
     $start = $start.AddMinutes(-($start.Minute % 30)).AddSeconds(-$start.Second).AddMilliseconds(-$start.Millisecond)
     $out = New-Object System.Collections.Generic.List[object]
     $cur = $null
-    for ($i = 0; $i -lt 48; $i++) {
+    for ($i = 0; $i -lt 96; $i++) {
         $u = $start.AddMinutes(30 * $i)
         $h = [TimeZoneInfo]::ConvertTimeFromUtc($u, $Here); $x = [TimeZoneInfo]::ConvertTimeFromUtc($u, $There)
         $hm = $h.Hour + $h.Minute / 60; $xm = $x.Hour + $x.Minute / 60
         $ok = $hm -ge 8 -and $hm -lt 23 -and $xm -ge 9 -and $xm -lt 22
         if ($ok) {
-            if ($cur) { $cur.End = $h.AddMinutes(30) } else { $cur = [pscustomobject]@{ Start = $h; End = $h.AddMinutes(30); Now = ($i -eq 0) }; $out.Add($cur) }
-        } else { $cur = $null }
+            if ($cur) { $cur.End = $h.AddMinutes(30) }
+            elseif ($i -lt 48) { $cur = [pscustomobject]@{ Start = $h; End = $h.AddMinutes(30); Now = ($i -eq 0) }; $out.Add($cur) }
+        } else {
+            $cur = $null
+            if ($i -ge 48) { break }
+        }
     }
     $out.ToArray()
 }
@@ -194,7 +283,7 @@ function Write-JkClockPlace($P, [TimeZoneInfo]$Here, [datetime]$Utc, [datetime]$
     $up = $xm -ge 8 -and $xm -lt 22.5
     $state = $(if ($up) { Paint 'green' 'awake' } else { Paint 'gray' 'asleep' })
     $day = $x.ToString('ddd', $script:Inv)
-    Say ('  ' + (Paint 'bold white' (Fit $P.Name 13)) + (Paint 'white' (Fit "$day $(Format-JkTime $x.ToString('HH:mm', $script:Inv))" 14)) + (Paint 'muted' (Fit (Format-JkClockGap $gap) 13)) + $state)
+    Say ('  ' + (Paint 'bold white' (Fit $P.Name 13)) + (Paint 'white' (Fit "$day $(Format-JkTime $x.ToString('HH:mm', $script:Inv))" 14)) + (Paint 'muted' (Fit (Format-JkClockGap $gap) 15)) + $state)
     $ch = Get-JkClockGapChange $P.Zone $Here $Utc
     if ($ch) {
         # as the clock reads just before: "2 am", not the "1 am" it turns into
@@ -225,20 +314,22 @@ function Show-JkClockFor([string[]]$Words) {
     $true
 }
 
-# "8pm beijing" (there -> here), "beijing sun 8pm", "9am" (here -> every place)
+# "8pm beijing" (there -> here), "beijing sun 8pm", "8pm beijing tomorrow", "9am" (here -> every place).
+# A moment a week or more off shows its date: the weekday alone would not say which week.
 function Convert-JkClockTime([string[]]$Words) {
     $w = @($Words | Where-Object { $_ })
     $places = @(Get-JkClockPlaces)
     $place = $null; $rest = $w
+    # the place: the longest run of words that names one, at the end, the start, or in between
     foreach ($n in 3, 2, 1) {
         if ($w.Count -le $n) { continue }
-        foreach ($side in 'end', 'start') {
-            $cand = $(if ($side -eq 'end') { ($w | Select-Object -Last $n) -join ' ' } else { ($w | Select-Object -First $n) -join ' ' })
+        foreach ($s in @(@($w.Count - $n) + @(0..($w.Count - $n - 1)))) {
+            $cand = ($w[$s..($s + $n - 1)]) -join ' '
             $known = @($places | Where-Object { $_.Name -ieq $cand })[0]
             $z = $(if ($known) { $known.Zone } else { Resolve-JkClockZone $cand })
             if ($z) {
                 $place = [pscustomobject]@{ Name = $(if ($known) { $known.Name } else { Format-JkClockName $cand }); Zone = $z }
-                $rest = $(if ($side -eq 'end') { @($w | Select-Object -First ($w.Count - $n)) } else { @($w | Select-Object -Skip $n) })
+                $rest = @(for ($i = 0; $i -lt $w.Count; $i++) { if ($i -lt $s -or $i -ge $s + $n) { $w[$i] } })
                 break
             }
         }
@@ -251,18 +342,20 @@ function Convert-JkClockTime([string[]]$Words) {
         # a time there: read against their clock ("tomorrow" is their tomorrow)
         $thereNow = [TimeZoneInfo]::ConvertTimeFromUtc($utc, $place.Zone)
         $savedNow = $env:JK_NOW
-        try { $env:JK_NOW = $thereNow.ToString('s', $script:Inv); $at = (Resolve-JkAtTime $rest $thereNow).At } finally { $env:JK_NOW = $savedNow }
-        $u = [TimeZoneInfo]::ConvertTimeToUtc([datetime]::SpecifyKind($at, 'Unspecified'), $place.Zone)
-        $h = [TimeZoneInfo]::ConvertTimeFromUtc($u, $here)
-        $rows += [pscustomobject]@{ From = "$($at.ToString('ddd', $script:Inv)) $(Format-JkTime $at.ToString('HH:mm', $script:Inv)) in $($place.Name)"; To = "$($h.ToString('ddd', $script:Inv)) $(Format-JkTime $h.ToString('HH:mm', $script:Inv)) here"; Up = ($h.Hour -ge 8 -and $h.Hour -lt 23); Who = 'you' }
+        try { $env:JK_NOW = $thereNow.ToString('s', $script:Inv); $at = Read-JkClockWhen $rest $thereNow $w } finally { $env:JK_NOW = $savedNow }
+        $c = ConvertTo-JkClockUtc $at $place.Zone "in $($place.Name)"
+        $h = [TimeZoneInfo]::ConvertTimeFromUtc($c.Utc, $here)
+        $long = ($c.Utc - $utc).TotalDays -ge 6
+        $rows += [pscustomobject]@{ From = "$(Format-JkClockMoment $at $long) in $($place.Name)"; To = "$(Format-JkClockMoment $h $long) here"; Up = ($h.Hour -ge 8 -and $h.Hour -lt 23); Who = 'you'; Twice = $(if ($c.Twice) { "$(Format-JkTime $at.ToString('HH:mm', $script:Inv)) comes twice in $($place.Name)" } else { '' }) }
     } else {
-        if (-not $places.Count) { throw 'no other places to convert to: jk time add beijing, or name one: jk time 8pm london' }
         $hereNow = [TimeZoneInfo]::ConvertTimeFromUtc($utc, $here)
-        $at = (Resolve-JkAtTime $w $hereNow).At
-        $u = [TimeZoneInfo]::ConvertTimeToUtc([datetime]::SpecifyKind($at, 'Unspecified'), $here)
+        $at = Read-JkClockWhen $w $hereNow $w
+        if (-not $places.Count) { throw 'no other places to convert to: jk time add beijing, or name one: jk time 8pm london' }
+        $c = ConvertTo-JkClockUtc $at $here 'here'
+        $long = ($c.Utc - $utc).TotalDays -ge 6
         foreach ($p in $places) {
-            $x = [TimeZoneInfo]::ConvertTimeFromUtc($u, $p.Zone)
-            $rows += [pscustomobject]@{ From = "$($at.ToString('ddd', $script:Inv)) $(Format-JkTime $at.ToString('HH:mm', $script:Inv)) here"; To = "$($x.ToString('ddd', $script:Inv)) $(Format-JkTime $x.ToString('HH:mm', $script:Inv)) in $($p.Name)"; Up = ($x.Hour -ge 8 -and $x.Hour -lt 22); Who = 'they' }
+            $x = [TimeZoneInfo]::ConvertTimeFromUtc($c.Utc, $p.Zone)
+            $rows += [pscustomobject]@{ From = "$(Format-JkClockMoment $at $long) here"; To = "$(Format-JkClockMoment $x $long) in $($p.Name)"; Up = ($x.Hour -ge 8 -and $x.Hour -lt 22); Who = 'they'; Twice = $(if ($c.Twice) { "$(Format-JkTime $at.ToString('HH:mm', $script:Inv)) comes twice here" } else { '' }) }
         }
     }
     $rows
@@ -304,5 +397,7 @@ function Invoke-JkTime {
         if (-not $r.Up) { $note = Paint 'gray' $(if ($r.Who -eq 'you') { '   (late or early for you)' } else { '   (likely asleep there)' }) }
         Say ('  ' + (Paint 'white' $r.From) + (Paint 'gray' "  $($script:G.arrow)  ") + (Paint 'bold white' $r.To) + $note)
     }
+    $twice = @($rows | Where-Object { $_.Twice })[0]
+    if ($twice) { Say (Paint 'amber' "  $($twice.Twice) that night, as the clocks go back an hour: this is the second one.") }
     Say ''
 }
