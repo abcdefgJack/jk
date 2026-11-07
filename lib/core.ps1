@@ -103,6 +103,38 @@ function Limit-JkBackgroundLog([int]$Keep = 500) {
     [IO.File]::WriteAllLines($log, @($lines | Select-Object -Last $Keep))
 }
 
+# Another jk replacing the file holds it for an instant (the morning task, a banner in a new shell):
+# that is a moment's wait, not an error.
+function Read-JkFileText([string]$Path) {
+    for ($try = 1; ; $try++) {
+        try { return [IO.File]::ReadAllText($Path) }
+        catch [IO.IOException], [UnauthorizedAccessException] {
+            if ($try -ge 40 -or $_.Exception -is [IO.FileNotFoundException]) { throw }
+            Start-Sleep -Milliseconds 25
+        }
+    }
+}
+
+# Puts a finished file in place in one step, for anyone reading it. Move-Item -Force deletes the old
+# one first: for that instant another jk finds no file, reads it as "no data yet", and its next save
+# writes the empty list over everything. [IO.File]::Replace leaves such a moment too (measured: two
+# writers and two readers). This one is MoveFileEx with replace-existing, a rename over the old file.
+# A reader holding the file open makes it wait, not fail.
+function Move-JkFileOver([string]$From, [string]$To) {
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    for ($try = 1; ; $try++) {
+        try {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::MoveFile($From, $To, $true)
+            return
+        }
+        catch [IO.IOException], [UnauthorizedAccessException] {
+            if ($try -ge 80) { try { [IO.File]::Delete($From) } catch { }; throw }
+            Start-Sleep -Milliseconds 25
+        }
+        catch { try { [IO.File]::Delete($From) } catch { }; throw }
+    }
+}
+
 # A damaged data file (cut short by a crash, emptied, or hand-edited into invalid JSON) is set
 # aside and replaced by the newest backup that still reads. Carrying on with empty data instead
 # would let the next save - the morning sync, a jk due add - make the loss permanent.
@@ -110,7 +142,7 @@ function Read-JkJson {
     param([string]$Name, $Default = $null)
     $p = Get-JkPath $Name
     if (-not (Test-Path -LiteralPath $p)) { return $Default }
-    $text = [IO.File]::ReadAllText($p)
+    $text = Read-JkFileText $p
     $err = $null
     if (-not $text.Trim()) {
         # saves are atomic, so jk never leaves a data file empty: for one it backs up, that is damage
@@ -161,9 +193,10 @@ function Save-JkJson {
     $p = Get-JkPath $Name
     Backup-JkFile $Name
     $json = ConvertTo-Json -InputObject $Object -Depth 12
-    $tmp = "$p.tmp"
+    # this process's own temp name: two saves at once must not write into one file
+    $tmp = "$p.$PID.tmp"
     [IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding $false))
-    Move-Item -LiteralPath $tmp -Destination $p -Force
+    Move-JkFileOver $tmp $p
 }
 
 # Before the first change of the day, the current version of a top-level data file is kept in
