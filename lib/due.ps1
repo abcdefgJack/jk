@@ -831,13 +831,13 @@ function Add-JkDue {
         try {
             $parsed = ConvertFrom-JkWhen ($rest -join ' ')
             if ($i) { $Title = "$Title $(@($w | Select-Object -First $i) -join ' ')" }
-        } catch { }
+        } catch { if (Test-JkNoSuchDate $_) { throw } }   # "nov 31": a typo, not title words before "31"
     }
     if (-not $parsed) { $parsed = ConvertFrom-JkWhen ($When -join ' ') }   # says what it could not read
     if ($Weight -and $Weight -match '^\d+(\.\d+)?$') { $Weight += '%' }
     $kind = 'due'
     if ($Exam) { $kind = 'exam' } elseif ($Appt) { $kind = 'appt' }
-    if ($End) { $End = ConvertTo-JkTime $End }
+    if ($End) { $End = ConvertTo-JkTime (Get-JkDayTimeText $End) }
     $e = New-JkEvent -Data $data -Course $c.key -Date $parsed.Date -Time $parsed.Time -Title $Title -Weight $Weight -Note $Note -Kind $kind -End $End
     Save-JkDueData $data
     $cmap = Get-JkCourseMap $data
@@ -853,13 +853,20 @@ function Add-JkDue {
     }
 }
 
+# A bare hour after a date: "fri 5" is 5 pm. Nobody schedules 5 in the morning without saying so;
+# from 7 on it could be either, and the reading is printed back.
+function Get-JkDayTimeText([string]$Text) {
+    if ($Text -match '^\s*[1-6](:\d{2})?\s*$') { return "$($Text.Trim()) pm" }
+    $Text
+}
+
 # Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time. Everyday
 # phrasings are rewritten first: "tonight" / "eod" (today 11:59 pm), "in 3 days" / "in a week" (+3,
 # +7); and a time on its own ("8pm") means today, or tomorrow once that time has passed.
 function ConvertFrom-JkWhen([string]$Text) {
-    $w = ($Text -replace '\s+at\s+', ' ').Trim().ToLower()
+    $w = ($Text -replace '\s+(?:at|@)\s+', ' ').Trim().ToLower()
     if ($w -match '^(tonight|eod|end of (the )?day)$') { $w = 'today 11:59pm' }
-    elseif ($w -match '^tonight\s+') { $w = $w -replace '^tonight', 'today' }
+    elseif ($w -match '^tonight\s+') { $w = ($w -replace '^tonight\s+((?:1[01]|[1-9])(?::\d{2})?)$', 'tonight $1pm') -replace '^tonight', 'today' }
     if ($w -match '^in\s+(\d+|a|an|one)\s+(days?|weeks?)\b(.*)$') {
         # read every group before any other -match: each one replaces $Matches
         $n = $Matches[1]; $unit = $Matches[2]; $rest = $Matches[3]
@@ -872,9 +879,9 @@ function ConvertFrom-JkWhen([string]$Text) {
         $dTxt = ($tokens[0..($k - 1)]) -join ' '
         $tTxt = ''
         if ($k -lt $tokens.Count) { $tTxt = ($tokens[$k..($tokens.Count - 1)]) -join ' ' }
-        try { $d = ConvertTo-JkDate $dTxt } catch { continue }
+        try { $d = ConvertTo-JkDate $dTxt } catch { if (Test-JkNoSuchDate $_) { throw }; continue }
         $t = ''
-        if ($tTxt) { try { $t = ConvertTo-JkTime $tTxt } catch { continue } }
+        if ($tTxt) { try { $t = ConvertTo-JkTime (Get-JkDayTimeText $tTxt) } catch { continue } }
         return [pscustomobject]@{ Date = $d; Time = $t }
     }
     # a time alone
@@ -950,9 +957,9 @@ function Edit-JkDue {
         $e.date = $pw.Date.ToString('yyyy-MM-dd', $script:Inv)
         if ($pw.Time -and -not $Time) { $e.time = $pw.Time }
     }
-    if ($Time) { $e.time = ConvertTo-JkTime $Time }
+    if ($Time) { $e.time = ConvertTo-JkTime (Get-JkDayTimeText $Time) }
     if ($NoTime) { $e.time = '' }
-    if ($End) { Set-JkProp $e 'end' (ConvertTo-JkTime $End) }
+    if ($End) { Set-JkProp $e 'end' (ConvertTo-JkTime (Get-JkDayTimeText $End)) }
     if ($PSBoundParameters.ContainsKey('Weight')) { if ($Weight -match '^\d+(\.\d+)?$') { $Weight += '%' }; $e.weight = $Weight }
     if ($PSBoundParameters.ContainsKey('Note')) { $e.note = $Note }
     if ($Course) { $e.course = (Resolve-JkCourse $data $Course -Create).key }

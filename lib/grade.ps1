@@ -19,12 +19,12 @@ function Save-JkGradeData($Data) {
 function ConvertTo-JkPercent([string]$Text) {
     # "17 out of 20", "85 %"
     $t = ($Text.Trim() -replace '(?i)\s*\bout\s+of\b\s*', '/').TrimEnd('%').Trim()
-    if ($t -match '^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$') {
+    if ($t -match '^(\d*\.?\d+)\s*/\s*(\d*\.?\d+)$') {
         $den = [double]::Parse($Matches[2], [Globalization.CultureInfo]::InvariantCulture)
         if ($den -le 0) { throw "bad score '$Text'" }
         return [Math]::Round(100 * [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture) / $den, 2)
     }
-    if ($t -match '^\d+(\.\d+)?$') { return [double]::Parse($t, [Globalization.CultureInfo]::InvariantCulture) }
+    if ($t -match '^\d*\.?\d+$') { return [double]::Parse($t, [Globalization.CultureInfo]::InvariantCulture) }
     throw "can't read the score '$Text' (try 85, 85%, 17/20)"
 }
 

@@ -168,7 +168,61 @@ Test 'date + time phrases' {
     Assert-Eq (& $f '8pm') '10-22 20:00' 'a time alone is today'
     Assert-Eq (& $f '9am') '10-23 09:00' 'or tomorrow once it has passed'
 }
+Test 'a date as jk prints it reads back, and a date that does not exist is reported, not read around' {
+    $cases = [ordered]@{
+        'Thu Oct 22' = '2026-10-22'; 'Mon Oct 26' = '2026-10-26'; 'monday, october 26' = '2026-10-26'; 'mon 26 oct' = '2026-10-26'; 'mon 10/26' = '2026-10-26'
+        'fri 23rd' = '2026-10-23'; 'Fri Dec 4 2026' = '2026-12-04'; 'this fri' = '2026-10-23'; 'this thu' = '2026-10-22'; 'next week' = '2026-10-29'
+        '26th of oct' = '2026-10-26'; 'sept 30' = '2026-09-30'; 'thurs' = '2026-10-22'; 'tues' = '2026-10-27'
+    }
+    foreach ($k in $cases.Keys) { Assert-Eq ((ConvertTo-JkDate $k).ToString('yyyy-MM-dd')) $cases[$k] "for '$k'" }
+    $why = { param($s) try { $null = ConvertTo-JkDate $s; '' } catch { $_.Exception.Message } }
+    Assert-True ((& $why 'tue oct 26') -like 'no such date: Oct 26 2026 is a Monday, not a Tuesday') (& $why 'tue oct 26')
+    foreach ($typo in 'nov 31', '31 nov', 'feb 30', '2/30', '2026-02-30', '2/30/2026', 'feb 29') {
+        Assert-True ((& $why $typo) -like 'no such date*') "'$typo': $(& $why $typo)"
+    }
+    # words that only look like dates are not dates, so they stay available as title words
+    foreach ($word in 'novel 2', 'marking 5', 'sunny', '13/25', '4-31', '1-40') {
+        $m = & $why $word
+        Assert-True ($m -and $m -notlike 'no such date*') "'$word': $m"
+    }
+    # Feb 29 means the coming February or nothing
+    Assert-Eq ((ConvertTo-JkDate 'feb 29' -Now ([datetime]'2027-11-05')).ToString('yyyy-MM-dd')) '2028-02-29'
+    Assert-Eq ((ConvertTo-JkDate 'feb 29' -Now ([datetime]'2028-01-10')).ToString('yyyy-MM-dd')) '2028-02-29'
+    Assert-Throws { ConvertTo-JkDate 'feb 29' -Now ([datetime]'2028-06-01') } 'the next February has no 29th'
+    # times that contradict themselves
+    Assert-Eq (ConvertTo-JkTime '0:30 am') '00:30'
+    Assert-Eq (ConvertTo-JkTime '15:20pm') '15:20' 'says the same thing twice, which is fine'
+    foreach ($bad in '0pm', '15:00 am') { Assert-Throws { ConvertTo-JkTime $bad } "'$bad'" }
+    $r = ConvertTo-JkTimeRange '14:00-15:20pm'; Assert-Eq "$($r.Start) $($r.End)" '14:00 15:20' 'a 24-hour start before a pm end'
+    # with a time
+    $f = { param($s) $w = ConvertFrom-JkWhen $s; "$($w.Date.ToString('MM-dd')) $($w.Time)".Trim() }
+    Assert-Eq (& $f 'mon oct 26 6pm') '10-26 18:00'
+    Assert-Eq (& $f 'nov 9 @ 5pm') '11-09 17:00'
+    Assert-Eq (& $f 'fri 5') '10-23 17:00' 'a bare hour after a date is not 5 in the morning'
+    Assert-Eq (& $f 'fri 5:30') '10-23 17:30'
+    Assert-Eq (& $f 'fri 5am') '10-23 05:00' 'unless it says so'
+    Assert-Eq (& $f 'fri 9') '10-23 09:00' 'from 7 on the clock reading stands'
+    Assert-Eq (& $f 'fri 17') '10-23 17:00'
+    Assert-Eq (& $f 'tonight 8') '10-22 20:00'
+    Assert-Eq (& $f 'tonight 20:00') '10-22 20:00'
+    Assert-Throws { ConvertFrom-JkWhen 'tue oct 26 6pm' } 'a wrong weekday is not read around'
+    # jk at takes as many words as a date and time can have, and leaves the rest as the message
+    $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') (Get-JkNow); "$($x.At.ToString('MM-dd HH:mm'))/$($x.K)" }
+    Assert-Eq (& $at 'nov 9 5 pm submit') '11-09 17:00/4' 'not 5 am with "pm submit" as the message'
+    Assert-Eq (& $at 'mon oct 26 5pm call') '10-26 17:00/4'
+    Assert-Eq (& $at 'mon oct 26 5 pm') '10-26 17:00/5'
+    Assert-Eq (& $at 'fri 5 leave') '10-23 17:00/2'
+    Assert-Eq (& $at '5pm call home now please') '10-22 17:00/1'
+    $whyAt = try { $null = Resolve-JkAtTime @('tue', 'oct', '26', '5pm', 'call') (Get-JkNow); '' } catch { $_.Exception.Message }
+    Assert-True ($whyAt -like '*is a Monday*') $whyAt
+    # scores
+    Assert-Eq (ConvertTo-JkPercent '.5') 0.5
+    Assert-Eq (ConvertTo-JkPercent '.5/1') 50
+    Assert-Eq (ConvertTo-JkPercent '17 out of 20') 85
+}
 Test 'durations' {
+    Assert-Throws { ConvertTo-JkSeconds '0' } 'a reminder for right now is a mistake'
+    Assert-Throws { ConvertTo-JkSeconds '0:00' }
     Assert-Eq (ConvertTo-JkSeconds '25') 1500
     Assert-Eq (ConvertTo-JkSeconds '1h30m') 5400
     Assert-Eq (ConvertTo-JkSeconds '90s') 90
@@ -2163,6 +2217,30 @@ Test 'jk due add: unquoted titles, "due nov 6", exam time ranges, a twin noted; 
         Assert-Eq "$($x.date) $($x.time)" '2026-11-08 17:00'
         $null = @(& { jk due edit $a4.id -Date in 3 days } 6>&1)
         Assert-Eq @((Get-JkDueData).events | Where-Object { $_.id -eq $a4.id })[0].date '2026-10-25'
+    } finally { [IO.File]::WriteAllText($file, $saved) }
+}
+Test 'jk due add: a weekday stays out of the title, and an impossible date adds nothing' {
+    $file = Get-JkPath 'deadlines.json'
+    $saved = [IO.File]::ReadAllText($file)
+    try {
+        $null = @(& { Add-JkDue -Course cs350 -Title 'Weekday' -When @('Mon', 'Oct', '26', '6pm') } 6>&1)
+        $hit = @((Get-JkDueData).events | Where-Object { $_.title -like 'Weekday*' })
+        Assert-Eq $hit.Count 1
+        Assert-Eq "$($hit[0].title) $($hit[0].date) $($hit[0].time)" 'Weekday 2026-10-26 18:00'
+        $null = @(& { Add-JkDue -Course cs350 -Title 'Read' -When @('4-31', 'fri') } 6>&1)
+        $hit = @((Get-JkDueData).events | Where-Object { $_.title -like 'Read*' })
+        Assert-Eq "$($hit[0].title) $($hit[0].date)" 'Read 4-31 2026-10-23' 'a chapter range is not a mistyped date'
+        $before = @((Get-JkDueData).events).Count
+        foreach ($when in @(@('nov', '31', '8pm'), @('tue', 'oct', '26', '6pm'))) {
+            $m = try { $null = @(& { Add-JkDue -Course cs350 -Title 'Typo' -When $when } 6>&1); '' } catch { $_.Exception.Message }
+            Assert-True ($m -like 'no such date*') "$($when -join ' '): $m"
+        }
+        Assert-Eq @((Get-JkDueData).events).Count $before 'nothing added'
+        # -Time and -End read a bare hour the same way as the date does
+        $id = @((Get-JkDueData).events | Where-Object { $_.title -eq 'Weekday' })[0].id
+        $null = @(& { Edit-JkDue $id -Time 5 -End 6:30 } 6>&1)
+        $x = @((Get-JkDueData).events | Where-Object { $_.id -eq $id })[0]
+        Assert-Eq "$($x.time) $($x.end)" '17:00 18:30'
     } finally { [IO.File]::WriteAllText($file, $saved) }
 }
 

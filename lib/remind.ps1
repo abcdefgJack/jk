@@ -294,7 +294,8 @@ function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
     $a = $Words
     $now = $Now
     $found = $null
-    for ($k = [Math]::Min(3, $a.Count); $k -ge 1; $k--) {
+    # longest first, and as long as a date and time gets: "mon nov 9 5 pm"
+    for ($k = [Math]::Min(5, $a.Count); $k -ge 1; $k--) {
         $head = ($a[0..($k - 1)]) -join ' '
         $dt = $null
         try {
@@ -311,7 +312,7 @@ function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
             try {
                 $w = ConvertFrom-JkWhen $head
                 if ($w.Time) { $p = $w.Time.Split(':'); $dt = $w.Date.AddHours([int]$p[0]).AddMinutes([int]$p[1]) }
-            } catch { }
+            } catch { if (Test-JkNoSuchDate $_) { throw } }
         }
         if ($dt) { $found = @{ At = $dt; K = $k }; break }
     }
