@@ -2127,6 +2127,38 @@ Test 'backup mirror: daily snapshot outside the data folder, restore after losin
         Assert-Eq (Get-JkConfig 'backup.mirror') '' 'mirror off'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'backup mirror prunes only day folders it wrote, and config set takes the mirror checks' {
+    $saved = $env:JK_HOME
+    $base = Join-Path $saved ('mirror2-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    $env:JK_HOME = Join-Path $base 'data'
+    $script:JkConfigCache = $null
+    try {
+        Import-JkDueHtml $htmlPath | Out-Null
+        # a folder that already holds dated folders of its own: photo imports, an export
+        $m = Join-Path $base 'Pictures'
+        $photos = Join-Path $m '2019-05-04'
+        $mixed = Join-Path $m '2019-05-05'
+        $nested = Join-Path $m '2019-05-06'
+        $ours = Join-Path $m '2000-01-02'
+        foreach ($d in $photos, $mixed, (Join-Path $nested 'raw'), $ours) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+        Set-Content -LiteralPath (Join-Path $photos 'IMG_0001.jpg') -Value 'x'
+        Set-Content -LiteralPath (Join-Path $mixed 'deadlines.json') -Value '{}'
+        Set-Content -LiteralPath (Join-Path $mixed 'notes.txt') -Value 'mine'
+        foreach ($f in 'deadlines.json', 'config.json') { Set-Content -LiteralPath (Join-Path $ours $f) -Value '{}' }
+        Invoke-JkBackup mirror $m 6>&1 | Out-Null
+        # stored in full; $m may be the 8.3 form of the same folder (C:\Users\JACKWA~1\...)
+        $stored = Get-JkConfig 'backup.mirror'
+        Assert-Eq (Resolve-JkLongPath $stored) (Resolve-JkLongPath $m) 'the mirror is set'
+        Assert-True (Test-Path -LiteralPath (Join-Path $photos 'IMG_0001.jpg')) 'a dated folder of photos is kept'
+        Assert-True (Test-Path -LiteralPath (Join-Path $mixed 'notes.txt')) 'a dated folder with a file jk did not write is kept'
+        Assert-True (Test-Path -LiteralPath (Join-Path $nested 'raw')) 'a dated folder with a subfolder is kept'
+        Assert-True (-not (Test-Path -LiteralPath $ours)) 'an old snapshot of jk''s own is still pruned'
+        # config set stored any folder, skipping the checks jk backup mirror makes
+        Assert-Throws { Invoke-JkConfig set backup.mirror (Join-Path $env:JK_HOME 'inside') 6>&1 | Out-Null } 'config set refuses a mirror inside the data folder'
+        Assert-Throws { Invoke-JkConfig set backup.mirror 'relative\mirror' 6>&1 | Out-Null } 'and a relative one'
+        Assert-Eq (Get-JkConfig 'backup.mirror') $stored 'the mirror is unchanged'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'timers count real time across a daylight-saving change' {
     # 00:30 on the night US/Canadian clocks fall back (Nov 1 2026, 07:30 UTC in Pacific time).
     # In a zone without DST this is plain arithmetic; the CI run in Pacific time crosses the change.
@@ -2307,7 +2339,9 @@ $r = & (Get-Module jk) {
     }
     "$Role ok=$ok " + (($bad.Keys | ForEach-Object { "[$($bad[$_]) x $_]" }) -join ' ')
 } $Role $begin.AddSeconds(3)
-[IO.File]::AppendAllText($Out, "$r`n")
+# a file of its own: the four workers stop at the same moment, and a second append to one shared
+# file fails with "being used by another process" (14 rounds in 15 when they finish together)
+[IO.File]::WriteAllText("$Out.$PID", "$r`n")
 '@
     $out = Join-Path $box 'out.txt'
     $start = (Get-Date).AddSeconds(4).ToString('o')
@@ -2318,7 +2352,7 @@ $r = & (Get-Module jk) {
             [Diagnostics.Process]::Start($psi)
         })
     foreach ($p in $procs) { Assert-True ($p.WaitForExit(60000)) 'a worker did not finish' }
-    $lines = @(Get-Content -LiteralPath $out)
+    $lines = @(Get-ChildItem -LiteralPath $box -Filter 'out.txt.*' | ForEach-Object { Get-Content -LiteralPath $_.FullName })
     Assert-Eq $lines.Count 4 "every worker reported: $($lines -join ' / ')"
     foreach ($l in $lines) { Assert-True ($l -match '^(write|read) ok=[1-9]\d* $') $l }
     $left = @(Get-ChildItem -LiteralPath (Join-Path $box 'home') -File -Force | Where-Object { $_.Name -ne 'todo.json' -and $_.Name -notmatch '^backups$' } | ForEach-Object { $_.Name })
