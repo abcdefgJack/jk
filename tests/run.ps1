@@ -1047,6 +1047,12 @@ Test 'jk time: the gap and when it changes, call windows, places from languages,
         Assert-Eq (@(Convert-JkClockTime @('beijing', '8pm'))[0].To) $rows[0].To 'the place first works too'
         $rows = @(Convert-JkClockTime @('9am'))
         Assert-True ($rows[0].To -match ' in Beijing$' -and $rows[0].From -match '9:00 am here$') "here -> there: $($rows[0].From) / $($rows[0].To)"
+        # a place alone: that place now, whether on the list or not
+        $one = @(& { jk time beijing } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($one -match 'Beijing\s+\w{3} \d{1,2}:\d{2} [ap]m\s+\d+h ahead' -and $one -notmatch 'jk time add') "on the list: $one"
+        $two = @(& { jk time new york } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($two -match 'New York\s+\w{3} \d{1,2}:\d{2} [ap]m' -and $two -match 'jk time add new york keeps it') "not on it: $two"
+        Assert-True ((@(& { jk time nowhereville } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match "can't find a time") 'neither a place nor a time still says so'
         jk time add london
         Assert-Eq ([string](Get-JkConfig 'time.zones')) 'Beijing=China Standard Time;London=GMT Standard Time' 'added'
         jk time rm beijing
@@ -1304,6 +1310,21 @@ Test 'jk next: an exam soon, a class soon, work due tonight, then the study plan
         $env:JK_NOW = '2026-11-03T23:30:00'
         $quiet = @(Get-JkNextSteps (Get-JkNow))
         Assert-True ($quiet[0].Text -match '^Nothing pressing\. Next: HEALTH 105 Assignment 6, Thu Nov 5 \(in 2 days\)' -or $quiet[0].Text -match '^Study ') "quiet: $($quiet[0].Text)"
+        # a deadline with no time is due today all day; an online quiz closing tonight is work to do
+        $d = Get-JkDueData
+        $null = New-JkEvent -Data $d -Course $c370.key -Date ([datetime]'2026-11-10') -Title 'Reading' -Kind 'due' -Weight '5%'
+        $null = New-JkEvent -Data $d -Course $hl.key -Date ([datetime]'2026-11-10') -Time '06:00' -Title 'Quiz opens' -Kind 'exam'
+        $null = New-JkEvent -Data $d -Course $hl.key -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Quiz closes' -Kind 'exam' -Weight '10%'
+        Save-JkDueData $d
+        $env:JK_NOW = '2026-11-10T08:00:00'
+        $texts = @(Get-JkNextSteps (Get-JkNow))
+        Assert-True (@($texts | Where-Object { $_.Text -eq 'CS 370 Reading, due today' }).Count -eq 1) "no time, 16 hours off, still today: $(@($texts | ForEach-Object { $_.Text }) -join ' / ')"
+        Assert-True (@($texts | Where-Object { $_.Text -match 'Quiz closes' }).Count -eq 0) 'a quiz closing 16 hours off is not yet now'
+        $env:JK_NOW = '2026-11-10T13:00:00'
+        $texts = @(Get-JkNextSteps (Get-JkNow))
+        $q = @($texts | Where-Object { $_.Text -match '^HEALTH 105 Quiz closes 11:59 pm \(in 10h 59m\)' })
+        Assert-True ($q.Count -eq 1 -and $q[0].Hint -match '^write it, then jk due done \d+$') "the quiz, 11 hours from closing: $(@($texts | ForEach-Object { $_.Text }) -join ' / ')"
+        Assert-True (@($texts | Where-Object { $_.Text -match '^Study .*(Reading|Quiz)' }).Count -eq 0) 'what is listed as due is not listed again as study'
     } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
@@ -1326,6 +1347,13 @@ Test 'jk <course>: one course on a screen; a word after it goes to that command'
         Assert-True ((@(& { jk cs350 exam } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'CS 350 MIDTERM') 'jk cs350 exam = jk exam cs350'
         Assert-True ((@(& { jk cs350 dance } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'after a course: exam, grade') 'an unknown word says what works'
         Assert-True ((@(& { jk blorp } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match "unknown command 'blorp'") 'not a course either'
+        # a course is named whole: a typo that happens to sit inside one is not that course
+        foreach ($typo in 'ea', 'alt', 's35') { Assert-True ((@(& { jk $typo } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'unknown command') "jk $typo" }
+        Assert-True ((@(& { jk 350 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'CS 350') 'its number is enough'
+        # an entry like Interviews is no course: no hints about its marks or classes
+        $d = Get-JkDueData; $null = Resolve-JkCourse $d 'intv' -Create; Save-JkDueData $d
+        $iv = @(& { jk intv } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($iv -notmatch 'jk grade import|jk class pick') "no course hints: $iv"
         Assert-True ((@(& { jk rec 14 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -notmatch 'unknown command') 'a command prefix with a number still reaches the command when no course is called that'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
@@ -3436,6 +3464,26 @@ Test 'jk help <command> names every action' {
         }
     }
     Assert-Eq (@($missing) -join ', ') ''
+}
+Test 'no function assigns over a reserved variable, or puts a non-boolean in its own switch' {
+    # names ignore case: $all in a function with [switch]$All throws, but only on a path that runs,
+    # and $home is $HOME, which is read-only
+    $reserved = 'home', 'pid', 'host', 'pshome', 'psversiontable', 'shellid', 'true', 'false', 'input', 'args', 'matches', 'error', 'this', 'foreach', 'switch', 'myinvocation', 'psscriptroot', 'pscommandpath', 'event', 'sender', 'profile', 'psitem', 'stacktrace', 'executioncontext', 'pscmdlet', 'psboundparameters'
+    $root = Get-JkRoot
+    $found = foreach ($f in @(Get-ChildItem (Join-Path $root 'lib') -Filter *.ps1) + (Get-Item (Join-Path $root 'jk.psm1'))) {
+        $errs = $null; $ast = [Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+        foreach ($fn in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+            $params = @(); if ($fn.Parameters) { $params += @($fn.Parameters) }; if ($fn.Body.ParamBlock) { $params += @($fn.Body.ParamBlock.Parameters) }
+            $switches = @($params | Where-Object { @($_.Attributes | Where-Object { $_ -is [Management.Automation.Language.TypeConstraintAst] -and $_.TypeName.FullName -eq 'switch' }).Count } | ForEach-Object { $_.Name.VariablePath.UserPath.ToLower() })
+            foreach ($a in $fn.Body.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+                $left = $a.Left; if ($left -is [Management.Automation.Language.ConvertExpressionAst]) { $left = $left.Child }
+                if ($left -isnot [Management.Automation.Language.VariableExpressionAst]) { continue }
+                $n = $left.VariablePath.UserPath.ToLower()
+                if ($reserved -contains $n -or ($switches -contains $n -and $a.Right.Extent.Text -notmatch '^\$(true|false)$')) { "$($f.Name):$($a.Extent.StartLineNumber) `$$n" }
+            }
+        }
+    }
+    Assert-Eq (@($found) -join ', ') ''
 }
 Test 'this whole run left the real install alone: profiles, module link, morning task' {
     Assert-Eq (Get-RealInstallStamp) $global:JkRealInstall 'a test reached the real machine'

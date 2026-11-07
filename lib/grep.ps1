@@ -288,18 +288,20 @@ function Format-JkGrepSnippet($Hit, [string[]]$Terms, [int]$Width) {
 # The course a search names with its first words, or $null. Only when they plainly name it: its code
 # or key whole ("cs341", "cs 341", "health", "health105"), or its number ("350"). A looser match reads
 # ordinary words as courses: "in" is inside intv, "he" inside health.
-function Resolve-JkGrepCourse($Data, [string[]]$W) {
+function Resolve-JkNamedCourse($Data, [string[]]$W, [switch]$Alone) {
+    # -Alone: the course may be all there is (jk cs341); otherwise words must follow it
+    $spare = $(if ($Alone) { 0 } else { 1 })
     $named = {
         param([string]$Text)
         $n = Get-JkNormKey $Text
         foreach ($c in @($Data.courses)) { if ((Get-JkNormKey ([string]$c.key)) -eq $n -or (Get-JkNormKey ([string]$c.code)) -eq $n) { return $c } }
         if ($n -match '^\d{3}[a-z]?$') { return (Resolve-JkCourse $Data $n) }
     }
-    if ($W.Count -gt 2 -and $W[0] -match '^[A-Za-z]{2,8}$' -and $W[1] -match '^\d{2,3}[A-Za-z]?$') {
+    if ($W.Count -ge (2 + $spare) -and $W[0] -match '^[A-Za-z]{2,8}$' -and $W[1] -match '^\d{2,3}[A-Za-z]?$') {
         $c = & $named "$($W[0]) $($W[1])"
         if ($c) { return [pscustomobject]@{ Course = $c; Rest = @($W | Select-Object -Skip 2) } }
     }
-    if ($W.Count -gt 1) {
+    if ($W.Count -ge (1 + $spare)) {
         $c = & $named $W[0]
         if ($c) { return [pscustomobject]@{ Course = $c; Rest = @($W | Select-Object -Skip 1) } }
     }
@@ -313,7 +315,7 @@ function Get-JkGrepFolders($Data, [string[]]$Words, [switch]$All) {
     $folderOf = { param($c) foreach ($k in @((Get-JkNormKey ([string]$c.code)), (Get-JkNormKey ([string]$c.key)))) { if ($k -and $folders.ContainsKey($k)) { return $folders[$k] } } }
     if ($w.Count -gt 1 -and $w[0] -match '^(all|every)$') { $All = $true; $w = @($w | Select-Object -Skip 1) }
     if (-not $All -and $w.Count -gt 1) {
-        $hit = Resolve-JkGrepCourse $Data $w
+        $hit = Resolve-JkNamedCourse $Data $w
         if ($hit) {
             $dir = & $folderOf $hit.Course
             if ($dir) { return , @(@($dir), @($hit.Rest), [string]$hit.Course.code) }

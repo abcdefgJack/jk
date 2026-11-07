@@ -3,19 +3,13 @@
 # the study jk plan has for it today and the newest files in its folder, numbered for jk find -o.
 # A word after it goes to that command for the course: jk cs341 exam, jk cs341 grep lu.
 
-# The course a command line starts with ("cs341", "cs 341", "health"): its record and the words
-# after it, or $null.
+# The course a command line starts with ("cs341", "cs 341", "health", "350"): its record and the
+# words after it, or $null. Named whole, so a typo is an unknown command, not a course it happens
+# to be inside ("nt" is in intv).
 function Resolve-JkCourseWords([string[]]$Words) {
     $w = @($Words | Where-Object { $_ })
-    if (-not $w.Count -or $w[0] -notmatch '[A-Za-z0-9]') { return $null }
-    $data = Get-JkDueData -Cached
-    if ($w.Count -ge 2 -and $w[1] -match '^\d{2,3}[A-Za-z]?$') {
-        $c = Resolve-JkCourse $data "$($w[0]) $($w[1])"
-        if ($c) { return [pscustomobject]@{ Course = $c; Rest = @($w | Select-Object -Skip 2) } }
-    }
-    $c = Resolve-JkCourse $data $w[0]
-    if ($c) { return [pscustomobject]@{ Course = $c; Rest = @($w | Select-Object -Skip 1) } }
-    $null
+    if (-not $w.Count) { return $null }
+    Resolve-JkNamedCourse (Get-JkDueData -Cached) $w -Alone
 }
 
 # "today 7:00 pm", "tomorrow 11:59 pm", "Mon Nov 9 6:00 pm"
@@ -73,6 +67,8 @@ function Show-JkCourseBrief($Course) {
     }
     if (-not $up.Count) { & $row 'next' (Paint 'green' "nothing coming up $($script:G.check)") }
 
+    # a real course has marks and classes; an entry like Interviews has neither, so no hints about them
+    $real = [string]$c.code -match '\d'
     # the marks so far, and what the rest needs
     try {
         $gd = Get-JkGradeData
@@ -81,14 +77,14 @@ function Show-JkCourseBrief($Course) {
         if ($m.Graded -gt 0) {
             $need = Get-JkNeededText $target $m
             & $wrapRow 'marks' "$(Format-JkPct $m.Average) on the $(Format-JkPct $m.Graded 0) graded so far; $($need[0]) on the rest for $(Format-JkPct $target 0)  $($script:G.arrow) jk grade $key" 'muted'
-        } else { & $row 'marks' (Paint 'gray' "none recorded yet $($script:G.dash) jk grade import $key copies them from LEARN") }
+        } elseif ($real) { & $row 'marks' (Paint 'gray' "none recorded yet $($script:G.dash) jk grade import $key copies them from LEARN") }
     } catch { }
 
     # its classes
     $cls = @((Get-JkClassData).items | Where-Object { $_.course -eq $c.key })
     if ($cls.Count) {
         & $wrapRow 'classes' (($cls | ForEach-Object { "$($_.kind) $(@($_.days) -join '/') $(Format-JkTime $_.start)$(if ($_.end) { "$($script:G.dash)$(Format-JkTime $_.end)" })$(if ($_.room) { " $($script:G.dot) $($_.room)" })" }) -join "   ") 'muted'
-    } else { & $row 'classes' (Paint 'gray' "not on your timetable $($script:G.dash) jk class pick $key") }
+    } elseif ($real) { & $row 'classes' (Paint 'gray' "not on your timetable $($script:G.dash) jk class pick $key") }
 
     # the study jk plan has for it today
     try {
