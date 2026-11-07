@@ -383,6 +383,33 @@ function Get-JkTaskInfo {
     [pscustomobject]@{ State = $state; NextRunTime = $next; LastRunTime = $last; LastTaskResult = [int]$t.LastTaskResult; PinnedToUtc = $utc }
 }
 
+# What is wrong with the morning task, as the command that fixes it and why it matters; nothing when
+# it is fine. Without it there is no popup and no alert, and nothing says so: it was once gone for
+# four days unnoticed.
+function Get-JkTaskProblem($Info, [datetime]$Now) {
+    $lost = 'no morning popup, same-day alerts or overnight sync'
+    if (-not $Info) { return @('jk setup install', "the morning task is gone: $lost until this puts it back") }
+    if ($Info.State -eq 'Disabled') { return @('jk remind install', "the morning task is switched off: $lost") }
+    if ($Info.LastRunTime -and ($Now - $Info.LastRunTime).TotalDays -ge 3) {
+        return @('jk remind install', "the morning task has not run since $($Info.LastRunTime.ToString('ddd MMM d', $script:Inv)): $lost")
+    }
+}
+
+# For the dashboard: looked up at most once an hour while all is well (about 75 ms in a fresh
+# terminal). A problem is never remembered, so fixing it clears the warning at once.
+function Get-JkTaskNudge([datetime]$Now) {
+    $mark = Join-Path (Get-JkHome) 'cache\task-ok.txt'
+    $hour = $Now.ToString('yyyyMMddHH', $script:Inv)
+    try { if ([IO.File]::Exists($mark) -and [IO.File]::ReadAllText($mark).Trim() -eq $hour) { return } } catch { }
+    $problem = @(Get-JkTaskProblem (Get-JkTaskInfo) $Now)
+    if ($problem.Count) { return $problem }
+    try {
+        $dir = Split-Path $mark
+        if (-not [IO.Directory]::Exists($dir)) { $null = [IO.Directory]::CreateDirectory($dir) }
+        Write-JkText $mark $hour
+    } catch { }
+}
+
 function Get-JkTaskCommand {
     $psd1 = Join-Path (Get-JkRoot) 'jk.psd1'
     "Import-Module '$($psd1.Replace("'", "''"))'; jk remind tick"
