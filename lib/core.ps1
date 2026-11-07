@@ -888,21 +888,11 @@ function Show-JkToast {
     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($toast)
 }
 
-# jk's own notification: a small dark card that slides in above the taskbar,
-# never steals focus, pauses its timer while hovered, and works even when
-# Windows notifications are turned off.
-function Show-JkPopup {
-    param(
-        [string]$Title,
-        [string[]]$Lines = @(),
-        [string]$Accent = '7C9CF8',
-        [string]$Open = '',
-        [string]$OpenLabel = 'Open',
-        [int]$Seconds = 12,
-        [switch]$Sound
-    )
-    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-    $x = { param($s) [Security.SecurityElement]::Escape([string]$s) }
+# The card's XAML on its own, so a test can lay it out and look at it without showing a window.
+function New-JkPopupXaml([string]$Title, [string[]]$Lines = @(), [string]$Accent = '7C9CF8', [string]$Open = '', [string]$OpenLabel = 'Open') {
+    # a value starting with { is a markup extension in XAML: "{Quiz} 3 closes" would stop the card
+    # from being read at all, and that morning's popup with it. {} in front says "plain text".
+    $x = { param($s) $e = [Security.SecurityElement]::Escape([string]$s); if ($e.StartsWith('{')) { '{}' + $e } else { $e } }
     $accentHex = '#' + $Accent.TrimStart('#')
     $lineXaml = ''
     foreach ($l in $Lines) {
@@ -940,7 +930,24 @@ function Show-JkPopup {
   </Border>
 </Window>
 "@
-    $win = [Windows.Markup.XamlReader]::Parse($xaml)
+    $xaml
+}
+
+# jk's own notification: a small dark card that slides in above the taskbar,
+# never steals focus, pauses its timer while hovered, and works even when
+# Windows notifications are turned off.
+function Show-JkPopup {
+    param(
+        [string]$Title,
+        [string[]]$Lines = @(),
+        [string]$Accent = '7C9CF8',
+        [string]$Open = '',
+        [string]$OpenLabel = 'Open',
+        [int]$Seconds = 12,
+        [switch]$Sound
+    )
+    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+    $win = [Windows.Markup.XamlReader]::Parse((New-JkPopupXaml $Title $Lines $Accent $Open $OpenLabel))
     $area = [System.Windows.SystemParameters]::WorkArea
     $win.Left = $area.Right - $win.Width - 4
     $win.Opacity = 0
@@ -967,8 +974,10 @@ function Show-JkPopup {
     }
     $win.Add_Loaded({
         $offset = $slot * ($win.ActualHeight - 8)
-        $win.Top = $area.Bottom - $win.ActualHeight + 16 - $offset
-        $target = $area.Bottom - $win.ActualHeight - 4 - $offset
+        # never above the screen, where the title and the close button would be out of reach: a tall
+        # card, or a second one stacked over it, overlaps instead
+        $target = [Math]::Max($area.Top + 4, $area.Bottom - $win.ActualHeight - 4 - $offset)
+        $win.Top = $target + 20
         $dur = New-Object System.Windows.Duration ([TimeSpan]::FromMilliseconds(260))
         $ease = New-Object System.Windows.Media.Animation.CubicEase
         $ease.EasingMode = 'EaseOut'

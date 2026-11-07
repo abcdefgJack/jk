@@ -2210,6 +2210,34 @@ Test 'term phases: no section nudge after classes; next-term pointer; bigger exa
         $script:JkConfigCache = $null
     }
 }
+Test 'the popup card reads any title, and a crowded morning still fits a laptop screen' {
+    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+    $measure = {
+        param([string]$Title, [string[]]$Lines)
+        $win = [Windows.Markup.XamlReader]::Parse((New-JkPopupXaml $Title $Lines 'F87C7C' 'file:///C:/x.html' 'Open calendar'))
+        $card = $win.Content; $win.Content = $null
+        $card.Measure((New-Object System.Windows.Size ($win.Width, [double]::PositiveInfinity)))
+        $card.DesiredSize.Height
+    }
+    # what a title can hold: quotes, ampersands, angle brackets, and a brace up front
+    foreach ($t in "Read 'Ch 3' & <notes>", '{Quiz} 3 closes', 'Lab {1}', '100% done "now"', (-join ([char[]](0x7B2C, 0x4E8C, 0x6B21)))) {
+        $h = & $measure $t @("Today 11:59 pm - $t")
+        Assert-True ($h -gt 50) "'$t' lays out ($h px)"
+    }
+    # everything the morning popup can hold at once: six deadlines (the rest as "+N more"), exams,
+    # classes, weather, to-dos, the study plan, LEARN's moves
+    $long = 'Today 11:59 pm - CS 341 Assignment 9 - Dynamic Programming and the Very Long Title That Goes On (8%)'
+    $busy = @('Classes today: 8:30 am CO 367 LEC (MC 2017), 10:00 am CS 341 LEC (DWE 3522), 1:00 pm CS 350 LEC (STC 0060), 4:00 pm CS 370 TUT (MC 4045)') + @(1..6 | ForEach-Object { $long }) +
+        @('Tomorrow 6:00 pm - HEALTH 105 Midterm 2 (exam, online window, 90 minutes)', 'In 2 days 4:00 pm - CS 370 Final (exam) - room TBA', '+4 more', 'Weather: rain from 3 pm, 9 mm; take an umbrella. High 6, low -2, gusts 50 km/h', 'To-do: email the prof about the regrade, print the notes, buy a planner, +3 more', 'Study today: CS 341 1h 40m, CS 350 1h 10m, HEALTH 105 25m, CO 367 25m', 'LEARN moved: CS 350 A3 to Fri Nov 13 8:00 pm; CS 341 A4 to Mon Nov 16 11:59 pm')
+    # the parts Show-JkPopup wires up are there to find
+    $w = [Windows.Markup.XamlReader]::Parse((New-JkPopupXaml 'x' @('y') 'F87C7C' 'file:///C:/x.html' 'Open calendar'))
+    Assert-True ($w.FindName('CloseBtn') -and $w.FindName('OpenBtn')) 'close and open buttons'
+    Assert-True (-not ([Windows.Markup.XamlReader]::Parse((New-JkPopupXaml 'x' @('y')))).FindName('OpenBtn')) 'no open button without a link'
+    $h = & $measure '9 deadlines in the next 48h and 2 exams in 3 days' $busy
+    # a 1920x1080 screen at 125% leaves 816 px above the taskbar (this laptop's); on a smaller one the
+    # card's top stays on screen and only its bottom would tuck under the taskbar
+    Assert-True ($h -lt 760) "a crowded morning is $([int]$h) px tall"
+}
 Test 'saving while another jk reads or saves: nothing fails, and a read is never empty' {
     # Move-Item -Force deletes the old file first: nearly 5% of reads under this load found no file,
     # read that as "no data yet", and a save after one would have written an empty list over the data
