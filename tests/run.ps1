@@ -2208,6 +2208,52 @@ Test 'term phases: no section nudge after classes; next-term pointer; bigger exa
         $script:JkConfigCache = $null
     }
 }
+Test 'saving while another jk reads or saves: nothing fails, and a read is never empty' {
+    # Move-Item -Force deletes the old file first: nearly 5% of reads under this load found no file,
+    # read that as "no data yet", and a save after one would have written an empty list over the data
+    $box = Join-Path $env:JK_HOME 'race'
+    $null = New-Item -ItemType Directory -Path (Join-Path $box 'home') -Force
+    $worker = Join-Path $box 'worker.ps1'
+    Write-JkText $worker @'
+param([string]$Role, [string]$Home2, [string]$Module, [string]$Out, [string]$Start)
+$env:JK_HOME = $Home2
+Import-Module $Module -Force -DisableNameChecking
+$begin = [datetime]::Parse($Start)
+while ((Get-Date) -lt $begin) { Start-Sleep -Milliseconds 20 }
+$r = & (Get-Module jk) {
+    param($Role, $until)
+    $ok = 0; $bad = @{}; $seen = $false; $i = 0
+    while ((Get-Date) -lt $until) {
+        $i++
+        try {
+            if ($Role -eq 'write') { Save-JkJson 'todo.json' ([pscustomobject]@{ nextId = 9; items = @(1..30 | ForEach-Object { [pscustomobject]@{ id = $_; text = "item $PID $i" } }) }) }
+            else {
+                $d = Read-JkJson 'todo.json' $null
+                if ($d) { $seen = $true; if (@($d.items).Count -ne 30) { throw 'a short file' } }
+                elseif ($seen) { throw 'read as empty' }
+            }
+            $ok++
+        } catch { $m = ([string]$_.Exception.Message) -replace '\d+', 'N'; $bad[$m] = [int]$bad[$m] + 1 }
+    }
+    "$Role ok=$ok " + (($bad.Keys | ForEach-Object { "[$($bad[$_]) x $_]" }) -join ' ')
+} $Role $begin.AddSeconds(3)
+[IO.File]::AppendAllText($Out, "$r`n")
+'@
+    $out = Join-Path $box 'out.txt'
+    $start = (Get-Date).AddSeconds(4).ToString('o')
+    $module = Join-Path (Get-JkRoot) 'jk.psd1'
+    $procs = @(foreach ($role in 'write', 'write', 'read', 'read') {
+            $psi = New-Object Diagnostics.ProcessStartInfo (Get-JkPowerShellExe), ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $worker + '" -Role ' + $role + ' -Home2 "' + (Join-Path $box 'home') + '" -Module "' + $module + '" -Out "' + $out + '" -Start "' + $start + '"')
+            $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+            [Diagnostics.Process]::Start($psi)
+        })
+    foreach ($p in $procs) { Assert-True ($p.WaitForExit(60000)) 'a worker did not finish' }
+    $lines = @(Get-Content -LiteralPath $out)
+    Assert-Eq $lines.Count 4 "every worker reported: $($lines -join ' / ')"
+    foreach ($l in $lines) { Assert-True ($l -match '^(write|read) ok=[1-9]\d* $') $l }
+    $left = @(Get-ChildItem -LiteralPath (Join-Path $box 'home') -File -Force | Where-Object { $_.Name -ne 'todo.json' -and $_.Name -notmatch '^backups$' } | ForEach-Object { $_.Name })
+    Assert-Eq ($left -join ', ') '' 'nothing left behind, nothing marked damaged'
+}
 Test 'a damaged data file is replaced by the newest backup that reads' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved ('heal-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
