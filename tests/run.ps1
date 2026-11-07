@@ -1079,6 +1079,30 @@ Test 'disk filling up fast: a reading a day, 4 GB gone in three days is said' {
         if ($null -ne $saved) { [IO.File]::WriteAllText($p, $saved) } else { Remove-Item -LiteralPath $p -ErrorAction SilentlyContinue }
     }
 }
+Test 'jk grep: a first word is a course only when it plainly names one; every course folder counts' {
+    $courses = Join-Path $env:JK_HOME 'grep-scope'
+    foreach ($n in 'CS350', 'CO367', 'HEALTH105', 'MATH999') { New-Item -ItemType Directory (Join-Path $courses $n) -Force | Out-Null }
+    $mkc = { param($key, $code) [pscustomobject]@{ key = $key; code = $code; name = '' } }
+    $data = [pscustomobject]@{ courses = @((& $mkc 'cs350' 'CS 350'), (& $mkc 'co367' 'CO 367'), (& $mkc 'health' 'HEALTH 105'), (& $mkc 'intv' 'Interviews'), (& $mkc 'oa' 'OA'), (& $mkc 'cs999' 'CS 999')) }
+    $saved = Get-JkConfig 'tidy.courses'
+    Set-JkConfig 'tidy.courses' $courses
+    try {
+        $f = { param([string]$q) $r = Get-JkGrepFolders $data ($q -split ' '); "$($r[2])|$(@($r[1]) -join ' ')|$(@($r[0] | ForEach-Object { Split-Path $_ -Leaf }) -join ',')" }
+        $term = "this term's courses"
+        $all = 'CS350,CO367,HEALTH105'
+        # ordinary words inside a course's name stay words, and nothing is lost
+        foreach ($q in 'in place sorting', 'he said', 'al gorithm', 'co prime', 'oa questions', 'dynamic programming') { Assert-Eq (& $f $q) "$term|$q|$all" $q }
+        # this term's scope reaches a course whose key is not its folder's name
+        Assert-True ((& $f 'stigma') -match 'HEALTH105') 'one word: this term, HEALTH105 included'
+        # a course plainly named: by key, code, either spelling, or number
+        foreach ($q in 'health stigma', 'health105 stigma') { Assert-Eq (& $f $q) 'HEALTH 105|stigma|HEALTH105' $q }
+        foreach ($q in 'cs350 semaphore', 'cs 350 semaphore', '350 semaphore') { Assert-Eq (& $f $q) 'CS 350|semaphore|CS350' $q }
+        Assert-Eq (& $f 'math999 eigenvalue') 'MATH999|eigenvalue|MATH999' 'a past course: by its folder'
+        Assert-Eq (& $f 'all eigenvalue').Split('|')[0] 'every course' 'jk grep all'
+        $msg = ''; try { $null = Get-JkGrepFolders $data @('cs999', 'x') } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg -match '^no folder found for CS 999 \(jk config set tidy\.courses') "a real course with no folder says so: $msg"
+    } finally { Set-JkConfig 'tidy.courses' $saved }
+}
 Test 'jk shots find: the words in screenshots, read once, newest first, kept when filed' {
     $dir = Join-Path $env:JK_HOME 'shots-find'
     New-Item -ItemType Directory (Join-Path $dir '2026-10') -Force | Out-Null
@@ -1131,8 +1155,25 @@ Test 'jk shots find: the words in screenshots, read once, newest first, kept whe
         Move-Item -LiteralPath $newest -Destination (Join-Path $dir '2026-11')
         if ($ocr) { Assert-Eq (Update-JkShotsIndex -Seconds 60).Now 0 'a moved screenshot is not read again' }
         Assert-True ((@(& { jk shots find backward euler } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match '101010\.png\s+\S[^\n]*?\s2026-11\s*(\n|$)') 'found where it is now (its date reads against the real clock)'
+        # the background reader at work: a search reads nothing itself, and says what is left
+        $mark = Get-JkShotsIndexMark
+        & $mk (Join-Path $dir 'Screenshot 2026-11-02 070707.png') 'Quarterly pivot table' ([datetime]'2026-11-02T07:07')
+        $held = [IO.File]::ReadAllText($idx)
+        [IO.File]::WriteAllText($mark, '')
+        $t3 = @(& { jk shots find quarterly } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-Eq ([IO.File]::ReadAllText($idx)) $held 'nothing read twice while it runs'
+        Assert-True ($t3 -match '3 of 4 read' -and $t3 -match '1 older screenshots not read yet: reading them in the background') "says so: $t3"
+        Remove-Item -LiteralPath $mark
+        # jk shots forget takes the mark away: a reader that sees it gone stops and writes nothing
+        if ($ocr) {
+            $stopped = Update-JkShotsIndex -Seconds 60 -StopFile (Join-Path $env:JK_HOME 'no-such-mark')
+            Assert-Eq "$($stopped.Now) $($stopped.Left)" '0 1' 'stopped before reading anything'
+            Assert-Eq ([IO.File]::ReadAllText($idx)) $held 'and left nothing behind'
+        }
+        [IO.File]::WriteAllText($mark, '')
         jk shots forget
         Assert-True (-not (Test-Path -LiteralPath $idx)) 'forget deletes the text'
+        Assert-True (-not (Test-Path -LiteralPath $mark)) 'and stops a background reader'
     } finally {
         Set-JkConfig 'shots.path' $savedPath
         Remove-Item -LiteralPath $idx, "$idx.langs" -ErrorAction SilentlyContinue
