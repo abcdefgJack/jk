@@ -63,7 +63,7 @@ function Invoke-JkConfig {
             Say (Paint 'green' "  $($a[1]) reset to default ($(Get-JkConfig $a[1]))")
             return
         }
-        '^edit$' { $p = Get-JkPath 'config.json'; if (-not (Test-Path $p)) { Save-JkJson 'config.json' ([pscustomobject]@{}) }; Open-JkInEditor $p; return }
+        '^edit$' { $p = Get-JkPath 'config.json'; if (-not (Test-Path -LiteralPath $p)) { Save-JkJson 'config.json' ([pscustomobject]@{}) }; Open-JkInEditor $p; return }
         '^path$' { Say (Get-JkHome); return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'config'; return }
     }

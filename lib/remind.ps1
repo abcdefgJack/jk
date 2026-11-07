@@ -440,7 +440,7 @@ function Install-JkRemindTask {
     $ps = Get-JkPowerShellExe
     $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
     $psArgs = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$(Get-JkTaskCommand)`""
-    if (Test-Path $conhost) { $action = New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$ps`" $psArgs" }
+    if (Test-Path -LiteralPath $conhost) { $action = New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$ps`" $psArgs" }
     else { $action = New-ScheduledTaskAction -Execute $ps -Argument $psArgs }
     $at = [datetime]::ParseExact($time, 'HH:mm', $script:Inv)
     $triggers = @(New-JkDailyTrigger $at)

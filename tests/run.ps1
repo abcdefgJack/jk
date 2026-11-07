@@ -1048,6 +1048,23 @@ Test 'jk grep: words inside course files by page, phrase first, one course or al
             [IO.File]::WriteAllText($real, $sb.ToString(), [Text.Encoding]::ASCII)
             $t7 = @(& { jk grep math999 eigenvalue } 6>&1 | ForEach-Object { "$_" }) -join "`n"
             Assert-True ($t7 -match 'real\.pdf\s+p\.2\s+the eigenvalue of the matrix') "pdftotext, by page: $t7"
+            # a name outside the code page reaches pdftotext as "?": it reads a plain copy instead, and
+            # an empty result cached before that was fixed is read once more
+            $cn = -join ([char[]](0x738B, 0x73CF))
+            $cnDir = Join-Path $env:JK_HOME "$cn notes"; $null = New-Item -ItemType Directory -Path $cnDir -Force
+            $cnPdf = Join-Path $cnDir "$cn.pdf"; [IO.File]::Copy($real, $cnPdf, $true)
+            $cnFile = Get-Item -LiteralPath $cnPdf
+            if (-not (Test-JkAnsiPath $cnPdf)) {
+                $cached = Get-JkTextCachePath $cnFile.FullName
+                $null = New-Item -ItemType Directory -Path (Split-Path $cached) -Force
+                Write-JkText $cached "v1|$($cnFile.Length)|$($cnFile.LastWriteTimeUtc.Ticks)`n"
+            }
+            $doc = @(Get-JkGrepDocs @($cnFile))[0]
+            Assert-True (-not $doc.Empty) 'a PDF named outside the code page is read'
+            Assert-True ($doc.Pages[1] -match 'the eigenvalue') "its pages: $($doc.Pages -join ' / ')"
+            Assert-Eq @(Get-ChildItem -LiteralPath (Join-Path (Get-JkCacheDir) 'text') -Filter '*.pdf').Count 0 'the copy is gone'
+            $v1 = Get-Item -LiteralPath $real
+            Assert-True ((Get-JkTextStamp $v1).StartsWith('v1|')) 'anything else keeps the text it has'
             # enough at once for the progress bar: every one read, none twice
             $many = Join-Path $other 'many'; $null = New-Item -ItemType Directory $many -Force
             1..22 | ForEach-Object { Copy-Item $real (Join-Path $many "copy$_.pdf") }
@@ -2811,6 +2828,35 @@ Test 'cp add: clipboard to numbered samples, CRLF normalized, empty template reu
         Assert-Throws { Add-JkCpTest -In } 'empty clipboard is rejected'
     } finally { Pop-Location }
 }
+Test 'brackets in a folder name are not a wildcard: jk cp add keeps the samples, jk pdf finds the files' {
+    $cn = -join ([char[]](0x738B, 0x73CF))
+    $dir = Join-Path $env:JK_HOME 'A [easy version]'
+    $null = New-Item -ItemType Directory -Path $dir -Force
+    Write-JkText (Join-Path $dir '1.in') 'FIRST'
+    $orig = ${function:Get-JkClipboardText}
+    Push-Location -LiteralPath $dir
+    try {
+        function script:Get-JkClipboardText { 'NEW' }
+        $null = @(Add-JkCpTest -In 6>&1)
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $dir '1.in'))) 'FIRST' 'a filled sample is not overwritten'
+        Assert-Eq ([IO.File]::ReadAllText((Join-Path $dir '2.in'))).Trim() 'NEW' 'the next number is used'
+    } finally { Pop-Location; Set-Item function:script:Get-JkClipboardText $orig }
+    # jk pdf: a name as typed is that file; only then is it a pattern
+    $scans = Join-Path $env:JK_HOME 'Sc[a]ns'
+    $null = New-Item -ItemType Directory -Path $scans -Force
+    foreach ($n in 'page[1].png', 'page[2].png', "$cn.png") { Write-JkText (Join-Path $scans $n) 'x' }
+    $leaf = { param([string[]]$Items) @(Resolve-JkPdfInputs $Items | ForEach-Object { Split-Path $_ -Leaf } | Sort-Object) -join '|' }
+    $every = @("$cn.png", 'page[1].png', 'page[2].png' | Sort-Object) -join '|'
+    Assert-Eq (& $leaf @((Join-Path $scans '*.png'))) $every 'a pattern in a folder with brackets'
+    Assert-Eq (& $leaf @((Join-Path $scans 'page[2].png'))) 'page[2].png' 'by its full name'
+    Push-Location -LiteralPath $scans
+    try {
+        Assert-Eq (& $leaf @('page[1].png')) 'page[1].png' 'by a relative name'
+        Assert-Eq (& $leaf @("$cn.png")) "$cn.png"
+        Assert-Eq (& $leaf @('*.png')) $every
+        Assert-Throws { Resolve-JkPdfInputs @('nothing.png') } 'a plain name that is not there'
+    } finally { Pop-Location }
+}
 if (Get-Command g++ -ErrorAction SilentlyContinue) {
     Test 'compile, run, PASS/WA/RTE end to end (g++)' {
         $dir = Join-Path $env:JK_HOME 'cp-e2e'
@@ -2827,6 +2873,49 @@ if (Get-Command g++ -ErrorAction SilentlyContinue) {
         Assert-True ($r.PeakMB -gt 0) 'peak memory measured'
         $again = Build-JkCp $src -Quiet
         Assert-True (-not $again.Compiled) 'second build hits the cache'
+    }
+    Test 'jk cp builds and runs in folders with brackets, an apostrophe, an ampersand or a Chinese name' {
+        $cn = -join ([char[]](0x738B, 0x73CF))
+        foreach ($name in 'A [easy version]', "o'brien", 'c&d 100%', "$cn x") {
+            $dir = Join-Path $env:JK_HOME "cp-names\$name"
+            $null = New-Item -ItemType Directory -Path $dir -Force
+            Write-JkText (Join-Path $dir 'main.cpp') "#include <iostream>`nint main(){ long long a,b; std::cin>>a>>b; std::cout<<a+b<<std::endl; }`n"
+            $src = Get-Item -LiteralPath (Join-Path $dir 'main.cpp')
+            $run = Build-JkCp $src -Quiet
+            $r = Invoke-JkProcess -Exe $run.Exe -ArgList $run.Args -InputText "40 2`n" -WorkDir $dir
+            Assert-Eq $r.Out.Trim() '42' "release, in $name"
+            Assert-True (-not (Build-JkCp $src -Quiet).Compiled) "the second build hits the cache, in $name"
+        }
+        $dir = Join-Path $env:JK_HOME "cp-names\$cn x"
+        $src = Get-Item -LiteralPath (Join-Path $dir 'main.cpp')
+        $run = Build-JkCp $src -DebugBuild -Quiet
+        Assert-Eq (Invoke-JkProcess -Exe $run.Exe -ArgList $run.Args -InputText "1 2`n" -WorkDir $dir).Out.Trim() '3' 'the debug build too'
+        # a compile error still names the file as typed, not by a mangled path
+        Write-JkText (Join-Path $dir 'bad.cpp') "int main(){ return x; }`n"
+        $bad = Get-Item -LiteralPath (Join-Path $dir 'bad.cpp')
+        $said = @(& { try { $null = Build-JkCp $bad -Quiet } catch { "threw: $($_.Exception.Message)" } } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($said -match 'bad\.cpp:1' -and $said -match 'threw: compilation failed') $said
+        # the file's own name cannot be worked around: say what to do
+        if (-not (Test-JkAnsiPath $cn)) {
+            Write-JkText (Join-Path $dir "$cn.cpp") "int main(){}`n"
+            $named = Get-Item -LiteralPath (Join-Path $dir "$cn.cpp")
+            $m = try { $null = Build-JkCp $named -Quiet; '' } catch { $_.Exception.Message }
+            Assert-True ($m -match 'rename it') "named outside the code page: $m"
+        }
+    }
+    if (Get-Command javac -ErrorAction SilentlyContinue) {
+        Test 'jk cp builds and runs Java in a folder with brackets or a Chinese name' {
+            $cn = -join ([char[]](0x738B, 0x73CF))
+            foreach ($name in 'J [hard]', "$cn java") {
+                $dir = Join-Path $env:JK_HOME "cp-names\$name"
+                $null = New-Item -ItemType Directory -Path $dir -Force
+                Write-JkText (Join-Path $dir 'Main.java') 'import java.util.*;public class Main{public static void main(String[] x){Scanner s=new Scanner(System.in);System.out.println(s.nextInt()+s.nextInt());}}'
+                $src = Get-Item -LiteralPath (Join-Path $dir 'Main.java')
+                $run = Build-JkCp $src -Quiet
+                $r = Invoke-JkProcess -Exe $run.Exe -ArgList $run.Args -InputText "40 2`n" -WorkDir $dir -TimeoutMs 30000
+                Assert-Eq $r.Out.Trim() '42' "in $name"
+            }
+        }
     }
     Test 'bits/stdc++.h is precompiled once per set of flags, outside the data folder; a failure is not retried' {
         $gpp = Get-Command g++
@@ -2942,7 +3031,8 @@ Test 'jk cp listen: Competitive Companion problems, one or a whole contest, over
     $savedRoot = Get-JkConfig 'cp.root'
     Set-JkConfig 'cp.root' $root
     $here = Get-Location
-    $port = Get-Random -Minimum 20000 -Maximum 50000
+    # one Windows says is free: a random pick landed on a port another program held
+    $probe = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0); $probe.Start(); $port = $probe.LocalEndpoint.Port; $probe.Stop()
     $job = Start-Job -ArgumentList $port -ScriptBlock { param($p)
         # every field the extension sends (its README's example, two problems of one contest)
         $mk = { param($l, $in, $out) '{"name":"' + $l + '. X","group":"Codeforces Round 2000 (Div. 2)","url":"https://codeforces.com/contest/2000/problem/' + $l + '","interactive":false,"memoryLimit":256,"timeLimit":2000,"tests":[{"input":"' + $in + '","output":"' + $out + '"}],"testType":"single","input":{"type":"stdin"},"output":{"type":"stdout"},"languages":{"java":{"mainClass":"Main","taskClass":"X"}},"batch":{"id":"123e67c8-03c6-44a4-a3f9-5918def8bac4","size":2}}' }
@@ -3542,6 +3632,33 @@ Test 'jk help <command> names every action' {
         }
     }
     Assert-Eq (@($missing) -join ', ') ''
+}
+Test 'file commands take a path literally: a [ in a name is not a wildcard' {
+    # Test-Path $p is false for an existing "A [easy]\1.in", and jk cp add wrote over that sample
+    $cmds = 'Test-Path', 'Get-Item', 'Get-ChildItem', 'Get-Content', 'Set-Content', 'Add-Content', 'Copy-Item', 'Move-Item', 'Rename-Item', 'Remove-Item', 'Resolve-Path', 'Out-File', 'Get-FileHash', 'Invoke-Item'
+    $root = Get-JkRoot
+    $found = foreach ($f in @(Get-ChildItem (Join-Path $root 'lib') -Filter *.ps1) + (Get-Item (Join-Path $root 'jk.psm1'))) {
+        $errs = $null; $ast = [Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+        foreach ($c in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $cmds -contains $n.GetCommandName() }, $true)) {
+            $el = @($c.CommandElements)
+            $loose = $false
+            for ($i = 1; $i -lt $el.Count; $i++) {
+                $e = $el[$i]
+                if ($e -is [Management.Automation.Language.CommandParameterAst]) {
+                    if ($e.ParameterName -ieq 'Path') { $loose = $true }
+                    # the value of a parameter is not a positional path
+                    if ($e.ParameterName -notmatch '^(?i)(Force|Recurse|File|Directory)$' -and -not $e.Argument) { $i++ }
+                    continue
+                }
+                if ($e -is [Management.Automation.Language.StringConstantExpressionAst]) { continue }
+                if ($e -is [Management.Automation.Language.VariableExpressionAst] -and $e.Splatted) { continue }
+                if ($e.Extent.Text -match '^"function:') { continue }   # a command, not a file
+                $loose = $true
+            }
+            if ($loose) { "$($f.Name):$($c.Extent.StartLineNumber) $($c.Extent.Text)" }
+        }
+    }
+    Assert-Eq (@($found) -join "`n") '' 'paths passed without -LiteralPath'
 }
 Test 'no function assigns over a reserved variable, or puts a non-boolean in its own switch' {
     # names ignore case: $all in a function with [switch]$All throws, but only on a path that runs,

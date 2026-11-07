@@ -279,7 +279,7 @@ function Invoke-JkTidyApply([string]$Path, $Plan) {
         }
     }
     $dir = Get-JkPath 'tidy'
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     # milliseconds: two batches in the same second must not share (and overwrite) one undo log
     $name = (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.json'
     Save-JkJson "tidy\$name" ([pscustomobject]@{ root = $Path; at = (Get-Date).ToString('s'); moves = $log.ToArray() })

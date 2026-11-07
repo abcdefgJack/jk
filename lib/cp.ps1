@@ -116,7 +116,10 @@ function Build-JkCp {
             }
             if (-not $Quiet) { Write-Host (Paint 'gray' "  compiling $($Src.Name)$($script:G.ell)") -NoNewline }
             $sw = [Diagnostics.Stopwatch]::StartNew()
-            $allArgs = $flags + $pchArgs + @('-o', $exe, $Src.FullName)
+            # names relative to the source's folder: g++ takes its arguments through the code page, so
+            # a folder named outside it (Chinese, on a Western Windows) would reach it as "?"
+            if (-not (Test-JkAnsiPath $Src.Name)) { throw "g++ can't read the file name '$($Src.Name)' on this Windows: rename it using plain letters" }
+            $allArgs = $flags + $pchArgs + @('-o', (Join-Path $script:JkCpBuildDir (Split-Path $exe -Leaf)), $Src.Name)
             $res = Invoke-JkProcess -Exe $gpp.Source -ArgList $allArgs -InputText '' -TimeoutMs 120000 -WorkDir $Src.DirectoryName
             $sw.Stop()
             if (-not $Quiet) { Write-Host "`r" -NoNewline }
@@ -151,15 +154,19 @@ function Build-JkCp {
             $stampFile = Join-Path $buildDir "$cls.java.stamp"
             $hash = (Get-FileHash -LiteralPath $Src.FullName -Algorithm SHA1).Hash
             $classFile = Join-Path $buildDir "$cls.class"
-            if (-not ((Test-Path $classFile) -and (Test-Path $stampFile) -and ([IO.File]::ReadAllText($stampFile) -eq $hash))) {
+            if (-not ((Test-Path -LiteralPath $classFile) -and (Test-Path -LiteralPath $stampFile) -and ([IO.File]::ReadAllText($stampFile) -eq $hash))) {
                 if (-not $Quiet) { Write-Host (Paint 'gray' "  compiling $($Src.Name)$($script:G.ell)") -NoNewline }
-                $res = Invoke-JkProcess -Exe $javac.Source -ArgList @('-encoding', 'UTF-8', '-d', $buildDir, $Src.FullName) -InputText '' -TimeoutMs 120000 -WorkDir $Src.DirectoryName
+                # relative, as for g++: the java tools read their arguments through the code page too
+                if (-not (Test-JkAnsiPath $Src.Name)) { throw "javac can't read the file name '$($Src.Name)' on this Windows: rename it using plain letters" }
+                $res = Invoke-JkProcess -Exe $javac.Source -ArgList @('-encoding', 'UTF-8', '-d', $script:JkCpBuildDir, $Src.Name) -InputText '' -TimeoutMs 120000 -WorkDir $Src.DirectoryName
                 if (-not $Quiet) { Write-Host "`r" -NoNewline }
                 if ($res.Code -ne 0) { Write-JkCompilerOutput ($res.Err + $res.Out); throw "compilation failed ($($Src.Name))" }
                 [IO.File]::WriteAllText($stampFile, $hash)
                 if (-not $Quiet) { Say (Paint 'gray' "  compiled $($Src.Name)") }
             }
-            return [pscustomobject]@{ Exe = $java.Source; Args = @('-Xss256m', '-Dfile.encoding=UTF-8', '-cp', $buildDir, $cls); Compiled = $true; Lang = 'java' }
+            # the full path works from anywhere, so it stays wherever the code page can carry it
+            $cp = $(if (Test-JkAnsiPath $buildDir) { $buildDir } else { $script:JkCpBuildDir })
+            return [pscustomobject]@{ Exe = $java.Source; Args = @('-Xss256m', '-Dfile.encoding=UTF-8', '-cp', $cp, $cls); Compiled = $true; Lang = 'java' }
         }
     }
     throw "don't know how to build $($Src.Name)"
@@ -431,7 +438,9 @@ function Invoke-JkCpRun {
     if (-not $src) { throw 'no source file here' }
     $run = Build-JkCp $src -DebugBuild:$DebugBuild
     Say (Paint 'gray' "  running $($src.Name) $($script:G.dot) type input, then Ctrl+Z and Enter to finish")
-    & $run.Exe @($run.Args)
+    # from the source's folder, as the sample runs are, where its relative names mean what they say
+    Push-Location -LiteralPath $src.DirectoryName
+    try { & $run.Exe @($run.Args) } finally { Pop-Location }
     Say (Paint 'gray' "  exit code $LASTEXITCODE")
 }
 
@@ -475,7 +484,7 @@ function New-JkCpProblem {
         $text = [IO.File]::ReadAllText((Join-Path $tplDir $tplName))
         $text = $text.Replace('{{NAME}}', ($Name -replace '[^A-Za-z0-9_]', '')).Replace('{{DATE}}', (Get-Date -Format 'yyyy-MM-dd'))
         Write-JkText $src $text
-        foreach ($f in '1.in', '1.out') { $p = Join-Path $dir $f; if (-not (Test-Path $p)) { Write-JkText $p '' } }
+        foreach ($f in '1.in', '1.out') { $p = Join-Path $dir $f; if (-not (Test-Path -LiteralPath $p)) { Write-JkText $p '' } }
     }
     # the page's samples, into files that are missing or still empty (never over ones you filled in)
     $got = 0
@@ -733,7 +742,7 @@ function Add-JkCpTest {
     if (-not $n) {
         $n = 1
         # reuse an empty N.in (the template's 1.in) before creating a new number
-        while ((Test-Path (Join-Path $dir "$n.in")) -and ((Get-Item (Join-Path $dir "$n.in")).Length -gt 0)) { $n++ }
+        while ((Test-Path -LiteralPath (Join-Path $dir "$n.in")) -and ((Get-Item -LiteralPath (Join-Path $dir "$n.in")).Length -gt 0)) { $n++ }
     }
     $clip = Get-JkClipboardText
     if (-not $clip -or -not $clip.Trim()) { throw 'the clipboard is empty - copy the sample input first' }

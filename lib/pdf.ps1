@@ -111,11 +111,14 @@ function Join-JkPdfFiles([string[]]$Pdfs, [string]$Out) {
 # order so IMG_2 comes before IMG_10.
 function Resolve-JkPdfInputs([string[]]$Items) {
     foreach ($it in @($Items | Where-Object { $_ })) {
-        if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($it)) {
-            $dir = Split-Path $it -Parent; if (-not $dir) { $dir = '.' }
-            @(Get-ChildItem -Path $dir -Filter (Split-Path $it -Leaf) -File -ErrorAction SilentlyContinue | Sort-Object { Get-JkNaturalKey $_.Name }) | ForEach-Object { $_.FullName }
-        } elseif (Test-Path -LiteralPath $it -PathType Leaf) { (Resolve-Path -LiteralPath $it).ProviderPath }
-        else { throw "no such file: $it" }
+        # a name that exists as typed is that file, even with brackets in it ("page[1].png") or in
+        # the folder it is in; only then is it a pattern
+        $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($it)
+        if ([IO.File]::Exists($full)) { $full; continue }
+        if (-not [Management.Automation.WildcardPattern]::ContainsWildcardCharacters($it)) { throw "no such file: $it" }
+        $dir = Split-Path $full -Parent
+        $where = $(if (Test-Path -LiteralPath $dir) { @{ LiteralPath = $dir } } else { @{ Path = $dir } })
+        @(Get-ChildItem @where -Filter (Split-Path $full -Leaf) -File -ErrorAction SilentlyContinue | Sort-Object { Get-JkNaturalKey $_.Name }) | ForEach-Object { $_.FullName }
     }
 }
 

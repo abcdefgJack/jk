@@ -82,7 +82,7 @@ function Invoke-JkShotsFile {
         } catch { $failed++ }
     }
     $dirLog = Get-JkPath 'tidy'
-    if (-not (Test-Path $dirLog)) { New-Item -ItemType Directory -Path $dirLog | Out-Null }
+    if (-not (Test-Path -LiteralPath $dirLog)) { New-Item -ItemType Directory -Path $dirLog | Out-Null }
     Save-JkJson "tidy\$(Get-Date -Format 'yyyyMMdd-HHmmss-fff').json" ([pscustomobject]@{ root = $Path; at = (Get-Date).ToString('s'); moves = $log.ToArray() })
     $months = @($log | ForEach-Object { Split-Path (Split-Path $_.to -Parent) -Leaf } | Select-Object -Unique).Count
     Say ((Paint 'green' "  filed $(Format-JkCount $log.Count 'screenshot') into $(Format-JkCount $months 'month folder') $($script:G.check)") + (Paint 'gray' '  (jk tidy undo puts them back)'))

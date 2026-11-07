@@ -42,7 +42,9 @@ function Get-JkTextCachePath([string]$Path) {
 }
 
 # v1: pages kept already folded by ConvertTo-JkSearchText
-function Get-JkTextStamp([IO.FileInfo]$F) { "v1|$($F.Length)|$($F.LastWriteTimeUtc.Ticks)" }
+# v2 for a path outside the code page: pdftotext used to come back empty on those and the empty
+# result was kept, so they are read once more. Everything else keeps its cached text.
+function Get-JkTextStamp([IO.FileInfo]$F) { "$(if (Test-JkAnsiPath $F.FullName) { 'v1' } else { 'v2' })|$($F.Length)|$($F.LastWriteTimeUtc.Ticks)" }
 
 function Read-JkTextCache([IO.FileInfo]$F) {
     $p = Get-JkTextCachePath $F.FullName
@@ -94,10 +96,21 @@ function Update-JkPdfTexts([IO.FileInfo[]]$Files) {
             while ($queue.Count -and $running.Count -lt 6) {
                 $f = $queue.Dequeue()
                 $out = Join-Path $dir ([guid]::NewGuid().ToString('N') + '.part')
-                $psi = New-Object Diagnostics.ProcessStartInfo $exe, ('-q -enc UTF-8 "' + $f.FullName + '" "' + $out + '"')
+                # pdftotext takes its arguments through the code page: a path outside it (a Chinese
+                # name on a Western Windows) is read from a plainly named copy instead
+                $src = $f.FullName; $copy = $null
+                if (-not (Test-JkAnsiPath $src)) {
+                    $copy = Join-Path $dir ([guid]::NewGuid().ToString('N') + '.pdf')
+                    try { [IO.File]::Copy($src, $copy); $src = $copy }
+                    catch { Save-JkTextCache $f ''; $finished++; continue }
+                }
+                $psi = New-Object Diagnostics.ProcessStartInfo $exe, ('-q -enc UTF-8 "' + $src + '" "' + $out + '"')
                 $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
-                try { $running.Add([pscustomobject]@{ P = [Diagnostics.Process]::Start($psi); F = $f; Out = $out; At = [DateTime]::UtcNow }) }
-                catch { Save-JkTextCache $f '' }
+                try { $running.Add([pscustomobject]@{ P = [Diagnostics.Process]::Start($psi); F = $f; Out = $out; At = [DateTime]::UtcNow; Copy = $copy }) }
+                catch {
+                    if ($copy) { try { [IO.File]::Delete($copy) } catch { } }
+                    Save-JkTextCache $f ''; $finished++
+                }
             }
             foreach ($r in $running.ToArray()) {
                 $done = $r.P.HasExited
@@ -106,6 +119,7 @@ function Update-JkPdfTexts([IO.FileInfo[]]$Files) {
                 $text = ''
                 try { if ([IO.File]::Exists($r.Out)) { $text = [IO.File]::ReadAllText($r.Out, [Text.Encoding]::UTF8); [IO.File]::Delete($r.Out) } } catch { }
                 Save-JkTextCache $r.F $text
+                if ($r.Copy) { try { [IO.File]::Delete($r.Copy) } catch { } }
                 $r.P.Dispose()
                 $null = $running.Remove($r)
                 $finished++
