@@ -3760,6 +3760,50 @@ Test 'config defaults, set and reset' {
     Invoke-JkConfig reset cp.lang
     Assert-Eq (Get-JkConfig 'cp.lang') 'cpp'
 }
+Test 'config set: numbers and choices are checked, paths are stored in full' {
+    $keys = 'remind.hours', 'plan.hours', 'cp.port', 'cp.timeout', 'tidy.minAge', 'focus.minutes', 'banner', 'cp.lang', 'cp.root', 'find.roots', 'tidy.courses', 'jobs.file'
+    $set = { param($k, $v) Invoke-JkConfig set $k $v 6>&1 | Out-Null }
+    $dir = Join-Path $env:JK_HOME 'cfg paths'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    try {
+        # a value nothing can read used to be saved, and broke the morning run or jk plan later
+        # (2d would not do: PowerShell reads it as the decimal number 2 before jk sees it)
+        Assert-Throws { & $set remind.hours 48h } 'remind.hours takes a number of hours'
+        Assert-Throws { & $set plan.hours 30 } 'more study hours than a day has'
+        Assert-Throws { & $set cp.port 70000 } 'no such port'
+        Assert-Throws { & $set cp.timeout 0 } 'a time limit of zero'
+        Assert-Throws { & $set tidy.minAge 1.5 } 'tidy.minAge counts whole days'
+        Assert-Throws { & $set focus.minutes soon } 'focus.minutes takes a length'
+        Assert-Throws { & $set focus.minutes '50m later' } 'and only a length: the rest would become the label'
+        Assert-Throws { & $set banner maybe } 'banner is on or off'
+        Assert-Throws { & $set cp.lang rust } 'a language jk cp has'
+        $msg = try { & $set plan.hours 30; '' } catch { $_.Exception.Message }
+        Assert-True ($msg -match 'plan\.hours takes a number from 0 to 24') "says what it takes: $msg"
+        & $set plan.hours '2,5'
+        Assert-Eq (Get-JkConfig 'plan.hours') '2.5' 'a decimal comma is stored as a point'
+        & $set focus.minutes 50m
+        Assert-Eq (Get-JkConfig 'focus.minutes') '50m' 'a length with its unit'
+        & $set banner no
+        Assert-Eq (Get-JkConfig 'banner') 'off' 'no means off'
+        & $set cp.lang Java
+        Assert-Eq (Get-JkConfig 'cp.lang') 'java'
+        Push-Location -LiteralPath $dir
+        try {
+            # the folder as the terminal has it: the long name even when $dir is 8.3 (JACKWA~1)
+            $here = (Get-Location).ProviderPath
+            & $set cp.root 'contests'
+            & $set find.roots 'notes; %USERPROFILE%\Documents'
+            & $set tidy.courses off
+        } finally { Pop-Location }
+        Assert-Eq (Get-JkConfig 'cp.root') (Join-Path $here 'contests') 'a relative folder is stored in full'
+        Assert-Eq (Get-JkConfig 'find.roots') ((Join-Path $here 'notes') + ';%USERPROFILE%\Documents') 'each folder of a list, environment variables kept'
+        Assert-Eq (Get-JkConfig 'tidy.courses') 'off' 'off stays off'
+        Assert-Throws { & $set jobs.file (Join-Path $dir 'none.md') } 'a tracker that is not there'
+        Set-Content -LiteralPath (Join-Path $dir 'job_application_tracker.md') -Value '| Date | Company | Role | Location | Status | Link |'
+        & $set jobs.file $dir
+        Assert-Eq (Get-JkConfig 'jobs.file') (Join-Path $dir 'job_application_tracker.md') 'the folder holding the tracker means the tracker'
+    } finally { foreach ($k in $keys) { Invoke-JkConfig reset $k 6>&1 | Out-Null } }
+}
 Test 'corrupt data file with no backup: set aside, not fatal' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved ('nobackup-' + [guid]::NewGuid().ToString('N').Substring(0, 6))

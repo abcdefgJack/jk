@@ -3,6 +3,79 @@
 $script:ProfileStart = '# >>> jk >>>'
 $script:ProfileEnd = '# <<< jk <<<'
 
+# What jk config set stores for a key. A value nothing can read used to be saved as typed and broke
+# something later: remind.hours 2d stopped the morning popup, plan.hours 3h stopped jk plan, and a
+# relative cp.root meant another folder in every terminal. Throws with what the key takes.
+#   key = lowest, highest, whole numbers only, what the number counts
+$script:JkConfigNumbers = @{
+    'remind.hours'   = @(1, 336, $false, 'hours the morning popup looks ahead')
+    'tidy.minAge'    = @(0, 3650, $true, 'days')
+    'cp.timeout'     = @(0.1, 600, $false, 'seconds')
+    'cp.port'        = @(1, 65535, $true, 'a port')
+    'plan.hours'     = @(0, 24, $false, 'hours a day')
+    'plan.examHours' = @(0, 24, $false, 'hours a day')
+    'plan.examMin'   = @(0, 600, $false, 'minutes per percent')
+    'plan.dueMin'    = @(0, 600, $false, 'minutes per percent')
+}
+$script:JkConfigFolders = @('cp.root', 'tidy.path', 'shots.path')
+$script:JkConfigFolderLists = @('tidy.courses', 'find.roots', 'repos.roots')
+
+function ConvertTo-JkConfigValue([string]$Key, [string]$Value) {
+    $v = $Value.Trim()
+    if ($script:JkConfigNumbers.ContainsKey($Key)) {
+        $spec = $script:JkConfigNumbers[$Key]
+        # "2,5" from a decimal-comma keyboard is 2.5
+        $t = $v -replace '^(\d+),(\d+)$', '$1.$2'
+        $n = 0.0
+        $ok = $t -match '^\d+(\.\d+)?$' -and [double]::TryParse($t, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)
+        if ($ok -and $spec[2] -and $t.Contains('.')) { $ok = $false }
+        if (-not $ok -or $n -lt $spec[0] -or $n -gt $spec[1]) {
+            $kind = 'a number'; if ($spec[2]) { $kind = 'a whole number' }
+            throw "$Key takes $kind from $($spec[0]) to $($spec[1]) ($($spec[3])), not '$v'"
+        }
+        return $t
+    }
+    switch ($Key) {
+        'focus.minutes' {
+            # any length jk focus reads ("25", "50m", "1h30m"), and nothing after it: a second word
+            # would become the label of every session
+            $words = @(-split $v)
+            $d = $null; try { $d = Read-JkDurationWords $words } catch { }
+            if (-not $d -or $d.Used -ne $words.Count -or $d.Seconds -le 0) { throw "focus.minutes takes a length such as 25, 50m or 1h30m, not '$v'" }
+            return $v
+        }
+        'banner' {
+            if ($v -match '^(on|yes|true|1)$') { return 'on' }
+            if ($v -match '^(off|no|false|0)$') { return 'off' }
+            throw "banner is on or off, not '$v'"
+        }
+        'cp.lang' {
+            if ($v -match '^(cpp|py|java|usaco)$') { return $v.ToLower() }
+            throw "cp.lang is cpp, py, java or usaco, not '$v'"
+        }
+    }
+    # folders are stored in full, so every terminal means the same one; %VARIABLES% are kept as
+    # written (they are expanded when read)
+    $full = { param($p) $p = ([string]$p).Trim().Trim('"'); if (-not $p -or $p.Contains('%')) { return $p }; Get-JkFullPath $p }
+    if ($script:JkConfigFolders -contains $Key) { return (& $full $v) }
+    if ($script:JkConfigFolderLists -contains $Key) {
+        if ($Key -eq 'tidy.courses' -and $v -match '^(off|none)$') { return 'off' }
+        return (@($v -split ';' | ForEach-Object { & $full $_ } | Where-Object { $_ }) -join ';')
+    }
+    if ($Key -eq 'jobs.file' -and $v) {
+        $p = & $full $v
+        $real = [Environment]::ExpandEnvironmentVariables($p)
+        # the folder that holds the tracker means the tracker
+        if ([IO.Directory]::Exists($real)) {
+            if ([IO.File]::Exists((Join-Path $real 'job_application_tracker.md'))) { return (Join-Path $p 'job_application_tracker.md') }
+            throw "no job_application_tracker.md in $real"
+        }
+        if (-not [IO.File]::Exists($real)) { throw "no such file: $real" }
+        return $p
+    }
+    $v
+}
+
 function Invoke-JkConfig {
     $a = @($args | ForEach-Object { [string]$_ })
     if ($a.Count -eq 0) {
@@ -52,6 +125,7 @@ function Invoke-JkConfig {
             # the mirror takes jk backup mirror's checks (a full path, outside the data folder) and its
             # first snapshot
             if ($key -eq 'backup.mirror') { Invoke-JkBackupMirror @('mirror', $val); return }
+            $val = ConvertTo-JkConfigValue $key $val
             if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
             if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
             if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
@@ -61,6 +135,10 @@ function Invoke-JkConfig {
             $echo = $val
             if ($key -like '*url*' -and $echo.Length -gt 36) { $echo = $echo.Substring(0, 36) + $script:G.ell }
             Say ((Paint 'green' "  $key = $echo") + " $($script:G.check)")
+            if (($script:JkConfigFolders + $script:JkConfigFolderLists) -contains $key) {
+                $missing = @($val -split ';' | Where-Object { $_ -and $_ -ne 'off' -and -not [IO.Directory]::Exists([Environment]::ExpandEnvironmentVariables($_)) })
+                if ($missing.Count) { Say (Paint 'gray' "  not there yet: $($missing -join '; ')") }
+            }
             if ($key -eq 'remind.time' -and (Get-JkTaskInfo)) { $null = Install-JkRemindTask }
             return
         }
