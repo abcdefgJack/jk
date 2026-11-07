@@ -346,6 +346,8 @@ function Show-JkReminders {
 function Cancel-JkReminder {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Ids)
     if (-not $Ids) { throw 'usage: jk remind cancel <id>' }
+    # checked before the lock: a typo should cancel nothing, not the ones before it
+    foreach ($r in $Ids) { $n = 0; if (-not [int]::TryParse($r.TrimStart('#'), [ref]$n)) { throw "'$r' is not a reminder number (jk remind shows them)" } }
     $classCancelled = $false
     $lock = Enter-JkReminderLock
     try {

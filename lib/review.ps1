@@ -13,6 +13,7 @@ function Get-JkDoneAt($Item) {
 
 function Show-JkReview {
     param([int]$Days = 7)
+    if ($Days -lt 1 -or $Days -gt 366) { throw 'jk review takes 1 to 366 days' }
     $now = Get-JkNow
     $from = $now.Date.AddDays(-$Days + 1)
     $to = $now.Date.AddDays($Days)

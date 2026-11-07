@@ -245,6 +245,8 @@ function Invoke-JkSpaceClean {
     param([Parameter(Position = 0)][string]$What, [int]$Days = 7)
     switch -Regex ($What) {
         '^temp$' {
+            # -Days 0 or less puts the cut-off at now or later: every temp file, in use by a build or not
+            if ($Days -lt 1) { throw 'jk space clean temp -Days takes 1 or more: it removes files older than that' }
             $cut = (Get-Date).AddDays(-$Days)
             $files = @(Get-ChildItem -LiteralPath $env:TEMP -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $cut -and $_.LastAccessTime -lt $cut })
             $freed = 0.0; $n = 0; $skipped = 0

@@ -769,6 +769,8 @@ function Invoke-JkCpStress {
         [int]$Seed = 1,
         [double]$Timeout = 0
     )
+    # no rounds would report "0/0 matched" as a pass
+    if ($N -lt 1) { throw 'jk cp stress takes 1 or more rounds' }
     $dir = (Get-Location).ProviderPath
     $solF = Get-JkCpSource $Sol
     $bruteF = $null; if ($Brute) { $bruteF = Get-JkCpSource $Brute } else { $bruteF = Find-JkCpHelper 'brute|naive|slow' $dir }

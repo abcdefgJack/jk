@@ -266,6 +266,8 @@ function Get-JkProcessNames {
 
 function Invoke-JkPort {
     param([Parameter(Position = 0)][int]$Port, [switch]$Kill, [switch]$All)
+    # "port 99999 is free" would be true and useless
+    if ($Port -lt 0 -or $Port -gt 65535) { throw "$Port is not a port (1 to 65535)" }
     $conns = @(Get-JkListeners)
     $procs = @{}
     foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) { $procs[$p.Id] = $p }

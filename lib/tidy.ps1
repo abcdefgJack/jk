@@ -353,6 +353,8 @@ function Invoke-JkTidyDupes {
 
 function Invoke-JkTidyOld {
     param([Parameter(Position = 0)][string]$Path, [int]$Days = 30, [switch]$Recycle)
+    # 0 or less would make every installer and archive "old", and -Recycle would bin them all
+    if ($Days -lt 1) { throw 'jk tidy old -Days takes 1 or more' }
     if (-not $Path) { $Path = Get-JkDownloadsPath }
     $Path = Resolve-JkLongPath $Path
     $now = Get-Date

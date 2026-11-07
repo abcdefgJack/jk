@@ -456,6 +456,50 @@ Test 'jk week refuses a silly length instead of drawing it for a quarter of an h
     Assert-Throws { Show-JkDueWeek 0 }
     Assert-Throws { Show-JkDueWeek -1 }
     Assert-True (@(Show-JkDueWeek 26 6>&1).Count -gt 0) 'half a year still draws'
+    foreach ($n in 99999, 0, -1) { Assert-Throws { Show-JkReview $n } "jk review $n"; Assert-Throws { Show-JkFocusLog $n } "jk focus log $n" }
+    Assert-True (@(Show-JkReview 30 6>&1).Count -gt 0) 'jk review 30 still draws'
+    Assert-True (@(Show-JkFocusLog 30 6>&1).Count -gt 0) 'jk focus log 30 still draws'
+    Assert-Throws { Invoke-JkPort 99999 }
+}
+Test 'a cleanup refuses an age of zero or less, which would make everything old' {
+    # a throwaway TEMP: if this guard ever goes, the test must not take the real temp files with it
+    $box = Join-Path $env:JK_HOME 'age-guards'
+    $fakeTemp = Join-Path $box 'temp'
+    foreach ($sub in $fakeTemp, (Join-Path $box 'downloads'), (Join-Path $box 'shots')) { $null = New-Item -ItemType Directory -Path $sub -Force }
+    $files = @((Join-Path $fakeTemp 'build.tmp'), (Join-Path $box 'downloads\setup.exe'), (Join-Path $box 'shots\Screenshot.png'))
+    foreach ($f in $files) { Write-JkText $f 'x' }
+    $savedTemp = $env:TEMP
+    $env:TEMP = $fakeTemp
+    try {
+        foreach ($n in 0, -1, -5) {
+            Assert-Throws { Invoke-JkSpaceClean temp -Days $n } "jk space clean temp -Days $n"
+            Assert-Throws { Invoke-JkTidyOld (Join-Path $box 'downloads') -Days $n -Recycle } "jk tidy old -Days $n -Recycle"
+            Assert-Throws { Invoke-JkShotsOld $n -Path (Join-Path $box 'shots') -Recycle } "jk shots old $n -Recycle"
+        }
+        foreach ($f in $files) { Assert-True (Test-Path -LiteralPath $f) "$f is still there" }
+    } finally { $env:TEMP = $savedTemp }
+    Assert-Throws { Show-JkShots 0 -Path (Join-Path $box 'shots') }
+    $rounds = try { Invoke-JkCpStress -N 0; '' } catch { $_.Exception.Message }
+    Assert-True ($rounds -match 'rounds') "no rounds is not a pass: $rounds"
+}
+Test 'PowerShell''s own errors read as jk''s' {
+    $f = { param($m, $c) Format-JkErrorText $m $c }
+    Assert-Eq (& $f 'Cannot process argument transformation on parameter ''Weeks''. Cannot convert value "[" to type "System.Int32". Error: "Input string was not in a correct format."' 'due') "expected a number for weeks, not '['"
+    Assert-Eq (& $f 'Cannot convert value "cs341" to type "System.Int32". Error: "Input string was not in a correct format."') "expected a number, not 'cs341'"
+    Assert-Eq (& $f "A positional parameter cannot be found that accepts argument 'x'." 'grade') "unexpected word 'x' (jk help grade)"
+    Assert-Eq (& $f "A parameter cannot be found that matches parameter name 'Foo'." 'due') 'there is no -Foo option (jk help due)'
+    Assert-Eq (& $f "Missing an argument for parameter 'Weight'. Specify a parameter of type 'System.String' and try again." 'due') '-Weight needs a value (jk help due)'
+    Assert-Eq (& $f 'Exception calling "AddDays" with "1" argument(s): "Value to add was out of range. Parameter name: value"') 'that number is out of range'
+    Assert-Eq (& $f 'Exception calling "ReadAllText" with "1" argument(s): "Could not find file ''x''."') "Could not find file 'x'."
+    Assert-Eq (& $f 'no deadline with id #0') 'no deadline with id #0' 'jk''s own messages pass through'
+    # a long value is cut, and end to end
+    Assert-True ((& $f "Cannot convert value `"$('x' * 3000)`" to type `"System.Int32`". Error").Length -lt 80) 'a long value is cut'
+    $said = @(& { jk week nonsense } 6>&1 | ForEach-Object { "$_" }) -join ' '
+    Assert-True ($said -match "expected a number for weeks, not 'nonsense'") $said
+    $said = @(& { jk class rm cs341 } 6>&1 | ForEach-Object { "$_" }) -join ' '
+    Assert-True ($said -match "'cs341' is not a class id") $said
+    $said = @(& { jk remind cancel cs341 } 6>&1 | ForEach-Object { "$_" }) -join ' '
+    Assert-True ($said -match "'cs341' is not a reminder number") $said
 }
 Test 'weekly review renders, counts slipped items' {
     Show-JkReview
@@ -1373,6 +1417,18 @@ Test 'every safe command and action runs on an empty install without a PowerShel
             if ($hit) { $problems += "$label -> $($hit.Trim())" }
         }
         Assert-Eq ($problems -join ' | ') '' 'no command fails on empty data'
+        # a word that does not fit gets jk's own message, not PowerShell's, and a huge number no hang
+        $raw = '(?i)System\.Int32|positional parameter|argument transformation|exception calling|null-valued|cannot index into|is not recognized as|out of range\. parameter'
+        $tails = @(, @('[')) + @(, @('99999')) + @(, @('1', '[')) + @(, @('cs341'))
+        foreach ($label in $run) {
+            foreach ($tail in $tails) {
+                $argv = @($label -split ' ') + @($tail)
+                $out = @(& { jk @argv } 6>&1 2>&1 | ForEach-Object { "$_" })
+                $hit = @($out | Where-Object { $_ -match $raw })[0]
+                if ($hit) { $problems += "jk $($argv -join ' ') -> $($hit.Trim())" }
+            }
+        }
+        Assert-Eq ($problems -join ' | ') '' 'PowerShell error text on screen'
         # a bare action asks for what it needs, by its own name
         Assert-True ((@(& { jk due undone } 6>&1 | ForEach-Object { "$_" }) -join ' ') -match 'usage: jk due undone') 'jk due undone'
         Assert-True ((@(& { jk todo undo } 6>&1 | ForEach-Object { "$_" }) -join ' ') -match 'usage: jk todo undo') 'jk todo undo'
