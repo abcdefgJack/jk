@@ -734,6 +734,13 @@ function Format-JkRelDay([datetime]$Date, [datetime]$Now = (Get-JkNow)) {
     "$(-$n) days ago"
 }
 
+# Whether a program that takes its arguments through the Windows code page (g++, javac, pdftotext)
+# can be handed this path: anything outside the code page reaches it as "?" and the file is not found.
+function Test-JkAnsiPath([string]$Path) {
+    $enc = [Text.Encoding]::Default
+    $enc.GetString($enc.GetBytes($Path)) -ceq $Path
+}
+
 # Natural sort key: pads digit runs so 2.in sorts before 10.in.
 function Get-JkNaturalKey([string]$s) { [regex]::Replace($s, '\d+', { param($m) $m.Value.PadLeft(12, '0') }) }
 
@@ -773,7 +780,7 @@ function Start-JkBackground {
     $ps = Get-JkPowerShellExe
     $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
     $argsList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', $encoded)
-    if (Test-Path $conhost) {
+    if (Test-Path -LiteralPath $conhost) {
         Start-Process -FilePath $conhost -ArgumentList (@('--headless', $ps) + $argsList) -WindowStyle Hidden -PassThru
     } else {
         Start-Process -FilePath $ps -ArgumentList $argsList -WindowStyle Hidden -PassThru

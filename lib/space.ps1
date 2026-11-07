@@ -261,7 +261,7 @@ function Invoke-JkSpaceClean {
         '^conda$' {
             $conda = $env:CONDA_EXE
             if (-not $conda) { $c = Get-Command conda.exe -ErrorAction SilentlyContinue; if ($c) { $conda = $c.Source } }
-            if (-not $conda -or -not (Test-Path $conda)) { foreach ($p in 'C:\Miniconda3\Scripts\conda.exe', "$HOME\miniconda3\Scripts\conda.exe", "$HOME\anaconda3\Scripts\conda.exe") { if (Test-Path $p) { $conda = $p; break } } }
+            if (-not $conda -or -not (Test-Path -LiteralPath $conda)) { foreach ($p in 'C:\Miniconda3\Scripts\conda.exe', "$HOME\miniconda3\Scripts\conda.exe", "$HOME\anaconda3\Scripts\conda.exe") { if (Test-Path -LiteralPath $p) { $conda = $p; break } } }
             if (-not $conda) { throw 'conda.exe not found' }
             & $conda clean --all --yes
         }

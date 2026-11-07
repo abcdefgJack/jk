@@ -1498,7 +1498,7 @@ function Invoke-JkDueRemind {
         $title = 'Nothing due in the next two days'
     }
     $cal = Get-JkPath 'calendar.html'
-    if (-not (Test-Path $cal)) { Export-JkDueHtml -NoOpen -Quiet }
+    if (-not (Test-Path -LiteralPath $cal)) { Export-JkDueHtml -NoOpen -Quiet }
     $mode = Show-JkNotify -Title $title -Lines $lines -Accent $accent -Open $cal -OpenLabel 'Open calendar' -Seconds 20 -Sound -Wait:$Quiet
     Set-JkState 'lastRemind' ($now.ToString('s', $script:Inv))
     if ($movedNotes.Count) { Set-JkState 'syncMoved' @() }
