@@ -389,8 +389,9 @@ $script:JkQuestUrl = 'https://quest.uwaterloo.ca'
 function Import-JkClasses {
     param([Parameter(Position = 0)][string]$Path, [switch]$Replace)
     if ($Path) {
-        if (-not (Test-Path -LiteralPath $Path)) { throw "no such file: $Path" }
-        $text = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).ProviderPath)
+        $full = Get-JkFullPath $Path
+        if (-not [IO.File]::Exists($full)) { throw "no such file: $Path" }
+        $text = [IO.File]::ReadAllText($full)
     }
     else { $text = Get-JkClipboardText }
     $parsed = ConvertFrom-JkQuestText $text

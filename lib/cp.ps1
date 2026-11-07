@@ -22,7 +22,13 @@ $script:CpExitNames = @{
 function Get-JkCpSource {
     param([string]$File, [string]$Dir = (Get-Location).ProviderPath)
     if ($File) {
-        $f = Get-Item -LiteralPath $File -ErrorAction SilentlyContinue
+        $f = Get-Item -LiteralPath (Get-JkFullPath $File) -ErrorAction SilentlyContinue
+        # a problem's folder: the solution in it (its samples are found beside it)
+        if ($f -and $f.PSIsContainer) {
+            $inside = Get-JkCpSource '' $f.FullName
+            if (-not $inside) { throw "no source file in $($f.FullName)" }
+            return $inside
+        }
         if (-not $f) {
             $f = Get-ChildItem -LiteralPath $Dir -File | Where-Object { $_.BaseName -eq $File -and $script:CpExts -contains $_.Extension.ToLower() } | Select-Object -First 1
         }
@@ -470,6 +476,8 @@ function New-JkCpProblem {
             }
         }
     }
+    # a name that cannot be a folder, or that climbs out of the problems folder
+    if (-not $Name.Trim() -or $Name -match '[:*?"<>|]' -or $Name -match '(^|[\\/])\.\.?([\\/]|$)') { throw "'$Name' can't name a folder: leave out : * ? `" < > | and .." }
     if (-not $Lang) { $Lang = Get-JkConfig 'cp.lang' }
     $root = (Get-Location).ProviderPath
     if (-not $Here) { $root = [Environment]::ExpandEnvironmentVariables((Get-JkConfig 'cp.root')) }

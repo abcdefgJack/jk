@@ -493,7 +493,17 @@ Test 'PowerShell''s own errors read as jk''s' {
     Assert-Eq (& $f 'Exception calling "ReadAllText" with "1" argument(s): "Could not find file ''x''."') "Could not find file 'x'."
     Assert-Eq (& $f 'no deadline with id #0') 'no deadline with id #0' 'jk''s own messages pass through'
     # a long value is cut, and end to end
+    Assert-Eq (& $f 'Cannot validate argument on parameter ''Lang''. The argument "rust" does not belong to the set "cpp;py;java;usaco;" specified by the ValidateSet attribute. Supply an argument that is in the set and then try the command again.') '-Lang takes cpp, py, java, usaco'
+    Assert-Eq (& $f 'Cannot validate argument on parameter ''First''. The -1 argument is less than the minimum allowed range of 0. Supply an argument that is greater than or equal to 0 and then try the command again.') 'that number is out of range'
+    Assert-Eq (& $f 'Cannot validate argument on parameter ''Name''. Something else.') 'Cannot validate argument on parameter ''Name''. Something else.' 'only what it can read is rewritten'
+    Assert-True ((& $f 'Illegal characters in path.') -match 'characters Windows does not allow') 'a bad path'
+    Assert-True ((& $f "The given path's format is not supported.") -match 'characters Windows does not allow') 'a bad path, the other way of saying it'
     Assert-True ((& $f "Cannot convert value `"$('x' * 3000)`" to type `"System.Int32`". Error").Length -lt 80) 'a long value is cut'
+    # and from a real command line, where -Lang is an option and not a word
+    $said = @(& { jk cp new x -Lang rust } 6>&1 | ForEach-Object { "$_" }) -join ' '
+    Assert-True ($said -match '-Lang takes cpp, py, java, usaco') $said
+    $said = @(& { jk cp new x -Nope 3 } 6>&1 | ForEach-Object { "$_" }) -join ' '
+    Assert-True ($said -match 'there is no -Nope option') $said
     $said = @(& { jk week nonsense } 6>&1 | ForEach-Object { "$_" }) -join ' '
     Assert-True ($said -match "expected a number for weeks, not 'nonsense'") $said
     $said = @(& { jk class rm cs341 } 6>&1 | ForEach-Object { "$_" }) -join ' '
@@ -2957,6 +2967,61 @@ Test 'brackets in a folder name are not a wildcard: jk cp add keeps the samples,
         Assert-Eq (& $leaf @('*.png')) $every
         Assert-Throws { Resolve-JkPdfInputs @('nothing.png') } 'a plain name that is not there'
     } finally { Pop-Location }
+}
+Test 'a relative path works from inside a folder with [ in its name' {
+    # PowerShell 5.1 finds nothing by a relative -LiteralPath there, though the file is right beside it
+    $dir = Join-Path $env:JK_HOME 'B [hard]'
+    $null = New-Item -ItemType Directory -Path (Join-Path $dir 'sub') -Force
+    $null = New-Item -ItemType Directory -Path (Join-Path $dir 'empty') -Force
+    Write-JkText (Join-Path $dir 'main.py') 'print(1)'
+    Write-JkText (Join-Path $dir 'sub\main.cpp') 'int main(){}'
+    Write-JkText (Join-Path $dir 'cal.ics') 'not a calendar'
+    Write-JkText (Join-Path $dir 'times.txt') 'nothing readable'
+    Push-Location -LiteralPath $dir
+    $savedGo = [IO.File]::Exists((Get-JkPath 'bookmarks.json'))
+    try {
+        Assert-Eq (Get-JkCpSource 'main.py').Name 'main.py' 'jk cp test main.py'
+        Assert-Eq (Get-JkCpSource 'main').Name 'main.py' 'by its name without the extension'
+        Assert-Eq (Get-JkCpSource 'sub').Name 'main.cpp' 'a problem folder: the solution in it'
+        Assert-Throws { Get-JkCpSource 'empty' } 'a folder with no solution'
+        Assert-Throws { Get-JkCpSource 'nothing.cpp' }
+        Assert-Eq (Split-Path (Resolve-JkLongPath 'sub') -Leaf) 'sub' 'jk tidy sub'
+        Assert-Eq (Split-Path (Resolve-JkGoPath 'sub') -Leaf) 'sub' 'j sub'
+        $m = try { $null = Invoke-JkDueSync 'cal.ics' 6>&1; '' } catch { $_.Exception.Message }
+        Assert-True ($m -match 'does not look like a calendar') "jk due sync finds the file: $m"
+        $m = try { $null = Import-JkClasses 'times.txt' 6>&1; '' } catch { $_.Exception.Message }
+        Assert-True ($m -notmatch 'no such file') "jk class import finds the file: $m"
+        # a bookmark keeps the whole path, and only ever to a folder
+        $null = @(Invoke-JkMark bracketed -Path 'sub' 6>&1)
+        $mark = @((Get-JkGoData).marks | Where-Object { $_.alias -eq 'bracketed' })[0]
+        Assert-True ([IO.Path]::IsPathRooted([string]$mark.path) -and $mark.path.EndsWith('B [hard]\sub')) "bookmark: $($mark.path)"
+        $null = @(Invoke-JkMark bracketed -Remove 6>&1)
+        Assert-Throws { Invoke-JkMark nothing -Path 'nosuchfolder' }
+    } finally { Pop-Location }
+    # jk tidy takes a folder, and a drive's root stays a root
+    Assert-Throws { Invoke-JkTidyRun -Path (Join-Path $dir 'main.py') } 'a file is not a folder'
+    Assert-Throws { Invoke-JkTidyOld (Join-Path $dir 'main.py') }
+    Assert-Throws { Invoke-JkTidyDupes (Join-Path $dir 'main.py') }
+    Assert-Throws { Invoke-JkTidyRun -Path 'no such folder' }
+    Assert-Eq (Resolve-JkLongPath 'C:\') 'C:\' 'C: alone would mean the current folder on C'
+    # a problem's name has to be able to be a folder, and stays inside the problems folder
+    foreach ($bad in '*', 'a:b', 'what?', '..', '.', '..\up', ' ') {
+        $m = try { $null = New-JkCpProblem $bad -Here -NoOpen 6>&1; '' } catch { $_.Exception.Message }
+        Assert-True ($m -match "can't name a folder") "'$bad': $m"
+    }
+}
+Test 'jk config: a misspelt setting is refused, not saved to do nothing' {
+    $m = try { Invoke-JkConfig set tidy.cources x; '' } catch { $_.Exception.Message }
+    Assert-True ($m -match "no setting 'tidy\.cources'" -and $m -match 'tidy\.courses') "suggests its neighbours: $m"
+    Assert-Eq (Get-JkConfig 'tidy.cources') $null 'nothing saved'
+    $m = try { Invoke-JkConfig set 1 x; '' } catch { $_.Exception.Message }
+    Assert-True ($m -match "no setting '1'") $m
+    Assert-Throws { Invoke-JkConfig reset } 'reset of what?'
+    Assert-Throws { Invoke-JkConfig reset nosuchkey }
+    # one saved under a wrong name by an older version can still be cleared
+    Set-JkConfig 'old.typo' 'x'
+    $null = @(Invoke-JkConfig reset old.typo 6>&1)
+    Assert-Eq (Get-JkConfig 'old.typo') $null 'cleared'
 }
 if (Get-Command g++ -ErrorAction SilentlyContinue) {
     Test 'compile, run, PASS/WA/RTE end to end (g++)' {

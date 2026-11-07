@@ -182,8 +182,9 @@ function Invoke-JkDueSync {
         # decode the raw bytes as UTF-8 (calendar feeds are UTF-8; PS 5.1 may guess ISO-8859-1)
         $text = [Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
     } else {
-        if (-not (Test-Path -LiteralPath $Source)) { throw "no such file: $Source" }
-        $text = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Source).ProviderPath)
+        $full = Get-JkFullPath $Source
+        if (-not [IO.File]::Exists($full)) { throw "no such file: $Source" }
+        $text = [IO.File]::ReadAllText($full)
     }
     if ($text -notmatch 'BEGIN:VCALENDAR') { throw 'that does not look like a calendar feed (.ics)' }
     $feed = @(ConvertFrom-JkIcs $text)

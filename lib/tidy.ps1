@@ -37,7 +37,21 @@ function Get-JkDownloadsPath {
 }
 
 # Long-form path (no 8.3 'JACKWA~1' parts) so it lines up with FullName of the files inside.
-function Resolve-JkLongPath([string]$Path) { (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).FullName.TrimEnd('\') }
+function Resolve-JkLongPath([string]$Path) {
+    $item = Get-Item -LiteralPath (Get-JkFullPath $Path) -Force -ErrorAction Stop
+    if (-not $item) { throw "Cannot find path '$Path' because it does not exist." }
+    # a drive's root keeps its backslash: "C:" alone means the current folder on C
+    $full = $item.FullName
+    if ($full.Length -gt 3) { $full = $full.TrimEnd('\') }
+    $full
+}
+
+# The folder jk tidy was pointed at. A file would be listed as if it were the folder's contents.
+function Resolve-JkFolderArg([string]$Path) {
+    $full = Resolve-JkLongPath $Path
+    if (-not [IO.Directory]::Exists($full)) { throw "$Path is not a folder" }
+    $full
+}
 
 function Get-JkTidyCategory([string]$Ext) {
     $e = $Ext.ToLower()
@@ -179,7 +193,7 @@ function Send-JkToRecycleBin([string]$Path) {
 function Invoke-JkTidyRun {
     param([Parameter(Position = 0)][string]$Path, [switch]$Apply, [int]$MinAge = -1, [switch]$NoDupes)
     if (-not $Path) { $Path = Get-JkDownloadsPath }
-    $Path = Resolve-JkLongPath $Path
+    $Path = Resolve-JkFolderArg $Path
     if ($MinAge -lt 0) { $MinAge = [int](Get-JkConfig 'tidy.minAge') }
     $plan = @(Get-JkTidyPlan -Path $Path -MinAgeDays $MinAge -Courses (Get-JkCourseFolders))
     if ($Apply) { Invoke-JkTidyApply $Path $plan; return }
@@ -327,7 +341,7 @@ function Get-JkLooseDownloads([string]$Path) {
 function Invoke-JkTidyDupes {
     param([Parameter(Position = 0)][string]$Path, [switch]$Recycle)
     if (-not $Path) { $Path = Get-JkDownloadsPath }
-    $Path = Resolve-JkLongPath $Path
+    $Path = Resolve-JkFolderArg $Path
     $files = @(Get-JkLooseDownloads $Path)
     Say (Paint 'gray' "  hashing same-size files among $($files.Count)$($script:G.ell)")
     $groups = @(Get-JkDuplicateGroups $files | Sort-Object { $_.Size * $_.Extras.Count } -Descending)
@@ -356,7 +370,7 @@ function Invoke-JkTidyOld {
     # 0 or less would make every installer and archive "old", and -Recycle would bin them all
     if ($Days -lt 1) { throw 'jk tidy old -Days takes 1 or more' }
     if (-not $Path) { $Path = Get-JkDownloadsPath }
-    $Path = Resolve-JkLongPath $Path
+    $Path = Resolve-JkFolderArg $Path
     $now = Get-Date
     $exts = @($script:TidyCategories['Installers']) + @($script:TidyCategories['Archives'])
     # plus partial downloads left for a week: a .crdownload / .tmp nobody is still writing

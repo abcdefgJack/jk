@@ -13,7 +13,8 @@ function Find-JkRepos {
             & $walk $sub.FullName ($level + 1)
         }
     }
-    foreach ($r in $Roots) { if (Test-Path -LiteralPath $r) { & $walk $r 0 } }
+    # as typed: relative, or anything at all, since Directory.Exists says no where Test-Path would print an error
+    foreach ($r in $Roots) { $full = Get-JkFullPath $r; if ([IO.Directory]::Exists($full)) { & $walk $full 0 } }
     $found
 }
 

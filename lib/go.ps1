@@ -100,7 +100,8 @@ function Find-JkGo([string]$Query) {
 function Resolve-JkGoPath([string]$Query) {
     $parts = @($Query -split '[\\/]' | Where-Object { $_ })
     if ($parts.Count -eq 0) { return $null }
-    if (Test-Path -LiteralPath $Query -PathType Container) { return (Resolve-Path -LiteralPath $Query).ProviderPath }
+    $typed = Get-JkFullPath $Query
+    if (Test-Path -LiteralPath $typed -PathType Container) { return $typed }
     $hit = Find-JkGo $parts[0]
     if (-not $hit) { return $null }
     $path = $hit.Path
@@ -183,7 +184,9 @@ function Invoke-JkMark {
         Say (Paint 'yellow' "  removed bookmark '$Alias'")
         return
     }
-    if (-not $Path) { $Path = (Get-Location).ProviderPath }
+    # kept whole: a relative path would mean somewhere else from the next folder
+    if (-not $Path) { $Path = (Get-Location).ProviderPath } else { $Path = Get-JkFullPath $Path }
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Path is not a folder" }
     if (-not $Alias) { $Alias = Get-JkNormKey (Split-Path $Path -Leaf) }
     $Alias = $Alias.ToLower()
     $d.marks = @($d.marks | Where-Object { $_.alias -ne $Alias }) + [pscustomobject]@{ alias = $Alias; path = $Path }

@@ -43,7 +43,12 @@ function Invoke-JkConfig {
         '^set$' {
             if ($a.Count -lt 3) { throw 'usage: jk config set <key> <value>' }
             $key = $a[1]; $val = ($a[2..($a.Count - 1)]) -join ' '
-            if (-not $script:JkConfigDefaults.Contains($key)) { Say (Paint 'yellow' "  note: '$key' is not a known setting (known: $($script:JkConfigDefaults.Keys -join ', '))") }
+            # nothing reads a misspelt setting: "tidy.cources" would be saved and do nothing, silently
+            if (-not $script:JkConfigDefaults.Contains($key)) {
+                $near = @($script:JkConfigDefaults.Keys | Where-Object { $_.Split('.')[0] -eq ([string]$key).Split('.')[0] })
+                if (-not $near.Count) { $near = @($script:JkConfigDefaults.Keys) }
+                throw "there is no setting '$key' (try: $($near -join ', '))"
+            }
             if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
             if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
             if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
@@ -57,8 +62,12 @@ function Invoke-JkConfig {
             return
         }
         '^(reset|unset)$' {
+            if ($a.Count -lt 2) { throw 'usage: jk config reset <key>' }
             $cfg = Read-JkJson 'config.json' $null
-            if ($cfg -and $cfg.PSObject.Properties[$a[1]]) { $cfg.PSObject.Properties.Remove($a[1]); Save-JkJson 'config.json' $cfg }
+            $stored = $cfg -and $cfg.PSObject.Properties[$a[1]]
+            # one saved under a misspelt name can still be cleared
+            if (-not $stored -and -not $script:JkConfigDefaults.Contains($a[1])) { throw "there is no setting '$($a[1])'" }
+            if ($stored) { $cfg.PSObject.Properties.Remove($a[1]); Save-JkJson 'config.json' $cfg }
             $script:JkConfigCache = $null
             Say (Paint 'green' "  $($a[1]) reset to default ($(Get-JkConfig $a[1]))")
             return
