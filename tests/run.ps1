@@ -904,6 +904,30 @@ Test 'Sunday mornings look at the whole week' {
         Assert-Eq $script:WeekTitle $null 'no popup on a quiet Monday'
     } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
 }
+Test 'days ahead say which week: a week today on a Sunday, and plan items two weeks out' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'coming-days'; $script:JkConfigCache = $null
+    $orig = ${function:Show-JkNotify}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:ComingLines = $Lines; 'stub' }
+    try {
+        # Sun Nov 22: a quiz on Wednesday, and a midterm a week today
+        Add-JkDue cs350 'Quiz' nov 25 9am -Exam
+        Add-JkDue cs370 'Midterm' nov 29 7pm -Exam
+        Add-JkDue cs341 'A9' dec 2 11:59pm -Weight 8
+        $env:JK_NOW = '2026-11-22T07:45:00'
+        $script:ComingLines = $null
+        Invoke-JkDueRemind -Quiet -Force
+        $line = @($script:ComingLines | Where-Object { $_ -like 'This week:*' })[0]
+        Assert-True ($line -like '*Quiz Wed*') "this week's Wednesday stays Wed: $line"
+        Assert-True ($line -like '*Midterm Sun Nov 29*') "a week today has its date, not Sun: $line"
+        # jk plan's column: A9 is ten days off, a Wednesday that is not this one
+        $plan = @(& { jk plan } 6>&1 | ForEach-Object { "$_" })
+        $row = @($plan | Where-Object { $_ -match '\bA9\b' })[0]
+        Assert-True ($row -match 'Dec 2 . 8%') "the plan row: $row"
+        $row = @($plan | Where-Object { $_ -match '\bQuiz\b' })[0]
+        if ($row) { Assert-True ($row -match 'Wed . ') "three days off stays a weekday: $row" }
+    } finally { Set-Item function:script:Show-JkNotify $orig; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null }
+}
 Test 'jobs: reads the tracker table, sorts rows into applied / waiting / ruled out, finds by company' {
     $md = Join-Path $env:JK_HOME 'tracker.md'
     $d = [string][char]0x2014

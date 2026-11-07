@@ -801,6 +801,13 @@ function Format-JkPastDay([datetime]$Date, [datetime]$Now = (Get-JkNow)) {
     $Date.ToString('ddd', $script:Inv)
 }
 
+# The same going forward: "Thu" for the coming days, the date from a week out, where the weekday is
+# today's own ("Sun Nov 29" on a Sunday, not "Sun"). -Short gives the date alone, for a narrow column.
+function Format-JkComingDay([datetime]$Date, [datetime]$Now = (Get-JkNow), [switch]$Short) {
+    if (($Date.Date - $Now.Date).TotalDays -ge 7) { return $Date.ToString($(if ($Short) { 'MMM d' } else { 'ddd MMM d' }), $script:Inv) }
+    $Date.ToString('ddd', $script:Inv)
+}
+
 # A path as typed, made full. Inside a folder with [ in its name, PowerShell 5.1 finds nothing by a
 # relative -LiteralPath, so anything a person types goes through this before it is looked up.
 function Get-JkFullPath([string]$Path) {
