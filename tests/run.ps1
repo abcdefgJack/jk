@@ -310,6 +310,32 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'an online exam is over when its window closes: after 11:59 pm the dashboard and jk exams move on (not until 1:59 am)' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'winclose-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $h = Resolve-JkCourse $dd 'health105' -Create; $f = Resolve-JkCourse $dd 'cs370' -Create
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-12-07') -Time '06:00' -Title 'Midterm 2 opens' -Kind 'exam' -Weight '17.5%'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-12-08') -Time '23:59' -Title 'Midterm 2 closes' -Kind 'exam' -Weight '17.5%'
+        $null = New-JkEvent -Data $dd -Course $f.key -Date ([datetime]'2026-12-10') -Time '16:00' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        # an exam in a room with no end time: two hours, as before
+        $null = New-JkEvent -Data $dd -Course $f.key -Date ([datetime]'2026-12-12') -Time '18:00' -Title 'Lab exam' -Kind 'exam'
+        Save-JkDueData $dd
+        $look = { param($now) $env:JK_NOW = $now
+            $d = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'NEXT EXAM' })[0]
+            $x = @(Invoke-JkExams 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^\s+\S+\s+(HEALTH 105|CS 370)\s' })
+            [pscustomobject]@{ Dash = $d; Exams = $x } }
+        $r = & $look '2026-12-08T23:30:00'
+        Assert-True ($r.Dash -match 'HEALTH 105 Midterm 2\s+OPEN NOW') "open, 11:30 pm: $($r.Dash)"
+        $r = & $look '2026-12-09T00:30:00'
+        Assert-True ($r.Dash -match 'NEXT EXAM\s+CS 370 FINAL') "closed at 11:59 pm, 12:30 am: $($r.Dash)"
+        Assert-True (-not @($r.Exams | Where-Object { $_ -match 'HEALTH 105' }).Count) "jk exams no longer lists it: $($r.Exams -join ' / ')"
+        $env:JK_NOW = '2026-12-12T19:00:00'
+        Assert-Eq (Get-JkStartedLabel @((Get-JkDueData).events | Where-Object { $_.title -eq 'Lab exam' })[0] (Get-JkDueData) (Get-JkNow)) 'now' 'a room exam with no end time is still on an hour in'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk exam prep row gives the weight as stored: of prep for 17.5%, not 18%' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'prepweight-home'; $script:JkConfigCache = $null

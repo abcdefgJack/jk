@@ -500,10 +500,13 @@ function Format-JkWeightPct([double]$W) {
 }
 
 # When an exam is over: its end time when known, else two hours after the start (a typical
-# midterm); one with no time at all lasts the day.
+# midterm); one with no time at all lasts the day. An online window's closing row is over when it
+# closes: two more hours kept HEALTH 105's midterm, closed at 11:59 pm, the dashboard's "OPEN NOW"
+# next exam until 1:59 am.
 function Get-JkExamEnd($e) {
     $start = Get-JkEventDue $e
     if (-not $e.time) { return $start }
+    if ([string]$e.title -match '(?i)\s+closes?$') { return $start }
     $end = [string](Get-JkProp $e 'end' '')
     if ($end -match '^(\d{1,2}):(\d{2})$') {
         $t = $start.Date.AddHours([int]$Matches[1]).AddMinutes([int]$Matches[2])
