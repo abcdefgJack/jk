@@ -206,7 +206,9 @@ function Show-JkPlan {
         $when = Format-JkComingDay $it.Due $now -Short; if ($days -eq 0) { $when = 'today' } elseif ($days -eq 1) { $when = 'tmrw' }
         $blocks = Paint "#$color" ($script:G.full * [int]($m / $script:PlanBlock))
         $left = [Math]::Max(0, $it.Effort - $it.Done)
-        Say ('  ' + (Paint "bold #$color" (Fit $code 11)) + (Paint 'white' (Fit "$($it.Title)" $titleW)) + (Paint 'muted' (Fit "$when $($script:G.dot) $($it.Weight)%" 13)) + (Paint 'bold white' (Fit (Format-JkMinutes $m) 7 -Right)) + '  ' + $blocks + (Paint 'gray' "   ~$(Format-JkMinutes $left) of work left"))
+        # a narrow window: "A6" rather than "Assignment..." (and a space before the next column)
+        $ttl = [string]$it.Title; if ((Get-JkTextWidth $ttl) -gt ($titleW - 1)) { $ttl = Get-JkShortTitle $ttl }
+        Say ('  ' + (Paint "bold #$color" (Fit $code 11)) + (Paint 'white' (Fit $ttl ($titleW - 1))) + ' ' + (Paint 'muted' (Fit "$when $($script:G.dot) $($it.Weight)%" 13)) + (Paint 'bold white' (Fit (Format-JkMinutes $m) 7 -Right)) + '  ' + $blocks + (Paint 'gray' "   ~$(Format-JkMinutes $left) of work left"))
     }
     $planned = 0.0; foreach ($v in $today.Alloc.Values) { $planned += $v }
     $doneToday = 0.0; foreach ($v in $logged.Values) { $doneToday += $v }
