@@ -242,19 +242,25 @@ function Show-JkPlan {
     }
 }
 
-# The planned item with the most unfocused minutes left today.
-function Get-JkPlanNext($Plan, $Logged) {
-    if (-not $Plan) { return $null }
-    $best = $null; $bestLeft = 0
+# Today's planned items with the minutes still to focus, in deadline order: focus logged on a
+# course today counts against its earliest item first. Want is the plan's, Left what remains.
+function Get-JkPlanLeft($Plan, $Logged) {
+    if (-not $Plan) { return @() }
     $usedByCourse = @{}
-    foreach ($k in $Logged.Keys) { $usedByCourse[$k] = $Logged[$k] }
-    foreach ($it in @($Plan.Items | Where-Object { $Plan.Today.Alloc.ContainsKey($_.Key) } | Sort-Object Due)) {
-        $want = $Plan.Today.Alloc[$it.Key]
-        $used = [Math]::Min($want, [double]$usedByCourse[$it.Course])
-        $usedByCourse[$it.Course] = [double]$usedByCourse[$it.Course] - $used
-        $left = $want - $used
-        if ($left -gt $bestLeft) { $best = $it; $bestLeft = $left }
-    }
+    if ($Logged) { foreach ($k in $Logged.Keys) { $usedByCourse[$k] = $Logged[$k] } }
+    @(foreach ($it in @($Plan.Items | Where-Object { $Plan.Today.Alloc.ContainsKey($_.Key) } | Sort-Object Due)) {
+            $want = [double]$Plan.Today.Alloc[$it.Key]
+            $used = [Math]::Min($want, [double]$usedByCourse[$it.Course])
+            $usedByCourse[$it.Course] = [double]$usedByCourse[$it.Course] - $used
+            [pscustomobject]@{ Item = $it; Want = $want; Left = $want - $used }
+        })
+}
+
+# The planned item with the most unfocused minutes left today (the earlier deadline on a tie):
+# what jk plan start begins, and what jk next leads its study with.
+function Get-JkPlanNext($Plan, $Logged) {
+    $best = $null; $bestLeft = 0
+    foreach ($r in @(Get-JkPlanLeft $Plan $Logged)) { if ($r.Left -gt $bestLeft) { $best = $r.Item; $bestLeft = $r.Left } }
     $best
 }
 

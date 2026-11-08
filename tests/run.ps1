@@ -310,6 +310,39 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk next leads its study with what jk plan start begins: a tie goes to the earlier deadline, and focus already done comes off (25m left of 1h 15m)' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'nextplan-home'; $script:JkConfigCache = $null
+    $origPlan = ${function:Get-JkPlanToday}; $origFocus = ${function:Get-JkTodayFocusByCourse}
+    try {
+        $dd = Get-JkDueData
+        $c = Resolve-JkCourse $dd 'cs341' -Create; $h = Resolve-JkCourse $dd 'health105' -Create; $o = Resolve-JkCourse $dd 'cs350' -Create
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-09T07:50:00'
+        # Monday's real plan: the midterm (6 pm) and an assignment (11:59 pm) at 1h 15m each, the plan's order
+        $mk = { param($k, $course, $title, $due) [pscustomobject]@{ Key = $k; Course = $course; Title = $title; Due = [datetime]$due; Id = 0 } }
+        $script:StubPlan = [pscustomobject]@{
+            Items = @((& $mk 'k1' $c.key 'Midterm 2' '2026-11-09T18:00'), (& $mk 'k2' $h.key 'Assignment 6' '2026-11-09T23:59'), (& $mk 'k3' $o.key 'A2B Concurrency' '2026-11-11T20:00'))
+            Today = [pscustomobject]@{ Alloc = @{ k1 = 75.0; k2 = 75.0; k3 = 25.0 } } }
+        function script:Get-JkPlanToday { $script:StubPlan }
+        $script:StubFocus = @{}
+        function script:Get-JkTodayFocusByCourse { param($Now) $script:StubFocus }
+        $steps = @(Get-JkNextSteps (Get-JkNow))
+        $txt = ($steps | ForEach-Object { "$($_.Text) => $($_.Hint)" }) -join ' / '
+        Assert-True ($steps[0].Text -eq 'Study CS 341 Midterm 2: 1h 15m planned today' -and $steps[0].Hint -eq 'jk plan start') "a tie, the earlier deadline leads: $txt"
+        Assert-True ($steps[1].Text -like 'Study HEALTH 105 Assignment 6: *' -and $steps[1].Hint -match '^jk focus 25 \S+ assignment 6$') "the next one has its own focus command: $txt"
+        # 50 minutes on CS 341 so far: the assignment now has the most left, and leads
+        $script:StubFocus = @{ ([string]$c.key) = 50.0 }
+        $steps = @(Get-JkNextSteps (Get-JkNow))
+        $txt = ($steps | ForEach-Object { "$($_.Text) => $($_.Hint)" }) -join ' / '
+        $first = $(try { Get-JkPlanNext $script:StubPlan $script:StubFocus } catch { $null })
+        Assert-True ($steps[0].Text -like 'Study HEALTH 105 Assignment 6: 1h 15m*' -and $steps[0].Hint -eq 'jk plan start' -and $first.Key -eq 'k2') "after 50m on CS 341: $txt"
+        Assert-True (@($steps | Where-Object { $_.Text -eq 'Study CS 341 Midterm 2: 25m left of 1h 15m today' }).Count -eq 1) "what is left of it: $txt"
+    } finally {
+        Set-Item function:script:Get-JkPlanToday $origPlan; Set-Item function:script:Get-JkTodayFocusByCourse $origFocus
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'the morning popup and jk review count as the dashboard does: +2 more due (not +3), one online exam today (not 2 exams), 1 deadline for a quiz window' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $origNotify = ${function:Show-JkNotify}; $origPlan = ${function:Get-JkPlanToday}
