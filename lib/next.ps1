@@ -16,14 +16,15 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
     $clock = { param($x) "$(Format-JkTime $x.E.time) (in $(Format-JkDuration (Get-JkTimeLeft $x.Due $Now)))" }
     $shown = New-Object System.Collections.Generic.List[string]
 
-    # an exam under way: until it ends, nothing else is what is happening now
-    foreach ($e in @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'exam' -and $_.time -and (Get-JkProp $_ 'end' '') })) {
+    # an exam under way: until it ends, nothing else is what is happening now. One with no end time
+    # runs two hours (Get-JkExamEnd, as the dashboard has it: it said NOW while this said nothing);
+    # an online window's rows are work, below
+    foreach ($e in @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'exam' -and $_.time -and [string]$_.title -notmatch '(?i)\s+(opens?|closes?)$' })) {
         $start = Get-JkEventDue $e
-        $part = ([string]$e.end).Split(':')
-        $stop = $start.Date.AddHours([int]$part[0]).AddMinutes([int]$part[1])
+        $stop = Get-JkExamEnd $e
         if ($Now -ge $start -and $Now -lt $stop) {
             $where = Get-JkExamNote $e
-            & $add "$(& $name $e), under way until $(Format-JkTime ([string]$e.end))" $(if ($where) { $where } else { 'the rest can wait until it ends' })
+            & $add "$(& $name $e), under way until $(Format-JkTime $stop.ToString('HH:mm', $script:Inv))" $(if ($where) { $where } else { 'the rest can wait until it ends' })
         }
     }
     # an exam within 6 hours: the last review, then getting there

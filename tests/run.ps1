@@ -310,6 +310,25 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk next: an exam with no end time is under way for two hours, as the dashboard has it; an online window opening is not' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'nextnoend-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs341' -Create; $b = Resolve-JkCourse $dd 'cs350' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $b.key -Date ([datetime]'2026-11-17') -Time '19:00' -Title 'Midterm' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-18') -Time '18:00' -End '19:50' -Title 'Midterm 2' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-19') -Time '06:00' -Title 'Midterm opens' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-21') -Time '23:59' -Title 'Midterm closes' -Kind 'exam'
+        Save-JkDueData $dd
+        $first = { param($now) $env:JK_NOW = $now; [string]@(Get-JkNextSteps (Get-JkNow))[0].Text }
+        Assert-Eq (& $first '2026-11-17T20:00:00') 'CS 350 Midterm, under way until 9:00 pm' 'an hour into one with no end time'
+        Assert-Eq (& $first '2026-11-18T19:00:00') 'CS 341 Midterm 2, under way until 7:50 pm' 'one with an end time, as before'
+        $w = & $first '2026-11-19T07:00:00'
+        Assert-True ($w -notmatch 'under way') "an hour after a window opens, not an exam under way: $w"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk exam <course> during the exam shows it, under way until its end, then moves on; an open online window still says open now' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'briefduring-home'; $script:JkConfigCache = $null
