@@ -341,12 +341,25 @@ $script:JkConfigDefaults = [ordered]@{
 # Config is read once per `jk` call (the dispatcher clears the cache); Set-JkConfig refreshes it.
 $script:JkConfigCache = $null
 
+# Settings whose stored value is checked when read (jk config edit writes whatever is typed): one
+# nothing can use falls back to its default, and jk doctor names it. remind.time "7:45 sharp" broke
+# the catch-up at unlock, remind.hours "two days" the morning popup, plan.hours "lots" jk plan.
+$script:JkConfigChecked = @('remind.time', 'remind.hours', 'alert.before', 'alert.class', 'notify', 'theme', 'banner', 'focus.minutes', 'cp.lang', 'cp.timeout', 'cp.port', 'tidy.minAge', 'plan.hours', 'plan.examHours', 'plan.examMin', 'plan.dueMin')
+
 function Get-JkConfig {
     param([string]$Key)
-    if ($null -eq $script:JkConfigCache) { $script:JkConfigCache = @{ Data = (Read-JkJson 'config.json' $null) } }
+    if ($null -eq $script:JkConfigCache) { $script:JkConfigCache = @{ Data = (Read-JkJson 'config.json' $null); Checked = @{}; Bad = @{} } }
     $cfg = $script:JkConfigCache.Data
     if ($Key) {
         $v = Get-JkProp $cfg $Key $null
+        if ($null -ne $v -and "$v" -ne '' -and $script:JkConfigChecked -contains $Key) {
+            $c = $script:JkConfigCache
+            if (-not $c.Checked.ContainsKey($Key)) {
+                try { $c.Checked[$Key] = [string](ConvertTo-JkConfigValue $Key "$v") } catch { $c.Checked[$Key] = $null; $c.Bad[$Key] = "$v" }
+            }
+            if ($null -ne $c.Checked[$Key]) { return $c.Checked[$Key] }
+            return [string]$script:JkConfigDefaults[$Key]
+        }
         if ($null -ne $v -and "$v" -ne '') { return "$v" }
         if ($script:JkConfigDefaults.Contains($Key)) { return [string]$script:JkConfigDefaults[$Key] }
         return $null

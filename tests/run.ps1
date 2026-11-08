@@ -310,6 +310,25 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'a setting typed into config.json that nothing can use falls back to its default and jk doctor names it; jk config set still refuses it' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'badconfig-home'; $script:JkConfigCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'config.json'), '{"remind.time":"7:45 sharp","remind.hours":"two days","plan.hours":"3,5","alert.before":"two hours","notify":"loud","editor":"code"}')
+        $env:JK_NOW = '2026-11-09T09:00:00'; $script:JkConfigCache = $null
+        Assert-Eq "$(Get-JkConfig 'remind.time')|$(Get-JkConfig 'remind.hours')|$(Get-JkConfig 'plan.hours')|$(Get-JkConfig 'alert.before')|$(Get-JkConfig 'notify')|$(Get-JkConfig 'editor')" '08:30|48|3.5|2h|auto|code' 'defaults stand in; 3,5 is read as 3.5; the rest as stored'
+        $failed = @()
+        foreach ($v in @({ $null = Test-JkMorningRunMissed }, { $null = Register-JkTodayAlerts }, { Show-JkPlan }, { Invoke-JkDueRemind -Quiet -Force })) { try { $null = & $v 6>&1 } catch { $failed += $_.Exception.Message } }
+        Assert-True (-not $failed.Count) "the catch-up check, alerts, plan and popup work: $($failed -join ' / ')"
+        $doc = @(Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'setting (remind|plan|alert|notify)' })
+        Assert-True ($doc.Count -eq 4 -and ($doc -join ' ') -match "setting remind\.time\s+'7:45 sharp' cannot be used, so 08:30 is") "jk doctor: $($doc -join ' / ')"
+        Assert-Throws { Invoke-JkConfig set notify loud 6>$null } 'jk config set notify loud is refused, as before'
+        Assert-Throws { Invoke-JkConfig set remind.hours 'two days' 6>$null } 'jk config set remind.hours "two days" is refused, as before'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'an unreadable reminder (at soon, id b) is set aside: the good one is still re-armed and fires, a save keeps it, jk doctor names it; and a failing step does not stop the morning run' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'badreminder-home'; $script:JkConfigCache = $null
