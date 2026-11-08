@@ -310,6 +310,22 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'a course page keeps an exam being written as its exam, under way until its end, then the next one' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'coursexam-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs341' -Create
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-09') -Time '18:00' -End '19:50' -Title 'Midterm 2' -Kind 'exam' -Weight '20%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-12') -Time '12:30' -End '15:00' -Title 'FINAL' -Kind 'exam' -Weight '44%'
+        Save-JkDueData $dd
+        $examRow = { param($now) $env:JK_NOW = $now; [string]@(Show-JkCourseBrief (Resolve-JkCourse (Get-JkDueData) 'cs341') 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^\s+exam\s' })[0] }
+        $r = & $examRow '2026-11-09T15:00:00'; Assert-True ($r -match 'Midterm 2\s+today 6:00 pm') "3 pm: $r"
+        $r = & $examRow '2026-11-09T18:40:00'; Assert-True ($r -match 'Midterm 2\s+under way, until 7:50 pm') "6:40 pm, in it: $r"
+        $r = & $examRow '2026-11-09T19:50:00'; Assert-True ($r -match 'FINAL\s+Sat Dec 12') "7:50 pm, over: $r"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk next: an exam with no end time is under way for two hours, as the dashboard has it; an online window opening is not' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'nextnoend-home'; $script:JkConfigCache = $null
