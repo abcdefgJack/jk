@@ -324,8 +324,28 @@ function Format-JkTermLine($Info) {
 
 # ---------------------------------------------------------------- rendering
 
+# What a row whose time has come says in place of a countdown: an exam (or interview) being
+# written is "now" and one finished is "over" ("passed" next to an exam reads as a pass), a quiz
+# window that has opened is "open" until it closes, and a deadline gone by is "passed".
+function Get-JkStartedLabel($e, $Data, [datetime]$Now) {
+    $t = [string]$e.title
+    if ($t -match '(?i)\s+opens?$') {
+        $win = $null
+        if ($Data) { $win = Get-JkEventWindow $e $Data }
+        if (-not $win) { return 'opened' }
+        if ($win.Closes -gt $Now) { return 'open' }
+        return 'closed'
+    }
+    if ($t -match '(?i)\s+closes?$') { return 'closed' }
+    if ($e.kind -in 'exam', 'appt') {
+        if ((Get-JkExamEnd $e) -gt $Now) { return 'now' }
+        return 'over'
+    }
+    'passed'
+}
+
 function Format-JkDueLine {
-    param($e, $cmap, [int]$Width, [switch]$WithDate, [switch]$Countdown, [datetime]$Now = (Get-JkNow))
+    param($e, $cmap, [int]$Width, [switch]$WithDate, [switch]$Countdown, [datetime]$Now = (Get-JkNow), $Data = $null)
     $due = Get-JkEventDue $e
     $past = $due -lt $Now
     $done = [bool]$e.done
@@ -341,7 +361,7 @@ function Format-JkDueLine {
     $left = ''
     $span = Get-JkTimeLeft $due $Now
     if ($Countdown -and -not $done -and -not $past -and $span.TotalHours -le 48) { $left = Format-JkDuration $span }
-    if ($Countdown -and -not $done -and $past) { $left = 'passed' }
+    if ($Countdown -and -not $done -and $past) { $left = Get-JkStartedLabel $e $Data $Now }
     $weight = [string]$e.weight
     # indent, id, gap, code, [date], space, title, space, tag(6), time(9), [countdown(9)], gap, weight(6)
     $fixed = 2 + 4 + 2 + 11 + $datePart.Length + 1 + 1 + 6 + 9 + 2 + 6
@@ -359,7 +379,9 @@ function Format-JkDueLine {
     $s += Paint 'muted' (Fit $timeTxt 9 -Right)
     if ($Countdown) {
         $ls = 'gray'
-        if ($left -and $left -ne 'passed') {
+        if ($left -eq 'now') { $ls = 'bold red' }
+        elseif ($left -eq 'open') { $ls = 'green' }
+        elseif ($left -and -not $past) {
             $h = $span.TotalHours
             if ($h -le 12) { $ls = 'bold red' } elseif ($h -le 24) { $ls = 'orange' } else { $ls = 'yellow' }
         }
@@ -410,7 +432,8 @@ function Show-JkDue {
         $evs = @($evs | Where-Object { $_.course -eq $c.key })
     }
     $info = Get-JkTermInfo $data $now
-    $nExam = @($evs | Where-Object { $_.kind -eq 'exam' }).Count
+    # an online midterm is two rows, "opens" and "closes", and one exam
+    $nExam = @($evs | Where-Object { $_.kind -eq 'exam' } | ForEach-Object { "$($_.course)|$(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" } | Select-Object -Unique).Count
     $sub = "next $Days days $($script:G.dot) $($evs.Count) item$(if ($evs.Count -ne 1) {'s'})"
     if ($nExam) { $sub += " $($script:G.dot) $nExam exam$(if ($nExam -ne 1) {'s'})" }
     Write-JkHeader 'Deadlines' (Format-JkTermLine $info) -Sub $sub
@@ -427,7 +450,7 @@ function Show-JkDue {
             Write-JkDayHeader $day $now $info
             $lastDay = $day
         }
-        Say (Format-JkDueLine $e $cmap $w -Countdown:$useCountdown -Now $now)
+        Say (Format-JkDueLine $e $cmap $w -Countdown:$useCountdown -Now $now -Data $data)
     }
     $later = @($data.events | Where-Object { -not $_.done -and (Get-JkEventDue $_) -ge $horizon }).Count
     Say ''

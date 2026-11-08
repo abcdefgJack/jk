@@ -1712,6 +1712,31 @@ Test 'a window open for a week names the day it closes: Mon Nov 16, not a second
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
     }
 }
+Test 'jk due: an exam being written says now and one finished says over, not passed; an open quiz window says open; one online midterm counts once' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'started-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'cs341' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time '18:00' -End '19:50' -Title 'Midterm 2' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time '12:00' -Title 'Lab 4'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-09') -Time '06:00' -Title 'Midterm opens' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Midterm closes' -Kind 'exam'
+        Save-JkDueData $dd
+        $row = { param($now, $title) $env:JK_NOW = $now; $l = @(Show-JkDue 6>&1 | ForEach-Object { "$_" }); @($l | Where-Object { $_ -match " $title " })[0] + ' || ' + @($l | Where-Object { $_ -match 'DEADLINES' })[0] }
+        $r = & $row '2026-11-09T18:40:00' 'Midterm 2'
+        Assert-True ($r -match 'EXAM\s+6:00 pm\s+now\s') "under way: $r"
+        $r = & $row '2026-11-09T23:20:00' 'Midterm 2'
+        Assert-True ($r -match 'EXAM\s+6:00 pm\s+over\s') "finished: $r"
+        $r = & $row '2026-11-09T18:40:00' 'Midterm opens'
+        Assert-True ($r -match 'EXAM\s+6:00 am\s+open\s') "the quiz window, open until tomorrow night: $r"
+        # a deadline gone by is still "passed"; the two midterms are 2 exams, not 3
+        $r = & $row '2026-11-09T18:40:00' 'Lab 4'
+        Assert-True ($r -match '12:00 pm\s+passed\s') "a deadline: $r"
+        Assert-True ($r -match '4 items . 2 exams') "the header: $r"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'a PC that slept through 7:45 gets the morning run at unlock, once; unlocks otherwise do nothing' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'unlock-home'; $script:JkConfigCache = $null
