@@ -192,7 +192,8 @@ function Show-JkDashboard {
     # deadlines for the next 7 days
     $soon = @($data.events | Where-Object { -not $_.done } | Where-Object { $d = Get-JkEventDue $_; $d -ge $now -and $d -lt $now.Date.AddDays(8) } | Sort-Object { Get-JkEventDue $_ })
     Say ''
-    Say (' ' + (Paint 'bold white' 'THIS WEEK') + (Paint 'gray' "  $($soon.Count) due in 7 days"))
+    # "2 due, 1 exam": a final is not something due, and an online exam's two rows are one exam
+    Say (' ' + (Paint 'bold white' 'THIS WEEK') + (Paint 'gray' "  $(Format-JkDueCounts (Measure-JkDue $soon)) in 7 days"))
     if ($soon.Count -eq 0) { Say (Paint 'green' "  Nothing due in the next 7 days. $($script:G.check)") }
     $shown = 0
     # the title column gives way to the EXAM tag when one is on screen, so rows keep one width
