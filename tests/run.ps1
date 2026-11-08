@@ -1522,6 +1522,25 @@ Test 'a missing, disabled or silent morning task is said on the dashboard' {
     # a sandbox has no task, so the dashboard does not cry wolf there (or in these tests)
     Assert-True (((Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n") -notmatch 'morning task') 'no warning in a sandbox'
 }
+Test 'three mornings run at unlock are not a silent morning task' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'tasklast-home'; $script:JkConfigCache = $null
+    try {
+        $now = [datetime]'2026-11-06T09:00'
+        # jk-remind itself last ran Mon Nov 2; the PC slept through 7:45 since, and each morning ran at unlock
+        $task = [pscustomobject]@{ State = 'Ready'; LastRunTime = [datetime]'2026-11-02T07:45'; NextRunTime = $null; LastTaskResult = 0; PinnedToUtc = $false }
+        Set-JkState 'lastTick' '2026-11-06T08:52:10'
+        Assert-Eq @(Get-JkTaskProblem $task $now).Count 0 'ran at unlock this morning'
+        # really silent: the newest run of either names the day
+        Set-JkState 'lastTick' '2026-11-03T08:00:00'
+        $p = @(Get-JkTaskProblem $task $now)
+        Assert-True ($p[1] -match 'has not run since Tue Nov 3') "silent since the last unlock run: $p"
+        # a stamp from the future (test clock, clock change) is not a run
+        Set-JkState 'lastTick' '2026-11-09T08:00:00'
+        $p = @(Get-JkTaskProblem $task $now)
+        Assert-True ($p[1] -match 'has not run since Mon Nov 2') "future stamp: $p"
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
+}
 Test 'every safe command and action runs on an empty install without a PowerShell error' {
     # What runs here is listed, rather than what to skip: a skip list that named "setup" and "speed"
     # let jk setup uninstall and jk speed undo through. A new command or action fails this test until
