@@ -306,7 +306,12 @@ function Get-JkPlanLine {
     $logged = Get-JkTodayFocusByCourse
     $byCourse = @{}
     foreach ($it in $p.Items) { if ($p.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $p.Today.Alloc[$it.Key] } }
-    $parts = foreach ($c in (Get-JkPlanCourseOrder $p $byCourse)) {
+    # the line ends "-> jk plan start": the course that begins leads (after focus on another, it
+    # need not be the one with the most minutes planned)
+    $order = @(Get-JkPlanCourseOrder $p $byCourse)
+    $next = Get-JkPlanNext $p $logged
+    if ($next) { $order = @($next.Course) + @($order | Where-Object { $_ -ne $next.Course }) }
+    $parts = foreach ($c in $order) {
         $color = Get-JkCourseColor $c $cmap
         $code = (Get-JkCourseLabel ([pscustomobject]@{ course = $c }) $cmap) -replace '\s', ''
         $done = [double]$logged[$c]

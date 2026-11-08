@@ -310,6 +310,31 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'the dashboard study line ending in jk plan start leads with the course that begins, after focus on another too' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'studyline-home'; $script:JkConfigCache = $null
+    $origPlan = ${function:Get-JkPlanToday}; $origFocus = ${function:Get-JkTodayFocusByCourse}
+    try {
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'cs341' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-09T07:50:00'
+        $mk = { param($k, $course, $title, $due) [pscustomobject]@{ Key = $k; Course = $course; Title = $title; Due = [datetime]$due; Id = 0 } }
+        $script:StubPlan = [pscustomobject]@{ Items = @((& $mk 'k1' $c.key 'Midterm 2' '2026-11-09T18:00'), (& $mk 'k2' $h.key 'Assignment 6' '2026-11-09T23:59')); Today = [pscustomobject]@{ Alloc = @{ k1 = 75.0; k2 = 75.0 } } }
+        function script:Get-JkPlanToday { $script:StubPlan }
+        function script:Get-JkTodayFocusByCourse { param($Now) $script:StubFocus }
+        $script:StubFocus = @{}
+        $line = [string](Get-JkPlanLine)
+        Assert-True ($line -match '^\W*CS341 1h 15m') "nothing done yet, the midterm (due first): $line"
+        # 50 minutes on CS 341: jk plan start now begins HEALTH 105, so it leads
+        $script:StubFocus = @{ ([string]$c.key) = 50.0 }
+        $line = [string](Get-JkPlanLine)
+        Assert-True ($line -match '^\W*HEALTH105 1h 15m\W+CS341 50m/1h 15m') "after 50m on CS 341: $line"
+        Assert-Eq ([string](Get-JkPlanNext $script:StubPlan $script:StubFocus).Course) ([string]$h.key) 'and that is what jk plan start begins'
+    } finally {
+        Set-Item function:script:Get-JkPlanToday $origPlan; Set-Item function:script:Get-JkTodayFocusByCourse $origFocus
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'a course page offers jk plan start only when that begins this course, else its own focus block; and jk plan keeps a gap between columns at 80 columns' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $origPlan = ${function:Get-JkPlanToday}; $origFocus = ${function:Get-JkTodayFocusByCourse}
