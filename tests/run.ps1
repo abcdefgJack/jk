@@ -310,6 +310,48 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'the morning popup and jk review count as the dashboard does: +2 more due (not +3), one online exam today (not 2 exams), 1 deadline for a quiz window' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $origNotify = ${function:Show-JkNotify}; $origPlan = ${function:Get-JkPlanToday}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:CountTitle = $Title; 'stub' }
+    function script:Get-JkPlanToday { $null }
+    $popup = { param($home2, $now) $env:JK_HOME = Join-Path $saved $home2; $script:JkConfigCache = $null; $env:JK_NOW = $now; $script:CountTitle = $null; Invoke-JkDueRemind -Quiet -Force; [string]$script:CountTitle }
+    $add = { param($home2, $course, $date, $time, $title, $kind)
+        $env:JK_HOME = Join-Path $saved $home2; $script:JkConfigCache = $null
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd $course -Create
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]$date) -Time $time -Title $title -Kind $(if ($kind) { $kind } else { 'due' })
+        Save-JkDueData $dd }
+    try {
+        # an exam tomorrow, an assignment and a quiz window (opens and closes) within the two days
+        & $add 'cnt-a' 'cs341' '2026-11-09' '18:00' 'Midterm 2' 'exam'
+        & $add 'cnt-a' 'health105' '2026-11-09' '23:59' 'Assignment 6'
+        & $add 'cnt-a' 'cs341' '2026-11-09' '09:00' 'Quiz 5 opens'
+        & $add 'cnt-a' 'cs341' '2026-11-09' '21:00' 'Quiz 5 closes'
+        $t = & $popup 'cnt-a' '2026-11-08T07:45:00'
+        Assert-True ($t -match '^Exam tomorrow: CS 341 Midterm 2 6:00 pm \(\+2 more due\)$') "exam tomorrow: $t"
+        # an online midterm that opens and closes today
+        & $add 'cnt-b' 'health105' '2026-11-09' '06:00' 'Midterm opens' 'exam'
+        & $add 'cnt-b' 'health105' '2026-11-09' '23:59' 'Midterm closes' 'exam'
+        $t = & $popup 'cnt-b' '2026-11-09T05:30:00'
+        Assert-True ($t -match '^Exam today: HEALTH 105 Midterm, by 11:59 pm$') "one online exam today: $t"
+        # nothing but a quiz window: one deadline; nothing but an opening: what opens, and when
+        & $add 'cnt-c' 'cs341' '2026-11-09' '09:00' 'Quiz 5 opens'
+        & $add 'cnt-c' 'cs341' '2026-11-09' '21:00' 'Quiz 5 closes'
+        $t = & $popup 'cnt-c' '2026-11-08T07:45:00'
+        Assert-True ($t -eq '1 deadline in the next 48h') "a quiz window: $t"
+        & $add 'cnt-d' 'cs341' '2026-11-09' '09:00' 'Quiz 6 opens'
+        $t = & $popup 'cnt-d' '2026-11-08T07:45:00'
+        Assert-True ($t -eq 'CS 341 Quiz 6 opens tomorrow 9:00 am') "only an opening: $t"
+        # jk review's look ahead: the online midterm is one exam
+        $env:JK_HOME = Join-Path $saved 'cnt-b'; $script:JkConfigCache = $null; $env:JK_NOW = '2026-11-08T20:00:00'
+        $rev = @(Show-JkReview 6>&1 | ForEach-Object { "$_" })
+        $line = @($rev | Where-Object { $_ -match '\d+ items?\s' })[0]
+        Assert-True ($line -match '2 items\s+.\s+1 exam\b') "review: $line"
+    } finally {
+        Set-Item function:script:Show-JkNotify $origNotify; Set-Item function:script:Get-JkPlanToday $origPlan
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'the dashboard week header says 2 due, 2 exams, not 6 due: an exam is not due, and an online exam or a quiz window counts once' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'dashcount-home'; $script:JkConfigCache = $null

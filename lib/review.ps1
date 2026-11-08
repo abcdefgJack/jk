@@ -83,7 +83,8 @@ function Show-JkReview {
     Say ''
     Say (' ' + (Paint 'bold white' "Next $span") + (Paint 'gray' "  $($now.ToString('MMM d', $script:Inv)) $($script:G.dash) $($to.ToString('MMM d', $script:Inv))"))
     if ($ahead.Count -eq 0) { Say (Paint 'green' '  Nothing due. A good week to get ahead.'); return }
-    $exams = @($ahead | Where-Object { $_.kind -eq 'exam' }).Count
+    # an online exam's "opens" and "closes" rows are one exam
+    $exams = (Measure-JkDue $ahead).Exams
     $byDay = $ahead | Group-Object { (Get-JkEventDue $_).Date.ToString('yyyy-MM-dd') } | Sort-Object Count -Descending
     $busiest = $byDay | Select-Object -First 1
     $busyTxt = ''
