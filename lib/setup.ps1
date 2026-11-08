@@ -481,9 +481,13 @@ function Invoke-JkDoctor {
         & $bad 'unreadable deadline' "$what$(if ($unread.Count -gt 1) { ", +$($unread.Count - 1) more" }) - fix in deadlines.json (kept, not shown)"
     }
     # the same for to-dos, classes and focus sessions
-    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }), @('reminder', 'reminders.json', { Get-JkReminderData }))) {
+    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }), @('reminder', 'reminders.json', { Get-JkReminderData }), @('mark', 'grades.json', { Get-JkGradeData }))) {
         $un = @(); try { $un = @(Get-JkProp (& $src[2]) 'unreadable' @()) } catch { }
-        if ($un.Count) { & $bad "unreadable $($src[0])" "$(Fit ($un[0] | ConvertTo-Json -Compress -Depth 3) 46)$(if ($un.Count -gt 1) { ", +$($un.Count - 1) more" }) - fix in $($src[1])" }
+        if ($un.Count) {
+            # cut a long record to fit the line, but do not pad a short one
+            $j = [string]($un[0] | ConvertTo-Json -Compress -Depth 3); if ($j.Length -gt 46) { $j = Fit $j 46 }
+            & $bad "unreadable $($src[0])" "$j$(if ($un.Count -gt 1) { ", +$($un.Count - 1) more" }) - fix in $($src[1])"
+        }
     }
     # the LEARN feed: the morning task syncs daily, so a stale stamp means it has been failing
     if (Get-JkConfig 'sync.url') {
