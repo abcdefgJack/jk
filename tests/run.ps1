@@ -310,6 +310,31 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk week: a title too long for its cell is shortened (HEALTH105 A6, CS341 Mid 2), not cut to HEALTH105 As...; one that fits stays whole' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'weekshort-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData
+        $h = Resolve-JkCourse $dd 'health105' -Create; $c = Resolve-JkCourse $dd 'cs341' -Create; $o = Resolve-JkCourse $dd 'co367' -Create
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 7'
+        $null = New-JkEvent -Data $dd -Course $o.key -Date ([datetime]'2026-11-16') -Time '23:00' -Title 'Assignment 4 closes'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-17') -Time '18:00' -Title 'Midterm 2' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-18') -Time '12:00' -Title 'Lab 4'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-15T10:00:00'; $env:JK_WIDTH = '100'
+        $out = (@(Show-JkDueWeek 6>&1 | ForEach-Object { "$_" }) -join "`n")
+        foreach ($want in 'HEALTH105 A7', 'CO367 A4 ', 'CS341 Mid 2', 'CS341 Lab 4') { Assert-True ($out.Contains($want)) "a cell reads '$want': $out" }
+        Assert-True (-not $out.Contains('HEALTH105 As')) "no cut 'HEALTH105 As...': $out"
+        # wide enough for the whole title, it stays whole
+        $env:JK_WIDTH = '130'
+        $wide = (@(Show-JkDueWeek 6>&1 | ForEach-Object { "$_" }) -join "`n")
+        Assert-True ($wide.Contains('CS341 Midterm 2')) "at 130 columns: $wide"
+        $short = try { "$(Get-JkShortTitle 'Assignment 6')|$(Get-JkShortTitle 'Midterm 2 opens')|$(Get-JkShortTitle 'Assignment 4 closes')|$(Get-JkShortTitle 'Quiz 3')|$(Get-JkShortTitle 'A3 File Systems')" } catch { "error: $($_.Exception.Message)" }
+        Assert-Eq $short 'A6|Mid 2 opens|A4|Q3|A3 File Systems' 'the short forms'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null
+    }
+}
 Test 'the term line on the last day of classes says classes end today, and exams tomorrow the day before; not in 0d, in 1d' {
     $dot = " $($script:G.dot) "
     $line = { param($phase, $toEnd, $toExams) Format-JkTermLine ([pscustomobject]@{ Name = 'Fall 2026'; Phase = $phase; InBreak = $false; BreakName = ''; Week = 13; TotalWeeks = 13; DaysToEnd = $toEnd; DaysToExams = $toExams }) }
