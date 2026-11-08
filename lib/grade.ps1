@@ -8,12 +8,19 @@ function Get-JkGradeData {
     if (-not $d) { $d = [pscustomobject]@{ scores = @(); extras = @(); targets = @(); nextExtra = 1 } }
     foreach ($p in 'scores', 'extras', 'targets') { if ($null -eq (Get-JkProp $d $p)) { Set-JkProp $d $p @() } }
     if (-not (Get-JkProp $d 'nextExtra')) { Set-JkProp $d 'nextExtra' 1 }
+    # a mark that is not a number ("great", a hand edit) is kept aside, not counted (core.ps1): it
+    # stopped jk grade, the course's grades and its exam brief
+    Split-JkUnreadable $d 'scores' {
+        param($s)
+        $n = 0.0
+        [string]$s.id -and [double]::TryParse([string]$s.score, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)
+    }
     $d
 }
 
 function Save-JkGradeData($Data) {
     foreach ($p in 'scores', 'extras', 'targets') { $Data.$p = @($Data.$p) }
-    Save-JkJson 'grades.json' $Data
+    Save-JkWithUnreadable $Data 'scores' { Save-JkJson 'grades.json' $Data }
 }
 
 function ConvertTo-JkPercent([string]$Text) {

@@ -310,6 +310,37 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'an unreadable popup stamp counts as never (the popup still shows), and a mark that is not a number is set aside, kept on save and named' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'stampgrade-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $origNotify = ${function:Show-JkNotify}; $origPlan = ${function:Get-JkPlanToday}
+    function script:Show-JkNotify { param([string]$Title) $script:StampTitle = $Title; 'stub' }
+    function script:Get-JkPlanToday { $null }
+    try {
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'cs341' -Create
+        $e = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time '23:59' -Title 'Assignment 3' -Weight '4%'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-02') -Time '23:59' -Title 'Assignment 2' -Weight '4%'
+        Save-JkDueData $dd
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'state.json'), '{"lastRemind":"x"}')
+        $env:JK_NOW = '2026-11-09T07:45:00'; $script:StampTitle = $null
+        $threw = $null; try { Invoke-JkDueRemind -Quiet } catch { $threw = $_.Exception.Message }
+        Assert-True (-not $threw -and $script:StampTitle) "the morning popup shows with an unreadable stamp: [$threw] [$($script:StampTitle)]"
+        $a2 = @((Get-JkDueData).events | Where-Object { $_.title -eq 'Assignment 2' })[0]
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'grades.json'), "{""scores"":[{""id"":""$($a2.id)"",""score"":""great""}],""extras"":[],""targets"":{},""nextExtra"":1}")
+        $failed = @()
+        foreach ($v in @({ Invoke-JkGrade }, { Invoke-JkGrade cs341 }, { Invoke-JkExams 6>$null })) { try { $null = & $v 6>&1 } catch { if ($_.Exception.Message -notmatch 'no coming exam') { $failed += $_.Exception.Message } } }
+        Assert-True (-not $failed.Count) "jk grade and jk grade cs341 work: $($failed -join ' / ')"
+        $g = Get-JkGradeData; Save-JkGradeData $g
+        $raw = [IO.File]::ReadAllText((Join-Path $env:JK_HOME 'grades.json')) | ConvertFrom-Json
+        Assert-True (@($raw.scores | Where-Object { $_.score -eq 'great' }).Count -eq 1 -and -not $raw.PSObject.Properties['unreadable']) 'the mark is kept as it was after a save'
+        $doc = @(Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'unreadable mark\s' })
+        Assert-Eq $doc.Count 1 "jk doctor names it: $($doc -join ' / ')"
+    } finally {
+        Set-Item function:script:Show-JkNotify $origNotify; Set-Item function:script:Get-JkPlanToday $origPlan
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'a setting typed into config.json that nothing can use falls back to its default and jk doctor names it; jk config set still refuses it' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'badconfig-home'; $script:JkConfigCache = $null

@@ -1469,9 +1469,10 @@ function Invoke-JkDueRemind {
     $now = Get-JkNow
     $last = Get-JkProp $state 'lastRemind'
     if (-not $Force -and $last) {
-        $lastDt = [datetime]::Parse([string]$last, $script:Inv)
-        # a stamp from the future (clock change, pinned test clock) must not silence the brief
-        if ($lastDt -le $now -and ($now - $lastDt).TotalHours -lt 3) { if (-not $Quiet) { Say (Paint 'gray' '  reminded less than 3h ago; use -Force') }; return }
+        # a stamp from the future (clock change, pinned test clock) must not silence the brief, and
+        # one that cannot be read counts as never: it threw, and cost the popup every morning
+        $lastDt = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$last, $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$lastDt) -and $lastDt -le $now -and ($now - $lastDt).TotalHours -lt 3) { if (-not $Quiet) { Say (Paint 'gray' '  reminded less than 3h ago; use -Force') }; return }
     }
     $soon = @(Get-JkDueSoon -Hours $Hours)
     # an exam up to three days out is worth a morning's notice too: the weekend before a Monday
