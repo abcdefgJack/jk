@@ -1539,7 +1539,7 @@ function Invoke-JkDueRemind {
         if ($plan -and $plan.Today.Alloc.Count) {
             $byCourse = @{}
             foreach ($it in $plan.Items) { if ($plan.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $plan.Today.Alloc[$it.Key] } }
-            $lines += 'Study today: ' + (($byCourse.Keys | Sort-Object { $byCourse[$_] } -Descending | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" }) -join ', ')
+            $lines += 'Study today: ' + ((Get-JkPlanCourseOrder $plan $byCourse | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" }) -join ', ')
         }
     } catch { }
     if ($soon.Count) {

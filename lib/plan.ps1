@@ -284,6 +284,18 @@ function Start-JkPlanBlock {
     } catch { }
 }
 
+# Today's courses, most planned minutes first and the earlier deadline on a tie (what jk plan start
+# picks); $ByCourse holds the minutes. Without the tie-break, two courses at 1h 15m came out in
+# hashtable order.
+function Get-JkPlanCourseOrder($Plan, $ByCourse) {
+    $first = @{}
+    foreach ($it in @($Plan.Items)) {
+        if (-not $Plan.Today.Alloc.ContainsKey($it.Key)) { continue }
+        if (-not $first.ContainsKey($it.Course) -or $it.Due -lt $first[$it.Course]) { $first[$it.Course] = $it.Due }
+    }
+    @($ByCourse.Keys | Sort-Object @{ e = { - [double]$ByCourse[$_] } }, @{ e = { $first[$_] } })
+}
+
 # One line for the dashboard: today's blocks per course.
 function Get-JkPlanLine {
     $p = Get-JkPlanToday
@@ -292,7 +304,7 @@ function Get-JkPlanLine {
     $logged = Get-JkTodayFocusByCourse
     $byCourse = @{}
     foreach ($it in $p.Items) { if ($p.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $p.Today.Alloc[$it.Key] } }
-    $parts = foreach ($c in ($byCourse.Keys | Sort-Object { $byCourse[$_] } -Descending)) {
+    $parts = foreach ($c in (Get-JkPlanCourseOrder $p $byCourse)) {
         $color = Get-JkCourseColor $c $cmap
         $code = (Get-JkCourseLabel ([pscustomobject]@{ course = $c }) $cmap) -replace '\s', ''
         $done = [double]$logged[$c]

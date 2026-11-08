@@ -310,6 +310,41 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'two courses with the same study time or the same share of marks: the one due first leads (dashboard, popup, jk review), either way round' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $origPlan = ${function:Get-JkPlanToday}; $origFocus = ${function:Get-JkTodayFocusByCourse}; $origNotify = ${function:Show-JkNotify}
+    function script:Get-JkPlanToday { $script:StubPlan }
+    function script:Get-JkTodayFocusByCourse { param($Now) @{} }
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:TieLines = $Lines; 'stub' }
+    try {
+        foreach ($round in 1, 2) {
+            $env:JK_HOME = Join-Path $saved "tie-home$round"; $script:JkConfigCache = $null
+            $dd = Get-JkDueData
+            $c = Resolve-JkCourse $dd 'cs341' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+            # round 1: CS 341 due first; round 2: HEALTH 105 due first. Same study time, same weight.
+            $cDue = $(if ($round -eq 1) { '18:00' } else { '23:30' }); $hDue = $(if ($round -eq 1) { '23:30' } else { '18:00' })
+            $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time $cDue -Title 'Midterm 2' -Weight '10%'
+            $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-09') -Time $hDue -Title 'Assignment 6' -Weight '10%'
+            Save-JkDueData $dd
+            $env:JK_NOW = '2026-11-09T07:50:00'
+            $mk = { param($k, $course, $title, $due) [pscustomobject]@{ Key = $k; Course = $course; Title = $title; Due = [datetime]"2026-11-09T$due"; Id = 0 } }
+            $script:StubPlan = [pscustomobject]@{ Items = @((& $mk 'k1' $c.key 'Midterm 2' $cDue), (& $mk 'k2' $h.key 'Assignment 6' $hDue)); Today = [pscustomobject]@{ Alloc = @{ k1 = 75.0; k2 = 75.0 } } }
+            $lead = $(if ($round -eq 1) { 'CS' } else { 'HEALTH' })
+            $line = [string](Get-JkPlanLine)
+            Assert-True ($line -match "^\W*$lead") "round ${round}, dashboard STUDY TODAY leads with $($lead): $line"
+            $script:TieLines = $null; Invoke-JkDueRemind -Quiet -Force
+            $study = @($script:TieLines | Where-Object { $_ -like 'Study today:*' })[0]
+            Assert-True ($study -match "^Study today: $lead") "round ${round}, popup: $study"
+            $env:JK_NOW = '2026-11-08T20:00:00'
+            $rev = @(Show-JkReview 6>&1 | ForEach-Object { "$_" })
+            $sugg = @($rev | Where-Object { $_ -match 'suggestion:' })[0]
+            Assert-True ($sugg -match "start with $lead") "round ${round}, review: $sugg"
+        }
+    } finally {
+        Set-Item function:script:Get-JkPlanToday $origPlan; Set-Item function:script:Get-JkTodayFocusByCourse $origFocus; Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk next leads its study with what jk plan start begins: a tie goes to the earlier deadline, and focus already done comes off (25m left of 1h 15m)' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'nextplan-home'; $script:JkConfigCache = $null
