@@ -467,8 +467,16 @@ function Invoke-JkDoctor {
     $mode = Get-JkConfig 'notify'
     if ($ts -eq 'Enabled') { & $ok 'notifications' "Windows toasts enabled $($script:G.dot) mode $mode" }
     else { & $ok 'notifications' "Windows toasts are off ($ts), jk uses its own popup $($script:G.dot) mode $mode" }
-    $ev = @((Get-JkDueData).events)
-    if ($ev.Count) { & $ok 'deadlines' "$(Format-JkCount $ev.Count 'event') $($script:G.dot) $(Format-JkCount @((Get-JkDueData).courses).Count 'course')" } else { & $meh 'deadlines' 'none yet - jk due import <calendar.html> or jk due add' }
+    $dd = Get-JkDueData
+    $ev = @($dd.events)
+    if ($ev.Count) { & $ok 'deadlines' "$(Format-JkCount $ev.Count 'event') $($script:G.dot) $(Format-JkCount @($dd.courses).Count 'course')" } else { & $meh 'deadlines' 'none yet - jk due import <calendar.html> or jk due add' }
+    # records no screen can read are kept as they are, out of sight: say which, so they get fixed
+    $unread = @(Get-JkProp $dd 'unreadable' @())
+    if ($unread.Count) {
+        $u = $unread[0]
+        $what = "#$($u.id) $($u.title): date '$($u.date)'$(if ($u.time) { ", time '$($u.time)'" })$(if (Get-JkProp $u 'end' '') { ", end '$($u.end)'" })"
+        & $bad 'unreadable deadline' "$what$(if ($unread.Count -gt 1) { ", +$($unread.Count - 1) more" }) - fix in deadlines.json (kept, not shown)"
+    }
     # the LEARN feed: the morning task syncs daily, so a stale stamp means it has been failing
     if (Get-JkConfig 'sync.url') {
         $lastDt = $null

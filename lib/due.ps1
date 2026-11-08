@@ -25,6 +25,12 @@ function Get-JkDueData {
         $d = [pscustomobject]@{ version = 1; term = $null; courses = @(); events = @(); nextId = 1 }
     }
     foreach ($p in 'courses', 'events') { if ($null -eq (Get-JkProp $d $p)) { Set-JkProp $d $p @() } }
+    # a record no screen can read (a hand edit, a bad sync: date "2026-13-01", time "soon") used to
+    # crash the dashboard, jk due, the morning popup and the terminal line alike. It is set aside
+    # here, written back as it was on save (Save-JkDueData), and named by jk doctor.
+    $good = New-Object System.Collections.Generic.List[object]; $bad = New-Object System.Collections.Generic.List[object]
+    foreach ($e in @($d.events)) { if (Repair-JkEvent $e) { $good.Add($e) } else { $bad.Add($e) } }
+    if ($bad.Count) { $d.events = $good.ToArray(); Set-JkProp $d 'unreadable' $bad.ToArray() }
     if (-not (Get-JkProp $d 'nextId')) {
         $max = 0; foreach ($e in @($d.events)) { if ([int]$e.id -gt $max) { $max = [int]$e.id } }
         Set-JkProp $d 'nextId' ($max + 1)
@@ -34,12 +40,32 @@ function Get-JkDueData {
 
 function Save-JkDueData($Data) {
     $Data.courses = @($Data.courses)
-    $Data.events = @($Data.events | Sort-Object date, time, id)
-    Save-JkJson 'deadlines.json' $Data
+    # the records set aside as unreadable go back into the file unchanged, never lost
+    $bad = @(Get-JkProp $Data 'unreadable' @())
+    $good = @($Data.events | Sort-Object date, time, id)
+    if ($bad.Count) { $Data.events = @(@($good) + $bad); $Data.PSObject.Properties.Remove('unreadable') } else { $Data.events = $good }
+    try { Save-JkJson 'deadlines.json' $Data }
+    finally { if ($bad.Count) { $Data.events = $good; Set-JkProp $Data 'unreadable' $bad } }
     $script:JkDueCache = $null
     Clear-JkBriefCache
     # keep an already-generated calendar page current (the reminder popup links to it)
     if (Test-Path -LiteralPath (Get-JkPath 'calendar.html')) { try { Export-JkDueHtml -NoOpen -Quiet } catch { } }
+}
+
+# Whether every screen can read an event: a real yyyy-MM-dd date, a numeric id, and a time and end
+# that are HH:mm. A time written another way that jk reads anyway ("7pm") is put as "19:00".
+function Repair-JkEvent($e) {
+    $d = [datetime]::MinValue
+    if (-not [datetime]::TryParseExact([string]$e.date, 'yyyy-MM-dd', $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$d)) { return $false }
+    if ([string]$e.id -notmatch '^\d+$') { return $false }
+    foreach ($k in 'time', 'end') {
+        $v = [string](Get-JkProp $e $k '')
+        if (-not $v -or $v -match '^([01]?\d|2[0-3]):[0-5]\d$') { continue }
+        $fixed = $null; try { $fixed = [string](ConvertTo-JkTime $v) } catch { }
+        if ($fixed -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { return $false }
+        $e.$k = $fixed
+    }
+    $true
 }
 
 function Get-JkCourseMap($Data) {
