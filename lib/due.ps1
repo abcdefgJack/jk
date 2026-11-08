@@ -541,7 +541,9 @@ function Show-JkExamBrief {
         $win = Get-JkEventWindow $e $data
         if ($win) { $seen[[string]$win.Open.id] = $true; $seen[[string]$win.Close.id] = $true; $e = $win.Close }
         $end = Get-JkEventDue $e
-        if ($end -lt $now) { continue }
+        # one being written is still the one, until it is over (as jk exams and the dashboard have it):
+        # "jk exam cs341" at 7 pm, in its 6:00-7:50 pm midterm, said no coming exam matched
+        if ((Get-JkExamEnd $e) -le $now) { continue }
         if ($course -and $e.course -ne $course.key) { continue }
         $title = $(if ($win) { $win.Title } else { [string]$e.title })
         if ($rx.Count -and -not (Test-JkTitleWords $title $rx)) { continue }
@@ -552,7 +554,7 @@ function Show-JkExamBrief {
     $e = $x.E
     $label = "$(Get-JkCourseLabel $e $cmap) $($x.Title)"
     $left = $x.Start - $now
-    $rel = $(if ($left.TotalSeconds -le 0) { 'open now' } elseif ($left.TotalHours -lt 24) { "in $(Format-JkDuration $left)" } else { Format-JkRelDay $x.Start $now })
+    $rel = $(if ($left.TotalSeconds -le 0) { $(if ($x.Win) { 'open now' } else { "under way, until $(Format-JkTime (Get-JkExamEnd $e).ToString('HH:mm', $script:Inv))" }) } elseif ($left.TotalHours -lt 24) { "in $(Format-JkDuration $left)" } else { Format-JkRelDay $x.Start $now })
     $c = @($data.courses | Where-Object { $_.key -eq $e.course })[0]
     Write-JkHeader $label $rel -Sub ([string]$c.name)
     $row = { param($k, $v) Say ('  ' + (Paint 'bold white' (Fit $k 9)) + $v) }

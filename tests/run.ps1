@@ -310,6 +310,31 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk exam <course> during the exam shows it, under way until its end, then moves on; an open online window still says open now' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'briefduring-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs341' -Create; $b = Resolve-JkCourse $dd 'cs350' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-09') -Time '18:00' -End '19:50' -Title 'Midterm 2' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-12') -Time '12:30' -End '15:00' -Title 'FINAL' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $b.key -Date ([datetime]'2026-11-09') -Time '19:00' -Title 'Midterm' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-08') -Time '06:00' -Title 'Quiz opens' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Quiz closes' -Kind 'exam'
+        Save-JkDueData $dd
+        $head = { param($now, $course) $env:JK_NOW = $now; $l = @(Invoke-JkExams $course 6>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() }); $l[0] }
+        $r = try { & $head '2026-11-09T19:00:00' 'cs341' } catch { "error: $($_.Exception.Message)" }
+        Assert-True ($r -match 'CS 341 MIDTERM 2.*under way, until 7:50 pm') "7 pm, in the midterm: $r"
+        $r = try { & $head '2026-11-09T19:50:00' 'cs341' } catch { "error: $($_.Exception.Message)" }
+        Assert-True ($r -match 'CS 341 FINAL') "7:50 pm, it ended: $r"
+        # no end time: two hours
+        $r = try { & $head '2026-11-09T20:00:00' 'cs350' } catch { "error: $($_.Exception.Message)" }
+        Assert-True ($r -match 'CS 350 MIDTERM.*under way, until 9:00 pm') "an hour into one with no end time: $r"
+        $r = try { & $head '2026-11-09T12:00:00' 'health105' } catch { "error: $($_.Exception.Message)" }
+        Assert-True ($r -match 'HEALTH 105 QUIZ.*open now') "an online window: $r"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'at an exam''s end time it is over on every screen: the dashboard and jk exams agree with jk due at 10:00 pm for a 7:30-10:00 pm final' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'examend-home'; $script:JkConfigCache = $null
