@@ -435,7 +435,7 @@ function Show-JkDue {
     }
     $info = Get-JkTermInfo $data $now
     # an online midterm is two rows, "opens" and "closes", and one exam
-    $nExam = @($evs | Where-Object { $_.kind -eq 'exam' } | ForEach-Object { "$($_.course)|$(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" } | Select-Object -Unique).Count
+    $nExam = (Measure-JkDue $evs).Exams
     $sub = "next $Days days $($script:G.dot) $($evs.Count) item$(if ($evs.Count -ne 1) {'s'})"
     if ($nExam) { $sub += " $($script:G.dot) $nExam exam$(if ($nExam -ne 1) {'s'})" }
     Write-JkHeader 'Deadlines' (Format-JkTermLine $info) -Sub $sub
@@ -1371,6 +1371,23 @@ function Get-JkExamSoonTitle($Soon, $Cmap, [datetime]$Now, $Data) {
     $t
 }
 
+# How many things a list of rows is: Due, the deadlines (a quiz window's opening is not one: its
+# "closes" is), and Exams, each exam once (an online one is two rows, "opens" and "closes").
+function Measure-JkDue($Events) {
+    $ev = @($Events | Where-Object { $_ })
+    $exams = @($ev | Where-Object { $_.kind -eq 'exam' } | ForEach-Object { "$($_.course)|$(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" } | Select-Object -Unique).Count
+    $due = @($ev | Where-Object { $_.kind -ne 'exam' -and [string]$_.title -notmatch '(?i)\s+opens?$' }).Count
+    [pscustomobject]@{ Due = $due; Exams = $exams }
+}
+
+# "2 due, 1 exam", "3 exams", "4 due"; "0 due" for none.
+function Format-JkDueCounts($M) {
+    $parts = @()
+    if ($M.Due -or -not $M.Exams) { $parts += "$($M.Due) due" }
+    if ($M.Exams) { $parts += Format-JkCount $M.Exams 'exam' }
+    $parts -join ', '
+}
+
 # Sunday's look at the week: "This week: 9 due, 3 exams - CO 367 Quiz 2 Thu, CS 350 Midterm Thu,
 # CS 370 Midterm Mon". An online exam's opens/closes pair counts once. $null when the week is empty.
 function Get-JkWeekAheadLine($Data, $Cmap, [datetime]$Now) {
@@ -1388,7 +1405,7 @@ function Get-JkWeekAheadLine($Data, $Cmap, [datetime]$Now) {
         "$(Get-JkCourseLabel $e $Cmap) $t $(if ($dd.Date -eq $Now.Date) { 'today' } else { Format-JkComingDay $dd $Now })"
     })
     # a quiz window's opening is not something due: its "closes" is the one deadline
-    $other = @($week | Where-Object { $_.kind -ne 'exam' -and [string]$_.title -notmatch '(?i)\s+opens?$' }).Count
+    $other = (Measure-JkDue $week).Due
     $txt = "This week: $other due"
     if ($exams.Count) {
         $txt += ", $(Format-JkCount $exams.Count 'exam') $($script:G.dash) " + (@($exams | Select-Object -First 3) -join ', ')

@@ -310,6 +310,30 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'the dashboard week header says 2 due, 2 exams, not 6 due: an exam is not due, and an online exam or a quiz window counts once' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'dashcount-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData
+        $c = Resolve-JkCourse $dd 'cs341' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-10') -Time '18:00' -Title 'Midterm 2' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-11') -Time '06:00' -Title 'Midterm opens' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-12') -Time '23:59' -Title 'Midterm closes' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Assignment 6'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-11') -Time '09:00' -Title 'Quiz 5 opens'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-11') -Time '23:59' -Title 'Quiz 5 closes'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-09T09:00:00'
+        $dash = @(Show-JkDashboard 6>&1 | ForEach-Object { "$_" })
+        $head = @($dash | Where-Object { $_ -match 'THIS WEEK' })[0]
+        # six rows: two exams (one of them online), the assignment, and the quiz (its opening is not due)
+        Assert-True ($head -match 'THIS WEEK\s+2 due, 2 exams in 7 days\s*$') "header: $head"
+        $fmt = try { "$(Format-JkDueCounts ([pscustomobject]@{ Due = 0; Exams = 3 }))|$(Format-JkDueCounts ([pscustomobject]@{ Due = 4; Exams = 0 }))|$(Format-JkDueCounts ([pscustomobject]@{ Due = 0; Exams = 0 }))|$(Format-JkDueCounts ([pscustomobject]@{ Due = 1; Exams = 1 }))" } catch { "error: $($_.Exception.Message)" }
+        Assert-Eq $fmt '3 exams|4 due|0 due|1 due, 1 exam' 'the wordings'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk week: a title too long for its cell is shortened (HEALTH105 A6, CS341 Mid 2), not cut to HEALTH105 As...; one that fits stays whole' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'weekshort-home'; $script:JkConfigCache = $null
