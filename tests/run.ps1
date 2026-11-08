@@ -310,6 +310,46 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'an unreadable reminder (at soon, id b) is set aside: the good one is still re-armed and fires, a save keeps it, jk doctor names it; and a failing step does not stop the morning run' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'badreminder-home'; $script:JkConfigCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $origBg = ${function:Start-JkBackground}; $origNotify = ${function:Show-JkNotify}
+    function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) $script:BgCalls += @($Script); [pscustomobject]@{ Id = 999999; StartTime = (Get-Date) } }
+    function script:Show-JkNotify { 'stub' }
+    $tickFns = 'Restore-JkReminders', 'Sync-JkBackupMirror', 'Restore-JkFocusTimer', 'Register-JkTodayAlerts', 'Register-JkClassAlert', 'Update-JkDiskLog', 'Invoke-JkDueRemind', 'Limit-JkBackgroundLog'
+    $origTick = @{}; foreach ($f in $tickFns) { $origTick[$f] = (Get-Item "function:$f").ScriptBlock }
+    try {
+        $good = '{"id":1,"text":"call home","at":"2026-11-09T20:00:00","created":"2026-11-08T10:00:00","pid":999998,"spawned":"2026-11-08T10:00:00","key":"","dueId":0}'
+        $bad1 = '{"id":2,"text":"x","at":"soon","created":"2026-11-08T10:00:00","pid":1,"spawned":"2026-11-08T10:00:00","key":"","dueId":0}'
+        $bad2 = '{"id":"b","text":"y","at":"2026-11-09T21:00:00","created":"2026-11-08T10:00:00","pid":1,"spawned":"2026-11-08T10:00:00","key":"","dueId":0}'
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'reminders.json'), "{""nextId"":3,""items"":[$good,$bad1,$bad2]}")
+        $env:JK_NOW = '2026-11-09T07:45:00'
+        $script:BgCalls = @()
+        $threw = $null; try { Restore-JkReminders } catch { $threw = $_.Exception.Message }
+        Assert-True (-not $threw -and @($script:BgCalls | Where-Object { $_ -match 'Complete-JkReminder -Id 1\b' }).Count -eq 1) "the morning restore re-arms the good one: [$threw] $($script:BgCalls -join ' / ')"
+        $threw = $null; try { $null = Show-JkReminders 6>&1 } catch { $threw = $_.Exception.Message }
+        Assert-True (-not $threw) "jk remind lists: $threw"
+        $threw = $null; try { Complete-JkReminder -Id 1 } catch { $threw = $_.Exception.Message }
+        Assert-True (-not $threw) "the good one fires: $threw"
+        $raw = [IO.File]::ReadAllText((Join-Path $env:JK_HOME 'reminders.json')) | ConvertFrom-Json
+        Assert-True (@($raw.items).Count -eq 2 -and @($raw.items | Where-Object { $_.at -eq 'soon' }).Count -eq 1 -and @($raw.items | Where-Object { [string]$_.id -eq 'b' }).Count -eq 1) "after it fired, the two unreadable ones are kept: $(@($raw.items) | ConvertTo-Json -Compress)"
+        $doc = @(Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'unreadable reminder\s' })
+        Assert-True ($doc.Count -eq 1 -and $doc[0] -match '\+1 more') "jk doctor: $($doc -join ' / ')"
+        # the morning run: a step that throws is logged, and the rest still run
+        $script:TickRan = @()
+        function script:Restore-JkReminders { throw 'boom' }
+        foreach ($f in $tickFns | Where-Object { $_ -ne 'Restore-JkReminders' }) { Set-Item "function:script:$f" ([scriptblock]::Create("`$script:TickRan += '$f'")) }
+        $threw = $null; try { Invoke-JkTick } catch { $threw = $_.Exception.Message }
+        Assert-True (-not $threw -and $script:TickRan -contains 'Register-JkTodayAlerts' -and $script:TickRan -contains 'Invoke-JkDueRemind') "the morning run goes on past a failing step: [$threw] ran: $($script:TickRan -join ', ')"
+        $log = [IO.File]::ReadAllText((Get-JkPath 'background.log'))
+        Assert-True ($log -match 'reminders: boom') "and logs it: $log"
+    } finally {
+        foreach ($f in $tickFns) { Set-Item "function:script:$f" $origTick[$f] }
+        Set-Item function:script:Start-JkBackground $origBg; Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'an unreadable to-do, class or focus session is set aside too: views work, a save keeps it, jk doctor names it; a class at 9am is read as 09:00' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'unreadable2-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null

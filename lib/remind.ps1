@@ -9,10 +9,21 @@ function Get-JkReminderData {
     $d = Read-JkJson 'reminders.json' $null
     if (-not $d) { $d = [pscustomobject]@{ nextId = 1; items = @() } }
     if ($null -eq (Get-JkProp $d 'items')) { Set-JkProp $d 'items' @() }
+    # a reminder whose time, id or process no screen can read is kept aside (core.ps1): one at "soon"
+    # stopped the morning run at its first step, jk remind and the dashboard, and a text id kept
+    # every other reminder from firing
+    Split-JkUnreadable $d 'items' {
+        param($r)
+        $x = [datetime]::MinValue; $n = 0
+        if ([string]$r.id -notmatch '^\d+$') { return $false }
+        if (-not [datetime]::TryParse([string]$r.at, $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$x)) { return $false }
+        $p = [string](Get-JkProp $r 'pid' '')
+        -not $p -or [int]::TryParse($p, [ref]$n)
+    }
     $d
 }
 
-function Save-JkReminderData($Data) { $Data.items = @($Data.items); Save-JkJson 'reminders.json' $Data }
+function Save-JkReminderData($Data) { $Data.items = @($Data.items); Save-JkWithUnreadable $Data 'items' { Save-JkJson 'reminders.json' $Data } }
 
 # reminders.json is read, changed and saved by several processes (each timer that fires, the
 # morning task, the shell). A machine-wide mutex keeps one change from overwriting another, for
@@ -577,7 +588,8 @@ function Invoke-JkTick([switch]$CatchUp) {
     try { Set-JkState 'lastTick' ((Get-JkNow).ToString('s', $script:Inv)) } catch { }
     try { Limit-JkBackgroundLog } catch { }
     try { $null = Sync-JkBackupMirror } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' backup mirror: ' + $_.Exception.Message) }
-    Restore-JkReminders
+    # like every step here: one that fails must not take the popup, the alerts and the sync with it
+    try { Restore-JkReminders } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' reminders: ' + $_.Exception.Message) }
     try { Restore-JkFocusTimer } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' focus timer: ' + $_.Exception.Message) }
     # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
     if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
