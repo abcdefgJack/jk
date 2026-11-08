@@ -310,6 +310,23 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk exam prep row gives the weight as stored: of prep for 17.5%, not 18%' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'prepweight-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-12') -Time '18:00' -End '19:30' -Title 'Midterm 2' -Kind 'exam' -Weight '17.5%'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-09T09:00:00'
+        $brief = @(Invoke-JkExams 'health105' 6>&1 | ForEach-Object { "$_" })
+        $prep = @($brief | Where-Object { $_ -match '^\s+prep\s' })[0]
+        Assert-True ($prep -match 'of prep for 17[.,]5%') "prep: $prep"
+        $worth = @($brief | Where-Object { $_ -match '^\s+worth\s' })[0]
+        Assert-True ($worth -match 'worth\s+17[.,]5% of HEALTH 105') "worth: $worth"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk exam: worth 17.5% (not 18%), one notes row without the times its when row gives; jk review fits a week in 80 columns' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'exambrief-home'; $script:JkConfigCache = $null
