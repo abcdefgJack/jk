@@ -675,7 +675,7 @@ function Show-JkExams {
     $now = Get-JkNow
     $w = Get-JkWidth
     # an exam stays until it is over (not until midnight): the evening after it is no longer "0d"
-    $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkExamEnd $_) -ge $now } | Sort-Object { Get-JkEventDue $_ })
+    $evs = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkExamEnd $_) -gt $now } | Sort-Object { Get-JkEventDue $_ })
     # an online window ("X opens" + "X closes") is one exam: one row
     $rows = New-Object System.Collections.Generic.List[object]
     $merged = @{}
