@@ -53,6 +53,10 @@ function ConvertTo-JkConfigValue([string]$Key, [string]$Value) {
             if ($v -match '^(cpp|py|java|usaco)$') { return $v.ToLower() }
             throw "cp.lang is cpp, py, java or usaco, not '$v'"
         }
+        'remind.time' { return (ConvertTo-JkTime $v) }
+        'notify' { if ($v -match '^(auto|popup|toast|off)$') { return $v }; throw 'notify must be auto, popup, toast or off' }
+        'theme' { if ($v -match '^(dark|light)$') { return $v }; throw 'theme must be dark or light (your terminal background)' }
+        { $_ -eq 'alert.before' -or $_ -eq 'alert.class' } { if ($v -notmatch '^(0|off|none)$') { $null = ConvertTo-JkSeconds $v }; return $v }
     }
     # folders are stored in full, so every terminal means the same one; %VARIABLES% are kept as
     # written (they are expanded when read)
@@ -126,10 +130,6 @@ function Invoke-JkConfig {
             # first snapshot
             if ($key -eq 'backup.mirror') { Invoke-JkBackupMirror @('mirror', $val); return }
             $val = ConvertTo-JkConfigValue $key $val
-            if ($key -eq 'remind.time') { $val = ConvertTo-JkTime $val }
-            if ($key -eq 'notify' -and $val -notmatch '^(auto|popup|toast|off)$') { throw 'notify must be auto, popup, toast or off' }
-            if ($key -eq 'theme' -and $val -notmatch '^(dark|light)$') { throw 'theme must be dark or light (your terminal background)' }
-            if ($key -match '^alert\.(before|class)$' -and $val -notmatch '^(0|off|none)$') { $null = ConvertTo-JkSeconds $val }
             Set-JkConfig $key $val
             Clear-JkBriefCache
             $echo = $val
@@ -463,6 +463,9 @@ function Invoke-JkDoctor {
     $slow = @(Get-JkProfileFiles | Where-Object { ([IO.File]::ReadAllText($_.Path)) -match 'shell\.powershell" "hook"' })
     if ($slow) { & $meh 'shell startup' "conda init hook adds ~2 s to every new terminal - jk speed fix" }
     else { & $ok 'shell startup' 'no slow conda hook in your profiles' }
+    # a setting typed into config.json that nothing can use: its default stands in meanwhile
+    $null = Get-JkConfig
+    foreach ($k in @($script:JkConfigCache.Bad.Keys | Sort-Object)) { & $meh "setting $k" "'$($script:JkConfigCache.Bad[$k])' cannot be used, so $(Get-JkConfig $k) is - jk config set $k <value>" }
     $ts = Get-JkToastSetting
     $mode = Get-JkConfig 'notify'
     if ($ts -eq 'Enabled') { & $ok 'notifications' "Windows toasts enabled $($script:G.dot) mode $mode" }
