@@ -468,7 +468,13 @@ function Import-JkClasses {
 function Get-JkSectionCatalog {
     $d = Read-JkJson 'sections.json' $null
     if (-not $d -or $null -eq (Get-JkProp $d 'items')) { return @() }
-    @($d.items)
+    # a section whose times cannot be read is left out (jk never writes this file): one "morning"
+    # stopped jk class pick from listing or picking any section; "1pm" is read as 13:00
+    @(foreach ($s in @($d.items)) {
+            $ok = $true
+            foreach ($k in 'start', 'end') { $t = Get-JkReadableTime ([string](Get-JkProp $s $k '')); if (-not $t) { $ok = $false } elseif ($t -ne [string]$s.$k) { $s.$k = $t } }
+            if ($ok) { $s }
+        })
 }
 
 function Test-JkClassOverlap($A, $B) {
