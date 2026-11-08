@@ -1335,7 +1335,8 @@ function Get-JkWeekAheadLine($Data, $Cmap, [datetime]$Now) {
         # this morning's is "today", and next Sunday's has its date: a bare "Sun" reads as today
         "$(Get-JkCourseLabel $e $Cmap) $t $(if ($dd.Date -eq $Now.Date) { 'today' } else { Format-JkComingDay $dd $Now })"
     })
-    $other = @($week | Where-Object { $_.kind -ne 'exam' }).Count
+    # a quiz window's opening is not something due: its "closes" is the one deadline
+    $other = @($week | Where-Object { $_.kind -ne 'exam' -and [string]$_.title -notmatch '(?i)\s+opens?$' }).Count
     $txt = "This week: $other due"
     if ($exams.Count) {
         $txt += ", $(Format-JkCount $exams.Count 'exam') $($script:G.dash) " + (@($exams | Select-Object -First 3) -join ', ')
@@ -1426,10 +1427,15 @@ function Invoke-JkDueRemind {
             $note = Get-JkExamNote $e
             if ($note) { $txt += " $($script:G.dot) $note" }
         }
-        # an opening is not a deadline: say until when the window runs
+        # an opening is not a deadline: say until when the window runs. Closing the day it opens,
+        # just the time; a week or more off, the date ("Mon Nov 16"), since a bare "Mon" reads as this one
         if ([string]$e.title -match '(?i)\s+opens?$') {
             $win = Get-JkEventWindow $e $data
-            if ($win) { $txt += ", open until $($win.Closes.ToString('ddd', $script:Inv)) $(Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv))" }
+            if ($win) {
+                $until = Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv)
+                if ($win.Closes.Date -ne $win.Opens.Date) { $until = "$(Format-JkComingDay $win.Closes $now) $until" }
+                $txt += ", open until $until"
+            }
         }
         $lines += $txt
     }

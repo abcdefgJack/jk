@@ -162,7 +162,9 @@ function Show-JkDashboard {
                 $when = "closes $closeDay"
             }
             else {
-                $closeWhen = & $stamp $win.Close 'ddd'
+                # a week or more after it opens, the date: "Mon Nov 9 9:00 am - Mon Nov 16 11:59 pm"
+                $closeWhen = Format-JkComingDay $win.Closes $win.Opens
+                if ($win.Close.time) { $closeWhen += ' ' + (Format-JkTime $win.Close.time) }
                 if ($win.Closes.Date -eq $win.Opens.Date) { $closeWhen = Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv) }
                 $when = (& $stamp $win.Open 'ddd MMM d') + " $($script:G.dash) " + $closeWhen
             }

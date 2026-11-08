@@ -1648,6 +1648,37 @@ Test 'overdue since and the next deadline say which day: a date from a week back
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
     }
 }
+Test 'a window open for a week names the day it closes: Mon Nov 16, not a second Mon; the same day, just the time' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'weekwin-home'; $script:JkConfigCache = $null
+    $origNotify = ${function:Show-JkNotify}; $origPlan = ${function:Get-JkPlanToday}
+    function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:WinLines = $Lines; 'stub' }
+    function script:Get-JkPlanToday { $null }
+    try {
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'cs341' -Create
+        # an online midterm open Monday to the Monday after, and a quiz open one afternoon
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time '09:00' -Title 'Midterm opens' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Midterm closes' -Kind 'exam'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time '13:00' -Title 'Quiz 5 opens'
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-11-09') -Time '23:59' -Title 'Quiz 5 closes'
+        Save-JkDueData $dd
+        # Sunday morning; both open tomorrow
+        $env:JK_NOW = '2026-11-08T08:05:00'
+        $script:WinLines = $null
+        Invoke-JkDueRemind -Quiet -Force
+        $all = $script:WinLines -join ' / '
+        Assert-True (@($script:WinLines | Where-Object { $_ -match 'CS 341 Midterm opens \(exam\), open until Mon Nov 16 11:59 pm$' }).Count -eq 1) "popup, a week-long window: $all"
+        Assert-True (@($script:WinLines | Where-Object { $_ -match 'CS 341 Quiz 5 opens, open until 11:59 pm$' }).Count -eq 1) "popup, closing the day it opens: $all"
+        # Sunday's count: the quiz is one thing due, not its opening and its closing
+        Assert-True (@($script:WinLines | Where-Object { $_ -like 'This week: 1 due, 1 exam*' }).Count -eq 1) "week line: $all"
+        # the dashboard's NEXT EXAM callout gives the range
+        $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($dash -match 'Mon Nov 9 9:00 am . Mon Nov 16 11:59 pm') "dashboard: $(@($dash -split "`n" | Where-Object { $_ -match 'NEXT EXAM' }) -join '')"
+    } finally {
+        Set-Item function:script:Show-JkNotify $origNotify; Set-Item function:script:Get-JkPlanToday $origPlan
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null
