@@ -136,8 +136,9 @@ function Show-JkDashboard {
     Say (Paint 'gray dim' (' ' + ($script:G.hline * ($w - 1))))
 
     # next exam callout
-    # (one being written now stays the callout until it is over)
-    $nextExam = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkExamEnd $_) -ge $now } | Sort-Object { Get-JkEventDue $_ } | Select-Object -First 1)
+    # (one being written now stays the callout until it is over: at its end time it is, as jk due
+    # and jk next have it)
+    $nextExam = @($data.events | Where-Object { $_.kind -eq 'exam' -and -not $_.done -and (Get-JkExamEnd $_) -gt $now } | Sort-Object { Get-JkEventDue $_ } | Select-Object -First 1)
     if ($nextExam) {
         $e = $nextExam[0]
         $due = Get-JkEventDue $e

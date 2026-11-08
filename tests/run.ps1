@@ -310,6 +310,26 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'at an exam''s end time it is over on every screen: the dashboard and jk exams agree with jk due at 10:00 pm for a 7:30-10:00 pm final' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'examend-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'co367' -Create
+        $null = New-JkEvent -Data $dd -Course $c.key -Date ([datetime]'2026-12-19') -Time '19:30' -End '22:00' -Title 'FINAL' -Kind 'exam' -Weight '50%'
+        Save-JkDueData $dd
+        $look = { param($now) $env:JK_NOW = $now
+            [pscustomobject]@{
+                Dash  = [string]@(Show-JkDashboard 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'NEXT EXAM' })[0]
+                Exams = [string]@(Invoke-JkExams 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'CO 367\s+FINAL' })[0]
+                Due   = [string]@(Show-JkDue 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'CO 367\s+FINAL' })[0] } }
+        $r = & $look '2026-12-19T21:59:00'
+        Assert-True ($r.Dash -match 'CO 367 FINAL\s+NOW' -and $r.Exams -and $r.Due -match '\snow\s') "9:59 pm, under way everywhere: $($r.Dash) | $($r.Exams) | $($r.Due)"
+        $r = & $look '2026-12-19T22:00:00'
+        Assert-True ($r.Dash -notmatch 'CO 367 FINAL' -and -not $r.Exams -and $r.Due -match '\sover\s') "10:00 pm, over everywhere: [$($r.Dash)] | [$($r.Exams)] | $($r.Due)"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'an online exam is over when its window closes: after 11:59 pm the dashboard and jk exams move on (not until 1:59 am)' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'winclose-home'; $script:JkConfigCache = $null
