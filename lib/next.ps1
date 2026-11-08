@@ -62,14 +62,23 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
             & $add "$($t.text) ($when)" "jk todo done $($t.id)"
         }
     } catch { }
-    # the study jk plan has for today, biggest first (what is due tonight is already above)
+    # the study jk plan has for today, most still to do first, the earlier deadline on a tie: the
+    # first is what jk plan start begins (what is due tonight is already above). Focus already
+    # logged today comes off: "25m left of 1h 15m".
     try {
         $p = Get-JkPlanToday
         if ($p) {
-            $its = @($p.Items | Where-Object { [double]$p.Today.Alloc[$_.Key] -gt 0 -and -not $shown.Contains($_.Key) } | Sort-Object { [double]$p.Today.Alloc[$_.Key] } -Descending)
-            foreach ($it in $its) {
+            $logged = Get-JkTodayFocusByCourse $Now
+            $planNext = Get-JkPlanNext $p $logged
+            $rows = @(Get-JkPlanLeft $p $logged | Where-Object { $_.Left -gt 0 -and -not $shown.Contains($_.Item.Key) } | Sort-Object @{ e = { - $_.Left } }, @{ e = { $_.Item.Due } })
+            foreach ($r in $rows) {
+                $it = $r.Item
                 $c = Get-JkCourseLabel ([pscustomobject]@{ course = $it.Course }) $cmap
-                & $add "Study $c $($it.Title): $(Format-JkMinutes ([double]$p.Today.Alloc[$it.Key])) planned today" 'jk plan start'
+                $mins = $(if ($r.Left -lt $r.Want) { "$(Format-JkMinutes $r.Left) left of $(Format-JkMinutes $r.Want) today" } else { "$(Format-JkMinutes $r.Want) planned today" })
+                # jk plan start begins only its own pick; another item gets a focus block of its own
+                $hint = 'jk plan start'
+                if (-not $planNext -or $it.Key -ne $planNext.Key) { $hint = "jk focus $($script:PlanBlock) $(& $key ([pscustomobject]@{ course = $it.Course })) $(([string]$it.Title).ToLower())" }
+                & $add "Study $c $($it.Title): $mins" $hint
             }
         }
     } catch { }
