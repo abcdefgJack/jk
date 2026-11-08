@@ -94,6 +94,9 @@ function Show-JkReview {
     # day strip: one cell per day with a dot per item (exams solid), onto a new line when the screen
     # is full, so a long window keeps its last days
     $strip = '  '
+    # a cell is the day, its dots and padding to 5; in an 80-column window a week (8 cells with
+    # today) needs 82, so the last day wrapped alone: pad to 4 when that makes the week fit
+    $pad = 5; if ($Days -le 7 -and 2 + ($Days + 1) * 10 -gt $w -and 2 + ($Days + 1) * 9 -le $w) { $pad = 4 }
     for ($i = 0; $i -le $Days; $i++) {
         $d = $now.Date.AddDays($i)
         $items = @($ahead | Where-Object { (Get-JkEventDue $_).Date -eq $d })
@@ -106,7 +109,7 @@ function Show-JkReview {
         if ($i -eq 0) { $label = 'tod' }
         # past the first week a weekday alone repeats: the date says which
         elseif ($Days -gt 7 -and $d.DayOfWeek -eq [DayOfWeek]::Monday) { $label = $d.ToString('MMM d', $script:Inv) }
-        $cell = (Paint 'muted' $label) + ' ' + $dots + (' ' * [Math]::Max(1, 5 - $items.Count)) + ' '
+        $cell = (Paint 'muted' $label) + ' ' + $dots + (' ' * [Math]::Max(1, $pad - $items.Count)) + ' '
         if ($strip.Trim() -and (Get-JkVisibleLength ($strip + $cell)) -gt $w) { Say $strip.TrimEnd(); $strip = '  ' }
         $strip += $cell
     }
