@@ -310,6 +310,33 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk exam: worth 17.5% (not 18%), one notes row without the times its when row gives; jk review fits a week in 80 columns' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'exambrief-home'; $script:JkConfigCache = $null
+    try {
+        $dd = Get-JkDueData; $h = Resolve-JkCourse $dd 'health105' -Create; $f = Resolve-JkCourse $dd 'cs370' -Create
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-12-07') -Time '06:00' -Title 'Midterm 2 opens' -Kind 'exam' -Weight '17.5%' -Note "6:00 am Dec 7 $($script:G.arrow) 11:59 pm Dec 8 $($script:G.dot) LEARN quiz"
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-12-08') -Time '23:59' -Title 'Midterm 2 closes' -Kind 'exam' -Weight '17.5%' -Note "11:59 pm $($script:G.dot) no reopening"
+        $null = New-JkEvent -Data $dd -Course $f.key -Date ([datetime]'2026-12-10') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%' -Note "4:00 $($script:G.dash) 6:30 pm $($script:G.dot) room TBA (Odyssey)"
+        $null = New-JkEvent -Data $dd -Course $f.key -Date ([datetime]'2026-11-09') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-08T20:30:00'
+        $brief = @(Invoke-JkExams 'health105' 6>&1 | ForEach-Object { "$_" })
+        $notes = @($brief | Where-Object { $_ -match '^\s+notes\s' })
+        Assert-True ($notes.Count -eq 1 -and $notes[0] -match 'notes\s+LEARN quiz . no reopening\s*$') "one notes row, no times: $($notes -join ' / ')"
+        $worth = @($brief | Where-Object { $_ -match '^\s+worth\s' })[0]
+        Assert-True ($worth -match 'worth\s+17[.,]5% of HEALTH 105') "worth: $worth"
+        $fin = @(Invoke-JkExams 'cs370' 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^\s+notes\s' })
+        Assert-True ($fin.Count -eq 1 -and $fin[0] -match 'notes\s+room TBA \(Odyssey\)\s*$') "a final's note, its times in 'when': $($fin -join ' / ')"
+        # jk review in an 80-column window: the week's strip on one line, tod through Sun
+        $env:JK_WIDTH = '79'
+        $rev = @(Show-JkReview 6>&1 | ForEach-Object { "$_" })
+        $strip = @($rev | Where-Object { $_ -match '^\s+tod\s' })
+        Assert-True ($strip.Count -eq 1 -and $strip[0] -match '\bSun\s*$') "the strip: $($strip -join ' / ') / next: $(@($rev)[([array]::IndexOf($rev, $strip[0]) + 1)])"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null
+    }
+}
 Test 'the dashboard study line ending in jk plan start leads with the course that begins, after focus on another too' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'studyline-home'; $script:JkConfigCache = $null

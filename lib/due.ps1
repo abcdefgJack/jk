@@ -558,7 +558,13 @@ function Show-JkExamBrief {
     }
     & $row 'when' (Paint 'white' $when)
     $notes = @(@([string]$e.note) + $(if ($x.Win) { @([string]$x.Win.Open.note) } else { @() }) | Where-Object { $_ } | Select-Object -Unique)
-    foreach ($n in $notes) { & $wrapRow 'notes' $n 'muted' }
+    # one row, without the times "when" already gives: a window's two notes ("11:59 pm - no
+    # reopening", "6:00 am Dec 7 -> 11:59 pm Dec 8 - LEARN quiz") were two rows, both repeating them
+    $parts = @()
+    foreach ($src in @($(if ($x.Win) { $x.Win.Open }), $e) | Where-Object { $_ }) {
+        foreach ($seg in @((Get-JkExamNote $src) -split "\s*$([regex]::Escape($script:G.dot))\s*")) { if ($seg -and $parts -notcontains $seg) { $parts += $seg } }
+    }
+    if ($parts.Count) { & $wrapRow 'notes' ($parts -join " $($script:G.dot) ") 'muted' }
     # the weather on the way there, for one in person inside the forecast
     if (-not $x.Win -and $e.time -and ($notes -join ' ') -notmatch '(?i)\bonline\b' -and $x.Start -gt $now) {
         try { $wx = Get-JkExamWeather $x.Start; if ($wx) { & $wrapRow 'weather' $wx 'muted' } } catch { }
@@ -572,7 +578,9 @@ function Show-JkExamBrief {
     if ($wt -gt 0) {
         $share = ''
         if ($m.Graded -gt 0 -and $m.Remaining -gt 0) { $share = "  ($([Math]::Round($wt / ($m.Remaining + $m.Unlisted) * 100))% of the marks still to come)" }
-        & $row 'worth' ((Paint 'white' "$(Format-JkPct $wt 0) of $(Get-JkCourseLabel $e $cmap)") + (Paint 'gray' $share))
+        # 17.5% as 17.5%, not 18% (every other screen gives the weight as stored)
+        $digits = $(if ([Math]::Abs($wt - [Math]::Round($wt)) -gt 0.001) { 1 } else { 0 })
+        & $row 'worth' ((Paint 'white' "$(Format-JkPct $wt $digits) of $(Get-JkCourseLabel $e $cmap)") + (Paint 'gray' $share))
     }
     if ($m.Graded -gt 0) {
         $need = Get-JkNeededText $target $m
