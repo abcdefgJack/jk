@@ -1062,6 +1062,20 @@ Test 'task status via COM: a missing task is $null, and the list says how to ins
         Assert-True ($out -match 'morning brief not installed') 'install hint'
     } finally { $script:JkTaskName = $orig }
 }
+Test 'jk remind says whether a PC asleep at 7:45 still gets its brief (the unlock task)' {
+    $origInfo = ${function:Get-JkTaskInfo}
+    $script:HasUnlock = $false
+    function script:Get-JkTaskInfo([string]$Name = $script:JkTaskName) {
+        if ($Name -eq $script:JkTaskName -or $script:HasUnlock) { [pscustomobject]@{ State = 'Ready'; NextRunTime = [datetime]'2026-10-23T07:45'; LastRunTime = $null; LastTaskResult = 0; PinnedToUtc = $false } }
+    }
+    try {
+        $out = (Show-JkReminders 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match 'no catch-up after sleep - a PC asleep then skips the brief; run: jk remind install') "without it: $out"
+        $script:HasUnlock = $true
+        $out = (Show-JkReminders 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match 'if the PC sleeps through it, it runs when you unlock' -and $out -notmatch 'no catch-up') "with it: $out"
+    } finally { Set-Item function:script:Get-JkTaskInfo $origInfo }
+}
 Test 'listening ports from netstat: IPv4 and IPv6, only foreign port 0, any language' {
     $lines = @(
         '  Proto  Local Address          Foreign Address        State           PID',
