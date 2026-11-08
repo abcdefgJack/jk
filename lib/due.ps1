@@ -1336,8 +1336,13 @@ function Get-JkExamNote($Item) {
 # The morning popup's title on an exam day: "Exam today: CS 350 Midterm 4:30 pm", or for an online
 # window that closes today "Exam today: HEALTH 105 Midterm 1, by 11:59 pm". $null on other days.
 function Get-JkExamDayTitle($Soon, $Cmap, [datetime]$Now) {
-    $today = @($Soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $Now.Date })
-    if (-not $today.Count) { return $null }
+    $rows = @($Soon | Where-Object { $_.kind -eq 'exam' -and (Get-JkEventDue $_).Date -eq $Now.Date })
+    if (-not $rows.Count) { return $null }
+    # an online exam that opens and closes today is one exam: its closing row ("by 11:59 pm") says it
+    $today = @($rows | Group-Object { "$($_.course)|$(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" } | ForEach-Object {
+            $c = @($_.Group | Where-Object { [string]$_.title -match '(?i)\s+closes?$' })
+            if ($c.Count) { $c[0] } else { $_.Group[0] }
+        } | Sort-Object { Get-JkEventDue $_ })
     $names = @(foreach ($e in $today) {
         $t = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()
         $at = ''
@@ -1366,8 +1371,14 @@ function Get-JkExamSoonTitle($Soon, $Cmap, [datetime]$Now, $Data) {
             if ($x.time) { $t += ' ' + (Format-JkTime $d.ToString('HH:mm', $script:Inv)) }
         }
     }
-    $others = @($Soon).Count - 1
-    if ($others -gt 0) { $t += " (+$others more due)" }
+    # what else the two days hold, counted as the dashboard does: this exam's other half is not more,
+    # and neither is a quiz window's opening
+    $xKey = "$($x.course)|$(([string]$x.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())"
+    $m = Measure-JkDue @($Soon | Where-Object { "$($_.course)|$(([string]$_.title -replace '(?i)\s+(opens?|closes?)$', '').Trim())" -ne $xKey -or $_.kind -ne 'exam' })
+    $more = @()
+    if ($m.Due) { $more += "+$($m.Due) more due" }
+    if ($m.Exams) { $more += "+$(Format-JkCount $m.Exams 'exam')" }
+    if ($more.Count) { $t += " ($($more -join ', '))" }
     $t
 }
 
@@ -1533,7 +1544,14 @@ function Invoke-JkDueRemind {
     } catch { }
     if ($soon.Count) {
         $accent = Get-JkCourseColor $soon[0].course $cmap
-        $title = "$($soon.Count) deadline$(if ($soon.Count -ne 1) {'s'}) in the next $([int]$Hours)h"
+        # deadlines, not rows: a quiz window's opening is not one (its closing is)
+        $nDue = (Measure-JkDue $soon).Due
+        $title = "$(Format-JkCount $nDue 'deadline') in the next $([int]$Hours)h"
+        if (-not $nDue) {
+            # only an opening in the two days: "CS 341 Quiz 5 opens tomorrow 9:00 am"
+            $o = $soon[0]; $od = Get-JkEventDue $o
+            $title = "$(Get-JkCourseLabel $o $cmap) $($o.title) $(Format-JkRelDay $od $now)$(if ($o.time) { ' ' + (Format-JkTime $od.ToString('HH:mm', $script:Inv)) })"
+        }
         # an exam today leads, in its course's colour
         $examTitle = Get-JkExamDayTitle $soon $cmap $now
         if ($examTitle) {

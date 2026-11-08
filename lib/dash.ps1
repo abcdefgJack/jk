@@ -413,7 +413,7 @@ function Get-JkBriefLine {
         else { $line += Paint 'green' 'nothing due this week' }
         $more = $soon.Count - $shown
         $dueCount = @($soon | Where-Object { $_ }).Count
-        if ($shown -eq 0 -and $dueCount) { $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' ' + (Paint 'white' "$dueCount due this week"); $more = 0 }
+        if ($shown -eq 0 -and $dueCount) { $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' ' + (Paint 'white' "$(Format-JkDueCounts (Measure-JkDue $soon)) this week"); $more = 0 }
         if ($more -gt 0) { $line += Paint 'gray' "  +$more" }
         $line += $tail
         if ((Get-JkVisibleLength $line) -le $width -or $shown -eq 0) { break }
