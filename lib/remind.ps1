@@ -616,7 +616,9 @@ function Invoke-JkTick([switch]$CatchUp) {
         $wxState = $(if (-not $tries) { 'skipped' } elseif (-not $wx) { 'none' } elseif ($wx.Stale) { 'stale' } else { 'fresh' })
         & $note 'tick' "cache $(Get-JkCacheDir); weather $wxState; place $(if ($tries) { 'set' } else { 'none' })$(if ($CatchUp) { '; at unlock, after a missed morning run' })"
     } catch { & $note 'tick' "summary failed: $($_.Exception.Message)" }
-    Invoke-JkDueRemind -Quiet
+    # the popup, caught like every other step: a failure here once left nothing in the log, only a
+    # non-zero task result, and skipped the screenshot index after it
+    try { Invoke-JkDueRemind -Quiet } catch { & $note 'popup' $_.Exception.Message }
     # yesterday's screenshots read for jk shots find, once it has been used (after the popup,
     # at low priority, two minutes at most)
     try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { & $note 'screenshot index' $_.Exception.Message }

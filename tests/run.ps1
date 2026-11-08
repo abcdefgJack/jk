@@ -344,6 +344,11 @@ Test 'an unreadable reminder (at soon, id b) is set aside: the good one is still
         Assert-True (-not $threw -and $script:TickRan -contains 'Register-JkTodayAlerts' -and $script:TickRan -contains 'Invoke-JkDueRemind') "the morning run goes on past a failing step: [$threw] ran: $($script:TickRan -join ', ')"
         $log = [IO.File]::ReadAllText((Get-JkPath 'background.log'))
         Assert-True ($log -match 'reminders: boom') "and logs it: $log"
+        # the popup step too: logged, and the run ends normally
+        function script:Invoke-JkDueRemind { throw 'popup broke' }
+        $threw = $null; try { Invoke-JkTick } catch { $threw = $_.Exception.Message }
+        $log = [IO.File]::ReadAllText((Get-JkPath 'background.log'))
+        Assert-True (-not $threw -and $log -match 'popup: popup broke') "a failing popup is logged, the run ends normally: [$threw]"
     } finally {
         foreach ($f in $tickFns) { Set-Item "function:script:$f" $origTick[$f] }
         Set-Item function:script:Start-JkBackground $origBg; Set-Item function:script:Show-JkNotify $origNotify
