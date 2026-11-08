@@ -477,6 +477,11 @@ function Invoke-JkDoctor {
         $what = "#$($u.id) $($u.title): date '$($u.date)'$(if ($u.time) { ", time '$($u.time)'" })$(if (Get-JkProp $u 'end' '') { ", end '$($u.end)'" })"
         & $bad 'unreadable deadline' "$what$(if ($unread.Count -gt 1) { ", +$($unread.Count - 1) more" }) - fix in deadlines.json (kept, not shown)"
     }
+    # the same for to-dos, classes and focus sessions
+    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }))) {
+        $un = @(); try { $un = @(Get-JkProp (& $src[2]) 'unreadable' @()) } catch { }
+        if ($un.Count) { & $bad "unreadable $($src[0])" "$(Fit ($un[0] | ConvertTo-Json -Compress -Depth 3) 46)$(if ($un.Count -gt 1) { ", +$($un.Count - 1) more" }) - fix in $($src[1])" }
+    }
     # the LEARN feed: the morning task syncs daily, so a stale stamp means it has been failing
     if (Get-JkConfig 'sync.url') {
         $lastDt = $null

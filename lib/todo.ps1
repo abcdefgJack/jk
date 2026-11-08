@@ -5,12 +5,20 @@ function Get-JkTodoData {
     if (-not $d) { $d = [pscustomobject]@{ nextId = 1; items = @() } }
     if ($null -eq (Get-JkProp $d 'items')) { Set-JkProp $d 'items' @() }
     if (-not (Get-JkProp $d 'nextId')) { Set-JkProp $d 'nextId' 1 }
+    # a to-do whose due no screen can read ("soon", "2026-13-01") is kept aside, not shown (core.ps1)
+    Split-JkUnreadable $d 'items' {
+        param($t)
+        if ([string]$t.id -notmatch '^\d+$') { return $false }
+        $due = [string](Get-JkProp $t 'due' '')
+        $x = [datetime]::MinValue
+        -not $due -or [datetime]::TryParse($due, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$x)
+    }
     $d
 }
 
 function Save-JkTodoData($Data) {
     $Data.items = @($Data.items)
-    Save-JkJson 'todo.json' $Data
+    Save-JkWithUnreadable $Data 'items' { Save-JkJson 'todo.json' $Data }
     Clear-JkBriefCache
 }
 

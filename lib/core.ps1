@@ -86,6 +86,41 @@ function Get-JkTimeLeft([datetime]$To, [datetime]$From) {
 
 function Get-JkState([string]$Name, $Default = $null) { Get-JkProp (Read-JkJson 'state.json' $null) $Name $Default }
 
+# A record no screen can read (a hand edit, a bad sync) is set aside when its file is loaded and
+# written back unchanged when it is saved: one bad row never takes the screens down, and is never
+# lost (jk doctor names it). $List is the property holding the records; $Test says whether one is
+# readable, and may tidy it ("7pm" -> "19:00").
+function Split-JkUnreadable($Data, [string]$List, [scriptblock]$Test) {
+    $good = New-Object System.Collections.Generic.List[object]; $bad = New-Object System.Collections.Generic.List[object]
+    foreach ($r in @($Data.$List)) {
+        $ok = $false; try { $ok = [bool](& $Test $r) } catch { }
+        if ($ok) { $good.Add($r) } else { $bad.Add($r) }
+    }
+    if ($bad.Count) { $Data.$List = $good.ToArray(); Set-JkProp $Data 'unreadable' $bad.ToArray() }
+}
+
+# Runs $Save with the set-aside records back in $List, and takes them out again after.
+function Save-JkWithUnreadable($Data, [string]$List, [scriptblock]$Save) {
+    $bad = @(Get-JkProp $Data 'unreadable' @())
+    if (-not $bad.Count) { & $Save; return }
+    $good = @($Data.$List)
+    $Data.$List = @($good + $bad); $Data.PSObject.Properties.Remove('unreadable')
+    try { & $Save } finally { $Data.$List = $good; Set-JkProp $Data 'unreadable' $bad }
+}
+
+# A time as HH:mm, or $null when it is not one jk can read ("7pm" -> "19:00").
+function Get-JkReadableTime([string]$Value) {
+    if ($Value -match '^([01]?\d|2[0-3]):[0-5]\d$') { return $Value }
+    $fixed = $null; try { $fixed = [string](ConvertTo-JkTime $Value) } catch { }
+    if ($fixed -match '^([01]?\d|2[0-3]):[0-5]\d$') { return $fixed }
+    $null
+}
+
+function Test-JkDateText([string]$Value) {
+    $d = [datetime]::MinValue
+    [datetime]::TryParseExact($Value, 'yyyy-MM-dd', $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$d)
+}
+
 # True only in a real terminal someone is typing into: never in CI, tests (JK_NONINTERACTIVE),
 # the background task or a pipe, so a prompt can never hang a script.
 function Test-JkInteractive {

@@ -14,12 +14,27 @@ function Get-JkClassData {
     if (-not $d) { $d = [pscustomobject]@{ nextId = 1; items = @() } }
     if ($null -eq (Get-JkProp $d 'items')) { Set-JkProp $d 'items' @() }
     if (-not (Get-JkProp $d 'nextId')) { Set-JkProp $d 'nextId' 1 }
+    # a class whose times or dates no screen can read is kept aside, not shown (core.ps1); a time
+    # jk reads anyway ("9am") is put as "09:00"
+    Split-JkUnreadable $d 'items' {
+        param($c)
+        if ([string]$c.id -notmatch '^\d+$') { return $false }
+        foreach ($k in 'start', 'end') {
+            $v = [string](Get-JkProp $c $k '')
+            if (-not $v) { if ($k -eq 'start') { return $false } else { continue } }
+            $fixed = Get-JkReadableTime $v
+            if (-not $fixed) { return $false }
+            if ($fixed -ne $v) { $c.$k = $fixed }
+        }
+        foreach ($k in 'from', 'to') { $v = [string](Get-JkProp $c $k ''); if ($v -and -not (Test-JkDateText $v)) { return $false } }
+        $true
+    }
     $d
 }
 
 function Save-JkClassData($Data) {
     $Data.items = @($Data.items)
-    Save-JkJson 'classes.json' $Data
+    Save-JkWithUnreadable $Data 'items' { Save-JkJson 'classes.json' $Data }
     Clear-JkBriefCache
 }
 

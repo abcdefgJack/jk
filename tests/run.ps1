@@ -310,6 +310,33 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'an unreadable to-do, class or focus session is set aside too: views work, a save keeps it, jk doctor names it; a class at 9am is read as 09:00' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'unreadable2-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $w = { param($f, $j) [IO.File]::WriteAllText((Join-Path $env:JK_HOME $f), $j) }
+        & $w 'todo.json' '{"nextId":3,"items":[{"id":1,"text":"email the TA","due":"soon","done":false},{"id":2,"text":"buy ink","due":"2026-11-10T17:00:00","done":false}]}'
+        & $w 'classes.json' '{"nextId":3,"items":[{"id":1,"course":"co367","kind":"LEC","days":["Tue","Thu"],"start":"morning","end":"09:50","room":"MC 2017","from":"","to":""},{"id":2,"course":"cs341","kind":"LEC","days":["Tue"],"start":"9am","end":"10:20","room":"DWE 3522","from":"","to":""}]}'
+        & $w 'focus.json' '{"active":null,"sessions":[{"start":"yesterday","minutes":25,"actual":25,"label":"cs341"},{"start":"2026-11-10T08:00:00","minutes":25,"actual":25,"label":"cs341"}]}'
+        $env:JK_NOW = '2026-11-10T09:00:00'
+        Assert-Eq "$(@((Get-JkTodoData).items).Count)|$(@((Get-JkClassData).items).Count)|$(@((Get-JkFocusData).sessions).Count)" '1|1|1' 'one of each read'
+        Assert-Eq ([string]@((Get-JkClassData).items)[0].start) '09:00' '9am read as 09:00'
+        $failed = @()
+        foreach ($v in @({ Show-JkDashboard }, { Invoke-JkTodo }, { Invoke-JkClass }, { Invoke-JkClass week }, { Invoke-JkFocus log }, { Show-JkPlan }, { Show-JkReview })) { try { $null = & $v 6>&1 } catch { $failed += $_.Exception.Message } }
+        Assert-True (-not $failed.Count) "every view works: $($failed -join ' / ')"
+        # saves keep the unreadable ones as they were
+        $t = Get-JkTodoData; Save-JkTodoData $t; $c = Get-JkClassData; Save-JkClassData $c; $f = Get-JkFocusData; Save-JkFocusData $f
+        $rt = [IO.File]::ReadAllText((Join-Path $env:JK_HOME 'todo.json')) | ConvertFrom-Json
+        $rc = [IO.File]::ReadAllText((Join-Path $env:JK_HOME 'classes.json')) | ConvertFrom-Json
+        $rf = [IO.File]::ReadAllText((Join-Path $env:JK_HOME 'focus.json')) | ConvertFrom-Json
+        Assert-True (@($rt.items | Where-Object { $_.due -eq 'soon' }).Count -eq 1 -and @($rc.items | Where-Object { $_.start -eq 'morning' }).Count -eq 1 -and @($rf.sessions | Where-Object { $_.start -eq 'yesterday' }).Count -eq 1 -and -not $rt.PSObject.Properties['unreadable']) 'each kept as it was after a save'
+        $doc = @(Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'unreadable (to-do|class|focus log)\s' })
+        Assert-Eq $doc.Count 3 "jk doctor names one of each: $($doc -join ' / ')"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'a deadline no screen can read (date 2026-13-01) is set aside: every view still works, a save keeps it as it was, jk doctor names it; 7pm is read as 19:00' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'unreadable-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
