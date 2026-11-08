@@ -1679,6 +1679,47 @@ Test 'a window open for a week names the day it closes: Mon Nov 16, not a second
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
     }
 }
+Test 'the time before the day: jk due add A5 5pm fri and jk todo call mom 5pm fri keep the time, not as title words' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'timefirst-home'; $script:JkConfigCache = $null
+    try {
+        # the pinned clock is Thu Oct 22, 2 pm
+        $f = { param($s) try { $r = ConvertFrom-JkWhen $s; "$($r.Date.ToString('MM-dd')) $($r.Time)".Trim() } catch { "ERR $($_.Exception.Message)" } }
+        Assert-Eq "$(& $f '5pm fri')|$(& $f '11:59 pm dec 2')|$(& $f 'noon tomorrow')|$(& $f '8pm tonight')|$(& $f '9am 12/2')" '10-23 17:00|12-02 23:59|10-23 12:00|10-22 20:00|12-02 09:00' 'time, then day'
+        Assert-True ((& $f '5pm nov 31') -like 'ERR no such date*') "a typo in the day is named: $(& $f '5pm nov 31')"
+        Assert-True ((& $f '5pm 3d') -like 'ERR *' -and (& $f '3 fri') -like 'ERR *') 'not a day after a time: 3d; not a time before a day: a bare 3'
+        # the newest (events are kept in date order)
+        $last = { $e = @((Get-JkDueData).events | Sort-Object { [int]$_.id })[-1]; "$($e.title)|$($e.date) $($e.time)" }
+        $null = Add-JkDue cs341 A5 5pm fri 6>&1
+        Assert-Eq (& $last) 'A5|2026-10-23 17:00' 'jk due add cs341 A5 5pm fri'
+        $null = Add-JkDue cs341 A6 due 11:59pm dec 2 6>&1
+        Assert-Eq (& $last) 'A6|2026-12-02 23:59' 'jk due add cs341 A6 due 11:59pm dec 2'
+        $null = Add-JkDue cs341 Quiz 3 fri 6>&1
+        Assert-Eq (& $last) 'Quiz 3|2026-10-23 ' 'the 3 of Quiz 3 is still the title'
+        $id = @((Get-JkDueData).events | Where-Object { $_.title -eq 'A5' })[0].id
+        $r = try { $null = Edit-JkDue $id -Date 5pm mon 6>&1; $e = @((Get-JkDueData).events | Where-Object { $_.id -eq $id })[0]; "$($e.date) $($e.time)" } catch { "ERR $($_.Exception.Message)" }
+        Assert-Eq $r '2026-10-26 17:00' 'jk due edit -Date 5pm mon'
+        $todo = { $t = @((Get-JkTodoData).items | Sort-Object { [int]$_.id })[-1]; "$($t.text)|$($t.due)" }
+        $null = Add-JkTodo call mom 5pm fri 6>&1
+        Assert-Eq (& $todo) 'call mom|2026-10-23T17:00:00' 'jk todo call mom 5pm fri'
+        $null = Add-JkTodo call mom -Due 5pm fri 6>&1
+        Assert-Eq (& $todo) 'call mom|2026-10-23T17:00:00' '-Due 5pm fri: Friday, not today'
+        $null = Add-JkTodo submit form 11:59pm dec 2 6>&1
+        Assert-Eq (& $todo) 'submit form|2026-12-02T23:59:00'
+        $null = Add-JkTodo call dad 8pm tonight 6>&1
+        Assert-Eq (& $todo) 'call dad|2026-10-22T20:00:00'
+        # "tom" before a time is a name; after "by" it is tomorrow
+        $null = Add-JkTodo call tom at 7pm 6>&1
+        Assert-Eq (& $todo) 'call tom|2026-10-22T19:00:00' 'call tom at 7pm'
+        $null = Add-JkTodo call mom by tom 6>&1
+        Assert-Eq (& $todo) 'call mom|2026-10-23T00:00:00' 'by tom'
+        # jk at reads as before
+        $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') (Get-JkNow); "$($x.At.ToString('MM-dd HH:mm'))/$($x.K)" }
+        Assert-Eq "$(& $at '8pm tomorrow call')|$(& $at '7pm tom')|$(& $at '5pm 3d printer')" '10-23 20:00/2|10-22 19:00/1|10-22 17:00/1'
+    } finally {
+        $env:JK_HOME = $saved; $script:JkConfigCache = $null
+    }
+}
 Test 'jk <course>: one course on a screen; a word after it goes to that command' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'course-home'; $script:JkConfigCache = $null

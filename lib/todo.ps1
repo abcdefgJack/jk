@@ -79,7 +79,17 @@ function Join-JkDueWords([string]$Due, [string[]]$Words, [switch]$TakeAll) {
             $cand = "$Due $(($w[($w.Count - $k)..($w.Count - 1)]) -join ' ')"
             if (Test-JkWhen $cand) { return , @($cand, @($w | Select-Object -First ($w.Count - $k))) }
         }
-    } elseif ($w.Count -ge $min + 1 -and $w[-1] -match '^\d{1,2}(:\d{2})?\s*(am|pm)$|^\d{1,2}:\d{2}$') {
+        return , @($Due, $w)
+    }
+    # `-Due 5pm fri`: a time alone takes the day after it, or it would be today's 5 pm
+    $timeOnly = $true; try { $null = ConvertTo-JkTime $Due } catch { $timeOnly = $false }
+    if ($timeOnly) {
+        for ($k = [Math]::Min(2, $w.Count - $min); $k -ge 1; $k--) {
+            $day = ($w[($w.Count - $k)..($w.Count - 1)]) -join ' '
+            if ((Test-JkDayAfterTime $day) -and (Test-JkWhen "$Due $day")) { return , @("$Due $day", @($w | Select-Object -First ($w.Count - $k))) }
+        }
+    }
+    if ($w.Count -ge $min + 1 -and $w[-1] -match '^\d{1,2}(:\d{2})?\s*(am|pm)$|^\d{1,2}:\d{2}$') {
         # `-Due tomorrow 6pm`
         return , @("$Due $($w[-1])", @($w | Select-Object -First ($w.Count - 1)))
     }
@@ -99,6 +109,8 @@ function Split-JkTrailingWhen([string[]]$Words) {
         $phrase = ($w[($w.Count - $k)..($w.Count - 1)]) -join ' '
         if ($w[$w.Count - $k] -match $conn) { continue }
         $hasConn = $w[$w.Count - $k - 1] -match $conn
+        # "call tom at 7pm": Tom, not tomorrow, unless a word like "by" says it is a date
+        if (-not $hasConn -and $w[$w.Count - $k] -match '^(?i)(tom|tod)$') { continue }
         $keep = $w.Count - $k - $(if ($hasConn) { 1 } else { 0 })
         if ($keep -lt 1) { continue }
         if ($phrase -match '^\+?\d+[dw]?$') { continue }   # "chapter 4", "print 3d"

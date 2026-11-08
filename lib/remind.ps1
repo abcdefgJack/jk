@@ -324,7 +324,7 @@ function Resolve-JkAtTime([string[]]$Words, [datetime]$Now) {
     if ($timeOnly) {
         for ($j = [Math]::Min(3, $a.Count - $found.K); $j -ge 1; $j--) {
             $dTxt = (($a[$found.K..($found.K + $j - 1)]) -join ' ').Trim().ToLower() -replace '^tonight$', 'today'
-            if ($dTxt -notmatch '^(?!(tom|tod|now)$)[a-z]|^\d{4}-\d{1,2}-\d{1,2}$|^\d{1,2}/\d{1,2}(/\d{2,4})?$|^\d{1,2}(st|nd|rd|th)?( of)? [a-z]{3,}') { continue }
+            if (-not (Test-JkDayAfterTime $dTxt)) { continue }
             try { $d = ConvertTo-JkDate $dTxt -Now $now } catch { if (Test-JkNoSuchDate $_) { throw }; continue }
             $headTxt = ($a[0..($found.K - 1)]) -join ' '
             $p = (ConvertTo-JkTime (Get-JkDayTimeText $headTxt)).Split(':')

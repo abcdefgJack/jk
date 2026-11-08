@@ -868,9 +868,10 @@ function Get-JkDayTimeText([string]$Text) {
     $Text
 }
 
-# Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time. Everyday
-# phrasings are rewritten first: "tonight" / "eod" (today 11:59 pm), "in 3 days" / "in a week" (+3,
-# +7); and a time on its own ("8pm") means today, or tomorrow once that time has passed.
+# Splits "nov 25 8pm" / "fri at 11:59 pm" / "tomorrow" into a date and optional time; the time can
+# come first ("5pm fri", "11:59 pm dec 2", "8pm tonight"). Everyday phrasings are rewritten first:
+# "tonight" / "eod" (today 11:59 pm), "in 3 days" / "in a week" (+3, +7); and a time on its own
+# ("8pm") means today, or tomorrow once that time has passed.
 function ConvertFrom-JkWhen([string]$Text) {
     $w = ($Text -replace '\s+(?:at|@)\s+', ' ').Trim().ToLower()
     if ($w -match '^(tonight|eod|end of (the )?day)$') { $w = 'today 11:59pm' }
@@ -890,6 +891,16 @@ function ConvertFrom-JkWhen([string]$Text) {
         try { $d = ConvertTo-JkDate $dTxt } catch { if (Test-JkNoSuchDate $_) { throw }; continue }
         $t = ''
         if ($tTxt) { try { $t = ConvertTo-JkTime (Get-JkDayTimeText $tTxt) } catch { continue } }
+        return [pscustomobject]@{ Date = $d; Time = $t }
+    }
+    # the time first: only a plain time (am/pm, a colon, noon) before words that can only be a day,
+    # so "Quiz 3 fri" keeps its 3 and "5pm 3d" is not a date
+    for ($k = [Math]::Min(2, $tokens.Count - 1); $k -ge 1; $k--) {
+        $tTxt = (($tokens[0..($k - 1)]) -join ' ') -replace '\.', ''
+        $dTxt = (($tokens[$k..($tokens.Count - 1)]) -join ' ') -replace '^tonight$', 'today'
+        if ($tTxt -notmatch '^(\d{1,4}(:\d{2})? ?(am|pm|a|p)|\d{1,2}:\d{2}|noon|midnight)$' -or -not (Test-JkDayAfterTime $dTxt)) { continue }
+        try { $t = ConvertTo-JkTime $tTxt } catch { continue }
+        try { $d = ConvertTo-JkDate $dTxt } catch { if (Test-JkNoSuchDate $_) { throw }; continue }
         return [pscustomobject]@{ Date = $d; Time = $t }
     }
     # a time alone
