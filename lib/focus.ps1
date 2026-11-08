@@ -94,10 +94,18 @@ function Get-JkFocusData {
     if (-not $d) { $d = [pscustomobject]@{ active = $null; sessions = @() } }
     if ($null -eq (Get-JkProp $d 'sessions')) { Set-JkProp $d 'sessions' @() }
     if (-not $d.PSObject.Properties['active']) { Set-JkProp $d 'active' $null }
+    # a session whose start or minutes no screen can read is kept aside, not counted (core.ps1)
+    Split-JkUnreadable $d 'sessions' {
+        param($s)
+        $x = [datetime]::MinValue; $n = 0.0
+        if (-not [datetime]::TryParse([string]$s.start, $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$x)) { return $false }
+        foreach ($k in 'actual', 'minutes') { $v = Get-JkProp $s $k $null; if ($null -ne $v -and -not [double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, $script:Inv, [ref]$n)) { return $false } }
+        $true
+    }
     $d
 }
 
-function Save-JkFocusData($Data) { $Data.sessions = @($Data.sessions); Save-JkJson 'focus.json' $Data }
+function Save-JkFocusData($Data) { $Data.sessions = @($Data.sessions); Save-JkWithUnreadable $Data 'sessions' { Save-JkJson 'focus.json' $Data } }
 
 function Get-JkFocusMinutes([datetime]$Since, $Data = (Get-JkFocusData)) {
     $sum = 0.0
