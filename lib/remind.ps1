@@ -2,6 +2,8 @@
 
 $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 $script:JkTaskName = 'jk-remind'
+# the morning run for a PC that slept through it, at the next unlock (see New-JkUnlockTrigger)
+$script:JkUnlockTaskName = 'jk-remind-unlock'
 
 function Get-JkReminderData {
     $d = Read-JkJson 'reminders.json' $null
@@ -389,12 +391,12 @@ function Cancel-JkReminder {
 
 # The task's state through the Task Scheduler COM API: about 80 ms, where Get-ScheduledTask
 # first loads the ScheduledTasks CIM module (about 1.2 s). $null when it is not installed.
-function Get-JkTaskInfo {
+function Get-JkTaskInfo([string]$Name = $script:JkTaskName) {
     if ($env:JK_SANDBOX) { return $null }   # a sandboxed install has no task (and must not report the real one)
     try {
         $svc = New-Object -ComObject Schedule.Service
         $svc.Connect()
-        $t = $svc.GetFolder('\').GetTask($script:JkTaskName)
+        $t = $svc.GetFolder('\').GetTask($Name)
     } catch { return $null }
     $states = @('Unknown', 'Disabled', 'Queued', 'Ready', 'Running')
     $state = 'Unknown'; if ([int]$t.State -ge 0 -and [int]$t.State -lt $states.Count) { $state = $states[[int]$t.State] }
@@ -434,9 +436,43 @@ function Get-JkTaskNudge([datetime]$Now) {
     } catch { }
 }
 
-function Get-JkTaskCommand {
+function Get-JkTaskCommand([string]$Tick = 'tick') {
     $psd1 = Join-Path (Get-JkRoot) 'jk.psd1'
-    "Import-Module '$($psd1.Replace("'", "''"))'; jk remind tick"
+    "Import-Module '$($psd1.Replace("'", "''"))'; jk remind $Tick"
+}
+
+# Hidden: conhost --headless keeps even the console's first frame off the screen.
+function New-JkTaskAction([string]$Tick = 'tick') {
+    $ps = Get-JkPowerShellExe
+    $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    $psArgs = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$(Get-JkTaskCommand $Tick)`""
+    if (Test-Path -LiteralPath $conhost) { return (New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$ps`" $psArgs") }
+    New-ScheduledTaskAction -Execute $ps -Argument $psArgs
+}
+
+# Task Scheduler's "run as soon as possible after a missed start" does not cover a PC that slept
+# through the morning run: on Sun Nov 8 this one slept from 1 am to 9:43 and nothing ran by 10:08.
+# So a second task runs at unlock (a minute later, for the Wi-Fi); "tick -IfMissed" does the
+# morning run only when today's was missed, and otherwise exits at once.
+function New-JkUnlockTrigger {
+    $class = Get-CimClass -Namespace 'ROOT\Microsoft\Windows\TaskScheduler' -ClassName 'MSFT_TaskSessionStateChangeTrigger'
+    $t = New-CimInstance -CimClass $class -ClientOnly
+    $t.StateChange = 8   # TASK_SESSION_UNLOCK
+    $t.UserId = "$env:USERDOMAIN\$env:USERNAME"
+    $t.Delay = 'PT1M'
+    $t.Enabled = $true
+    $t
+}
+
+# Missed: past remind.time today and no tick since then (a tick before it, at sign-in, is not the
+# morning run). A stamp from the future (clock change, test clock) does not count as a run.
+function Test-JkMorningRunMissed([datetime]$Now = (Get-JkNow)) {
+    $at = $Now.Date.Add([datetime]::ParseExact((Get-JkConfig 'remind.time'), 'HH:mm', $script:Inv).TimeOfDay)
+    if ($Now -lt $at) { return $false }
+    $last = Get-JkState 'lastTick'
+    if (-not $last) { return $true }
+    try { $l = [datetime]::Parse([string]$last, $script:Inv) } catch { return $true }
+    -not ($l -ge $at -and $l -le $Now)
 }
 
 # A daily trigger at local wall-clock time. New-ScheduledTaskTrigger stores the start in UTC
@@ -454,11 +490,7 @@ function Test-JkTriggerPinnedToUtc([string]$StartBoundary) { $StartBoundary -mat
 function Install-JkRemindTask {
     if ($env:JK_SANDBOX) { Say (Paint 'gray' "  scheduled task skipped (sandbox $env:JK_SANDBOX)"); return $false }
     $time = Get-JkConfig 'remind.time'
-    $ps = Get-JkPowerShellExe
-    $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
-    $psArgs = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$(Get-JkTaskCommand)`""
-    if (Test-Path -LiteralPath $conhost) { $action = New-ScheduledTaskAction -Execute $conhost -Argument "--headless `"$ps`" $psArgs" }
-    else { $action = New-ScheduledTaskAction -Execute $ps -Argument $psArgs }
+    $action = New-JkTaskAction
     $at = [datetime]::ParseExact($time, 'HH:mm', $script:Inv)
     $triggers = @(New-JkDailyTrigger $at)
     $logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
@@ -476,6 +508,15 @@ function Install-JkRemindTask {
         $ok = $true
         Say ((Paint 'green' "  $($script:G.check) installed task '$($script:JkTaskName)'") + (Paint 'gray' " $($script:G.dot) daily at $(Format-JkTime $time) (runs late if the PC was off)"))
     }
+    # the catch-up at unlock; without it the morning task still works, but a PC asleep at that time
+    # gets no popup until the next sign-in
+    try {
+        $udesc = "jk: when you unlock the PC after it slept through the $(Format-JkTime $time) run, does that run then. Remove with: jk remind uninstall"
+        Register-ScheduledTask -TaskName $script:JkUnlockTaskName -Action (New-JkTaskAction 'tick -IfMissed') -Trigger (New-JkUnlockTrigger) -Settings $settings -Description $udesc -Force -ErrorAction Stop | Out-Null
+        Say ((Paint 'green' "  $($script:G.check) installed task '$($script:JkUnlockTaskName)'") + (Paint 'gray' " $($script:G.dot) if the PC slept through $(Format-JkTime $time), that run happens when you unlock it"))
+    } catch {
+        Say (Paint 'yellow' "  no catch-up task ($($_.Exception.Message)): a PC asleep at $(Format-JkTime $time) gets its popup at the next sign-in")
+    }
     $ok
 }
 
@@ -485,6 +526,10 @@ function Uninstall-JkRemindTask {
         Unregister-ScheduledTask -TaskName $script:JkTaskName -Confirm:$false
         Say (Paint 'yellow' "  removed task '$($script:JkTaskName)'")
     } else { Say (Paint 'gray' "  task '$($script:JkTaskName)' was not installed") }
+    if (Get-JkTaskInfo $script:JkUnlockTaskName) {
+        Unregister-ScheduledTask -TaskName $script:JkUnlockTaskName -Confirm:$false
+        Say (Paint 'yellow' "  removed task '$($script:JkUnlockTaskName)'")
+    }
 }
 
 function Invoke-JkRemind {
@@ -499,39 +544,10 @@ function Invoke-JkRemind {
         '^(install|enable)$' { $null = Install-JkRemindTask; return }
         '^(uninstall|disable|remove)$' { Uninstall-JkRemindTask; return }
         '^(tick)$' {
-            try { Limit-JkBackgroundLog } catch { }
-            try { $null = Sync-JkBackupMirror } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' backup mirror: ' + $_.Exception.Message) }
-            Restore-JkReminders
-            try { Restore-JkFocusTimer } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' focus timer: ' + $_.Exception.Message) }
-            # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
-            if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
-            try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
-            try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
-            # every step says when it fails: a quiet catch here hid two mornings without weather
-            $note = { param($what, $why) Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + " ${what}: $why") }
-            try { Update-JkDiskLog } catch { & $note 'disk log' $_.Exception.Message }
-            # a fresh forecast for the brief, the dashboard and the popup. Just woken, the Wi-Fi can
-            # take a while to come back: try again for up to 45 s (offline mornings keep the old one)
-            try {
-                $tries = $(if ((Get-JkWeatherPlace) -and -not $env:JK_NOW) { 4 } else { 0 })
-                $wx = $null
-                for ($try = 0; $try -lt $tries; $try++) {
-                    if ($try) { Start-Sleep -Seconds 15 }
-                    $wx = Get-JkWeather -TimeoutSec 10
-                    if ($wx -and -not $wx.Stale) { break }
-                }
-                if ($tries -and (-not $wx -or $wx.Stale)) { & $note 'weather' "no fresh forecast after $tries tries ($($script:JkWeatherError))" }
-                elseif ($script:JkWeatherError) { & $note 'weather' $script:JkWeatherError }
-            } catch { & $note 'weather' $_.Exception.Message }
-            # one line a run, so "did the morning task work?" has an answer: jk doctor reads it
-            try {
-                $wxState = $(if (-not $tries) { 'skipped' } elseif (-not $wx) { 'none' } elseif ($wx.Stale) { 'stale' } else { 'fresh' })
-                & $note 'tick' "cache $(Get-JkCacheDir); weather $wxState; place $(if ($tries) { 'set' } else { 'none' })"
-            } catch { & $note 'tick' "summary failed: $($_.Exception.Message)" }
-            Invoke-JkDueRemind -Quiet
-            # yesterday's screenshots read for jk shots find, once it has been used (after the popup,
-            # at low priority, two minutes at most)
-            try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { & $note 'screenshot index' $_.Exception.Message }
+            # the unlock task's run: only when the PC slept through this morning's
+            $catchUp = [bool]@($rest | Where-Object { "$_" -match '^(?i)-?ifmissed$' }).Count
+            if ($catchUp -and -not (Test-JkMorningRunMissed)) { return }
+            Invoke-JkTick -CatchUp:$catchUp
             return
         }
         '^(now|due)$' { Invoke-JkDueRemind -Force @rest; return }
@@ -543,4 +559,43 @@ function Invoke-JkRemind {
         '^(help|-h|--help|\?)$' { Show-JkHelp 'remind'; return }
     }
     throw "unknown 'remind' action '$first' (try: jk remind help)"
+}
+
+# What the morning task does: sync, re-arm reminders and alerts, weather, the popup.
+function Invoke-JkTick([switch]$CatchUp) {
+    # first, so a catch-up at unlock knows this morning's run has happened
+    try { Set-JkState 'lastTick' ((Get-JkNow).ToString('s', $script:Inv)) } catch { }
+    try { Limit-JkBackgroundLog } catch { }
+    try { $null = Sync-JkBackupMirror } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' backup mirror: ' + $_.Exception.Message) }
+    Restore-JkReminders
+    try { Restore-JkFocusTimer } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' focus timer: ' + $_.Exception.Message) }
+    # refresh deadlines from the saved calendar feed first (offline mornings just skip it)
+    if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
+    try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
+    try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
+    # every step says when it fails: a quiet catch here hid two mornings without weather
+    $note = { param($what, $why) Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + " ${what}: $why") }
+    try { Update-JkDiskLog } catch { & $note 'disk log' $_.Exception.Message }
+    # a fresh forecast for the brief, the dashboard and the popup. Just woken, the Wi-Fi can
+    # take a while to come back: try again for up to 45 s (offline mornings keep the old one)
+    try {
+        $tries = $(if ((Get-JkWeatherPlace) -and -not $env:JK_NOW) { 4 } else { 0 })
+        $wx = $null
+        for ($try = 0; $try -lt $tries; $try++) {
+            if ($try) { Start-Sleep -Seconds 15 }
+            $wx = Get-JkWeather -TimeoutSec 10
+            if ($wx -and -not $wx.Stale) { break }
+        }
+        if ($tries -and (-not $wx -or $wx.Stale)) { & $note 'weather' "no fresh forecast after $tries tries ($($script:JkWeatherError))" }
+        elseif ($script:JkWeatherError) { & $note 'weather' $script:JkWeatherError }
+    } catch { & $note 'weather' $_.Exception.Message }
+    # one line a run, so "did the morning task work?" has an answer: jk doctor reads it
+    try {
+        $wxState = $(if (-not $tries) { 'skipped' } elseif (-not $wx) { 'none' } elseif ($wx.Stale) { 'stale' } else { 'fresh' })
+        & $note 'tick' "cache $(Get-JkCacheDir); weather $wxState; place $(if ($tries) { 'set' } else { 'none' })$(if ($CatchUp) { '; at unlock, after a missed morning run' })"
+    } catch { & $note 'tick' "summary failed: $($_.Exception.Message)" }
+    Invoke-JkDueRemind -Quiet
+    # yesterday's screenshots read for jk shots find, once it has been used (after the popup,
+    # at low priority, two minutes at most)
+    try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { & $note 'screenshot index' $_.Exception.Message }
 }
