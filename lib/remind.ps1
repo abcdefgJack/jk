@@ -420,7 +420,14 @@ function Get-JkTaskProblem($Info, [datetime]$Now) {
     if (-not $Info) { return @('jk setup install', "the morning task is gone: $lost until this puts it back") }
     if ($Info.State -eq 'Disabled') { return @('jk remind install', "the morning task is switched off: $lost") }
     if ($Info.LastRunTime -and ($Now - $Info.LastRunTime).TotalDays -ge 3) {
-        return @('jk remind install', "the morning task has not run since $($Info.LastRunTime.ToString('ddd MMM d', $script:Inv)): $lost")
+        # mornings run at unlock (jk-remind-unlock, a PC asleep at 7:45) leave this task's own last
+        # run behind; every run stamps lastTick, so the newer of the two says when one last happened
+        $last = $Info.LastRunTime
+        try {
+            $t = Get-JkState 'lastTick'
+            if ($t) { $tick = [datetime]::Parse([string]$t, $script:Inv); if ($tick -gt $last -and $tick -le $Now) { $last = $tick } }
+        } catch { }
+        if (($Now - $last).TotalDays -ge 3) { return @('jk remind install', "the morning task has not run since $($last.ToString('ddd MMM d', $script:Inv)): $lost") }
     }
 }
 
