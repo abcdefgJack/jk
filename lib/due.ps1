@@ -494,6 +494,11 @@ function Show-JkDueAll {
     if ($Course -and $c.final) { Say ''; Say ('  ' + (Paint 'bold' 'Final: ') + [string]$c.final) }
 }
 
+# A weight as it was stored: "17.5%", "20%" (Format-JkPct with no decimals gave "18%").
+function Format-JkWeightPct([double]$W) {
+    Format-JkPct $W $(if ([Math]::Abs($W - [Math]::Round($W)) -gt 0.001) { 1 } else { 0 })
+}
+
 # When an exam is over: its end time when known, else two hours after the start (a typical
 # midterm); one with no time at all lasts the day.
 function Get-JkExamEnd($e) {
@@ -578,9 +583,7 @@ function Show-JkExamBrief {
     if ($wt -gt 0) {
         $share = ''
         if ($m.Graded -gt 0 -and $m.Remaining -gt 0) { $share = "  ($([Math]::Round($wt / ($m.Remaining + $m.Unlisted) * 100))% of the marks still to come)" }
-        # 17.5% as 17.5%, not 18% (every other screen gives the weight as stored)
-        $digits = $(if ([Math]::Abs($wt - [Math]::Round($wt)) -gt 0.001) { 1 } else { 0 })
-        & $row 'worth' ((Paint 'white' "$(Format-JkPct $wt $digits) of $(Get-JkCourseLabel $e $cmap)") + (Paint 'gray' $share))
+        & $row 'worth' ((Paint 'white' "$(Format-JkWeightPct $wt) of $(Get-JkCourseLabel $e $cmap)") + (Paint 'gray' $share))
     }
     if ($m.Graded -gt 0) {
         $need = Get-JkNeededText $target $m
@@ -611,7 +614,7 @@ function Show-JkExamBrief {
         if ($it -and ($x.End - $now).TotalHours -ge 3) {
             $before = 0.0; $today = 0.0
             foreach ($d in @($p.Schedule)) { $mins = [double]$d.Alloc[$it.Key]; $before += $mins; if ($d.Day -eq $now.Date) { $today = $mins } }
-            $txt = "about $(Format-JkMinutes $it.Effort) of prep for $(Format-JkPct $wt 0)"
+            $txt = "about $(Format-JkMinutes $it.Effort) of prep for $(Format-JkWeightPct $wt)"
             if ($it.Done -gt 0) { $txt += ", $(Format-JkMinutes $it.Done) of it logged" }
             $sched = "; jk plan has $(Format-JkMinutes $before) before it"
             if ($today -gt 0) { $sched += " ($(Format-JkMinutes $today) today)" }
