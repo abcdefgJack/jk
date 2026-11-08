@@ -301,16 +301,18 @@ function Get-JkSeasonName([datetime]$Date) {
 function Format-JkTermLine($Info) {
     if (-not $Info) { return '' }
     $parts = @($Info.Name)
+    # "classes end today", not "in 0d"; "exams tomorrow", not "in 1d"
+    $inDays = { param([int]$n) if ($n -le 0) { 'today' } elseif ($n -eq 1) { 'tomorrow' } else { "in ${n}d" } }
     switch ($Info.Phase) {
         'before' { $parts += ('starts ' + $Info.Start.ToString('MMM d', $script:Inv)) }
         'classes' {
             if ($Info.InBreak) { $parts += $(if ($Info.BreakName) { $Info.BreakName } else { 'Break' }) }
             elseif ($Info.TotalWeeks) { $parts += "Week $($Info.Week) of $($Info.TotalWeeks)" }
             else { $parts += "Week $($Info.Week)" }
-            if ($null -ne $Info.DaysToEnd) { $parts += "classes end in $($Info.DaysToEnd)d" }
-            if ($null -ne $Info.DaysToExams) { $parts += "exams in $($Info.DaysToExams)d" }
+            if ($null -ne $Info.DaysToEnd) { $parts += "classes end $(& $inDays $Info.DaysToEnd)" }
+            if ($null -ne $Info.DaysToExams) { $parts += "exams $(& $inDays $Info.DaysToExams)" }
         }
-        'study' { $parts += "study break $($script:G.dot) exams in $($Info.DaysToExams)d" }
+        'study' { $parts += "study break $($script:G.dot) exams $(& $inDays $Info.DaysToExams)" }
         'exams' {
             $parts += 'exam period'
             if ($Info.ExamsLeft -eq 0 -and $null -ne $Info.ExamsLeft) { $parts += "your exams are done $($script:G.check)" }

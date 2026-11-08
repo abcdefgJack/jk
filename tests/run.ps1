@@ -310,6 +310,14 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'the term line on the last day of classes says classes end today, and exams tomorrow the day before; not in 0d, in 1d' {
+    $dot = " $($script:G.dot) "
+    $line = { param($phase, $toEnd, $toExams) Format-JkTermLine ([pscustomobject]@{ Name = 'Fall 2026'; Phase = $phase; InBreak = $false; BreakName = ''; Week = 13; TotalWeeks = 13; DaysToEnd = $toEnd; DaysToExams = $toExams }) }
+    Assert-Eq (& $line 'classes' 0 2) "Fall 2026${dot}Week 13 of 13${dot}classes end today${dot}exams in 2d" 'Tue Dec 8, the last day of classes'
+    Assert-Eq (& $line 'classes' 1 3) "Fall 2026${dot}Week 13 of 13${dot}classes end tomorrow${dot}exams in 3d" 'the day before'
+    Assert-Eq (& $line 'study' $null 1) "Fall 2026${dot}study break${dot}exams tomorrow" 'Wed Dec 9, the study break'
+    Assert-Eq (& $line 'classes' 30 32) "Fall 2026${dot}Week 13 of 13${dot}classes end in 30d${dot}exams in 32d" 'weeks out, as before'
+}
 Test 'course lookup by key, code, or unique fragment' {
     $d = Get-JkDueData
     Assert-Eq (Resolve-JkCourse $d 'cs350').key 'cs350'
