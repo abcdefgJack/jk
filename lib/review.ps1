@@ -124,8 +124,9 @@ function Show-JkReview {
             $sum += Get-JkWeightValue $e.weight
             $names += "$norm ($($e.weight))"
         }
-        [pscustomobject]@{ Course = $_.Name; Weight = $sum; Items = $names }
-    } | Sort-Object Weight -Descending
+        [pscustomobject]@{ Course = $_.Name; Weight = $sum; Items = $names; First = (@($items | ForEach-Object { Get-JkEventDue $_ } | Sort-Object)[0]) }
+        # the same share: the one due first leads, and is the suggestion
+    } | Sort-Object @{ e = { - $_.Weight } }, @{ e = { $_.First } }
     if ($weights) {
         Say ''
         $when = $(if ($Days -eq 7) { 'this week' } else { "in the next $span" })
