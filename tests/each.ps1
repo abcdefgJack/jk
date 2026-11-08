@@ -29,7 +29,7 @@ $env:JK_CACHE = Join-Path $root 'cache'
 $env:JK_SANDBOX = Join-Path $root 'sandbox'
 $env:JK_NONINTERACTIVE = '1'
 $env:JK_COLOR = 'never'
-$env:JK_WIDTH = '110'
+$env:JK_WIDTH = '100'   # run.ps1's: at 110 a doctor line cut at 100 passed here and failed there
 $env:JK_NOW = '2026-10-22T14:00:00'
 New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
 $failed = 0

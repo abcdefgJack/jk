@@ -1679,6 +1679,43 @@ Test 'a window open for a week names the day it closes: Mon Nov 16, not a second
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
     }
 }
+Test 'a PC that slept through 7:45 gets the morning run at unlock, once; unlocks otherwise do nothing' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'unlock-home'; $script:JkConfigCache = $null
+    $origTick = ${function:Invoke-JkTick}; $origInfo = ${function:Get-JkTaskInfo}
+    function script:Invoke-JkTick([switch]$CatchUp) { $script:TickRuns += @("catch-up=$([bool]$CatchUp)"); Set-JkState 'lastTick' ((Get-JkNow).ToString('s', $script:Inv)) }
+    try {
+        Set-JkConfig 'remind.time' '07:45'
+        $miss ={ param($now, $last) if ($last) { Set-JkState 'lastTick' $last } else { Set-JkState 'lastTick' $null }; [bool](Test-JkMorningRunMissed ([datetime]$now)) }
+        Assert-Eq "$(& $miss '2026-11-08T09:44' '2026-11-07T07:45:02')|$(& $miss '2026-11-08T09:44' '2026-11-08T07:00:10')|$(& $miss '2026-11-08T09:44' '')" 'True|True|True' 'slept through: last run yesterday, or only at a 7:00 sign-in, or never'
+        Assert-Eq "$(& $miss '2026-11-08T09:44' '2026-11-08T07:45:03')|$(& $miss '2026-11-08T07:30' '2026-11-07T07:45:02')" 'False|False' 'ran at 7:45; or 7:45 has not come yet'
+        Assert-Eq (& $miss '2026-11-08T09:44' '2026-11-09T07:45:00') 'True' 'a stamp from the future is not a run'
+        # the unlock task's command: missed, it runs once; the next unlock finds it done. (Code without
+        # the stubbed Invoke-JkTick would do a real morning run here, popup and all: stop instead.)
+        if (-not (Get-Command Test-JkMorningRunMissed -ErrorAction SilentlyContinue)) { throw 'no catch-up in this code, so the real tick is not run' }
+        Set-JkState 'lastTick' '2026-11-07T07:45:02'
+        $env:JK_NOW = '2026-11-08T09:44:31'
+        $script:TickRuns = @()
+        jk remind tick -IfMissed
+        jk remind tick -IfMissed
+        Assert-Eq ($script:TickRuns -join ',') 'catch-up=True' 'one catch-up for two unlocks'
+        # the 7:45 trigger and sign-in keep running it every time
+        jk remind tick
+        Assert-Eq ($script:TickRuns -join ',') 'catch-up=True,catch-up=False'
+        # what the second task runs and when
+        Assert-True ((Get-JkTaskCommand 'tick -IfMissed') -match "; jk remind tick -IfMissed$") (Get-JkTaskCommand 'tick -IfMissed')
+        $tr = New-JkUnlockTrigger
+        Assert-Eq "$($tr.StateChange)|$($tr.Delay)|$($tr.UserId)" "8|PT1M|$env:USERDOMAIN\$env:USERNAME" 'at unlock, a minute later, for this user'
+        # jk doctor names an install from before it
+        function script:Get-JkTaskInfo([string]$Name = $script:JkTaskName) { if ($Name -eq $script:JkTaskName) { [pscustomobject]@{ State = 'Ready'; NextRunTime = $null; LastRunTime = $null; LastTaskResult = 0; PinnedToUtc = $false } } }
+        $doc = (Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        # whole, with its command, at the suite's width (100) too
+        Assert-True ($doc -match '(?m)catch-up at unlock\s+missing: asleep at 7:45 am, no popup - jk remind install\r?$') "doctor:$(@($doc -split "`n" | Where-Object { $_ -match 'catch-up|reminder task' }) -join ' / ')"
+    } finally {
+        Set-Item function:script:Invoke-JkTick $origTick; Set-Item function:script:Get-JkTaskInfo $origInfo
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null
+    }
+}
 Test 'the time before the day: jk due add A5 5pm fri and jk todo call mom 5pm fri keep the time, not as title words' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'timefirst-home'; $script:JkConfigCache = $null

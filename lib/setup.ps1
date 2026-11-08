@@ -456,6 +456,9 @@ function Invoke-JkDoctor {
         if ($info.PinnedToUtc) { & $meh 'daily reminder task' 'set in UTC, so it fires an hour early after DST ends - jk remind install' }
         elseif ($info.LastRunTime -and $info.LastTaskResult -ne 0 -and $info.State -ne 'Running') { & $meh 'daily reminder task' "$d (non-zero: see background.log)" }
         else { & $ok 'daily reminder task' $d }
+        # an install from before the catch-up task: a PC asleep at remind.time gets no popup until sign-in
+        if (Get-JkTaskInfo $script:JkUnlockTaskName) { & $ok 'catch-up at unlock' "runs it when the PC slept through $(Format-JkTime (Get-JkConfig 'remind.time'))" }
+        else { & $meh 'catch-up at unlock' "missing: asleep at $(Format-JkTime (Get-JkConfig 'remind.time')), no popup - jk remind install" }
     } else { & $meh 'daily reminder task' 'not installed - jk remind install' }
     $slow = @(Get-JkProfileFiles | Where-Object { ([IO.File]::ReadAllText($_.Path)) -match 'shell\.powershell" "hook"' })
     if ($slow) { & $meh 'shell startup' "conda init hook adds ~2 s to every new terminal - jk speed fix" }
