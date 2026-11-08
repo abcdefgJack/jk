@@ -645,6 +645,13 @@ function New-JkDate([int]$Year, [int]$Month, [int]$Day) {
 # The errors that callers trying other readings of the words have to let through.
 function Test-JkNoSuchDate($Err) { ([string]$Err.Exception.Message).StartsWith('no such date') }
 
+# Words after a time that can only be its day: "tomorrow", "fri", "dec 25", "12/2", "2026-12-04".
+# Not "3d" or a bare number ("5pm 3d printer", "Quiz 3"), and not tom/tod/now, which after a time
+# are as likely a name or a word ("call at 7pm tom"). ConvertTo-JkDate still has to read them.
+function Test-JkDayAfterTime([string]$Text) {
+    $Text.Trim().ToLower() -match '^(?!(tom|tod|now)$)[a-z]|^\d{4}-\d{1,2}-\d{1,2}$|^\d{1,2}/\d{1,2}(/\d{2,4})?$|^\d{1,2}(st|nd|rd|th)?( of)? [a-z]{3,}'
+}
+
 # This year's unless that is over 60 days ago, then next year's. Feb 29 is judged by the end of this
 # year's February, so it means the coming February or nothing, never a leap year further off.
 function Resolve-JkYear([int]$Month, [int]$Day, [datetime]$Today) {
