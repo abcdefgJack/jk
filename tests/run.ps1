@@ -310,6 +310,45 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'a course page offers jk plan start only when that begins this course, else its own focus block; and jk plan keeps a gap between columns at 80 columns' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $origPlan = ${function:Get-JkPlanToday}; $origFocus = ${function:Get-JkTodayFocusByCourse}
+    try {
+        # jk plan in an 80-column terminal, planned for real: "HEALTH 105 A6  today", not "Assignment 6today"
+        $env:JK_HOME = Join-Path $saved 'plan80-home'; $script:JkConfigCache = $null
+        $dd = Get-JkDueData; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Assignment 6' -Weight '7.5%'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-09T07:50:00'; $env:JK_WIDTH = '79'
+        $out = @(Show-JkPlan 6>&1 | ForEach-Object { "$_" })
+        $row = @($out | Where-Object { $_ -match 'HEALTH 105' })[0]
+        Assert-True ($row -match 'HEALTH 105 A6\s+tmrw') "80 columns: $row"
+        $env:JK_WIDTH = $savedW
+
+        # the course pages on Monday: the midterm (6 pm) and the assignment (11:59 pm), 1h 15m each
+        $env:JK_HOME = Join-Path $saved 'coursehint-home'; $script:JkConfigCache = $null
+        $dd = Get-JkDueData; $c = Resolve-JkCourse $dd 'cs341' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        Save-JkDueData $dd
+        $mk = { param($k, $course, $title, $due) [pscustomobject]@{ Key = $k; Course = $course; Title = $title; Due = [datetime]$due; Id = 0 } }
+        $script:StubPlan = [pscustomobject]@{ Items = @((& $mk 'k1' $c.key 'Midterm 2' '2026-11-09T18:00'), (& $mk 'k2' $h.key 'Assignment 6' '2026-11-09T23:59')); Today = [pscustomobject]@{ Alloc = @{ k1 = 75.0; k2 = 75.0 } } }
+        function script:Get-JkPlanToday { $script:StubPlan }
+        function script:Get-JkTodayFocusByCourse { param($Now) $script:StubFocus }
+        $study = { param($course) $dd2 = Get-JkDueData; @(Show-JkCourseBrief (Resolve-JkCourse $dd2 $course) 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^\s+study\s' })[0] }
+        $script:StubFocus = @{}
+        $r = & $study 'cs341'; Assert-True ($r -match '1h 15m today\s+. jk plan start$') "CS 341, which jk plan start begins: $r"
+        $r = & $study 'health105'
+        Assert-True ($r -match '1h 15m today\s+. jk focus 25 health105 assignment 6$') "HEALTH 105, which it does not: $r"
+        # 50 minutes on CS 341: what is left, and jk plan start now begins HEALTH 105
+        $script:StubFocus = @{ ([string]$c.key) = 50.0 }
+        $r = & $study 'cs341'; Assert-True ($r -match '25m left of 1h 15m today\s+. jk focus 25 cs341 midterm 2$') "CS 341 after 50m: $r"
+        $r = & $study 'health105'; Assert-True ($r -match '1h 15m today\s+. jk plan start$') "HEALTH 105 now leads: $r"
+        $script:StubFocus = @{ ([string]$c.key) = 80.0 }
+        $r = & $study 'cs341'; Assert-True ($r -match '1h 15m today, done') "CS 341 done for today: $r"
+    } finally {
+        Set-Item function:script:Get-JkPlanToday $origPlan; Set-Item function:script:Get-JkTodayFocusByCourse $origFocus
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null
+    }
+}
 Test 'two courses with the same study time or the same share of marks: the one due first leads (dashboard, popup, jk review), either way round' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $origPlan = ${function:Get-JkPlanToday}; $origFocus = ${function:Get-JkTodayFocusByCourse}; $origNotify = ${function:Show-JkNotify}

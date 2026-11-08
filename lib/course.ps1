@@ -86,13 +86,28 @@ function Show-JkCourseBrief($Course) {
         & $wrapRow 'classes' (($cls | ForEach-Object { "$($_.kind) $(@($_.days) -join '/') $(Format-JkTime $_.start)$(if ($_.end) { "$($script:G.dash)$(Format-JkTime $_.end)" })$(if ($_.room) { " $($script:G.dot) $($_.room)" })" }) -join "   ") 'muted'
     } elseif ($real) { & $row 'classes' (Paint 'gray' "not on your timetable $($script:G.dash) jk class pick $key") }
 
-    # the study jk plan has for it today
+    # the study jk plan has for it today, less what is already done; jk plan start only when what it
+    # begins is this course (otherwise it starts another one), else a focus block on this one
     try {
         $p = Get-JkPlanToday
         if ($p) {
-            $mins = 0.0
-            foreach ($it in @($p.Items | Where-Object { $_.Course -eq $c.key })) { $mins += [double]$p.Today.Alloc[$it.Key] }
-            if ($mins -gt 0) { & $row 'study' ((Paint 'white' "$(Format-JkMinutes $mins) today") + (Paint 'gray' "   $($script:G.arrow) jk plan start")) }
+            $logged = Get-JkTodayFocusByCourse $now
+            $mine = @(Get-JkPlanLeft $p $logged | Where-Object { $_.Item.Course -eq $c.key -and $_.Want -gt 0 })
+            $want = 0.0; $left = 0.0
+            foreach ($r in $mine) { $want += $r.Want; $left += $r.Left }
+            if ($want -gt 0) {
+                if ($left -le 0) { & $row 'study' (Paint 'green' "$(Format-JkMinutes $want) today, done $($script:G.check)") }
+                else {
+                    $txt = $(if ($left -lt $want) { "$(Format-JkMinutes $left) left of $(Format-JkMinutes $want) today" } else { "$(Format-JkMinutes $want) today" })
+                    $next = Get-JkPlanNext $p $logged
+                    $hint = 'jk plan start'
+                    if (-not $next -or $next.Course -ne $c.key) {
+                        $top = @($mine | Where-Object { $_.Left -gt 0 } | Sort-Object @{ e = { - $_.Left } }, @{ e = { $_.Item.Due } })[0]
+                        $hint = "jk focus $($script:PlanBlock) $key $(([string]$top.Item.Title).ToLower())"
+                    }
+                    & $row 'study' ((Paint 'white' $txt) + (Paint 'gray' "   $($script:G.arrow) $hint"))
+                }
+            }
         }
     } catch { }
 
