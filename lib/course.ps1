@@ -48,7 +48,8 @@ function Show-JkCourseBrief($Course) {
     $wrapRow = { param($k, $text, $style) Write-JkTip ('  ' + (Paint 'bold white' (Fit $k 9))) 11 $text $style -Indent 11 }
 
     # what is next: its exam, then up to four deadlines (an online quiz shows once, at its close)
-    $up = @($data.events | Where-Object { $_.course -eq $c.key -and -not $_.done -and [string]$_.title -notmatch '(?i)\sopens?$' -and (Get-JkEventDue $_) -ge $now } | Sort-Object { Get-JkEventDue $_ })
+    # (an exam being written stays until it is over, as on every other screen)
+    $up = @($data.events | Where-Object { $_.course -eq $c.key -and -not $_.done -and [string]$_.title -notmatch '(?i)\sopens?$' -and ((Get-JkEventDue $_) -ge $now -or ($_.kind -eq 'exam' -and (Get-JkExamEnd $_) -gt $now)) } | Sort-Object { Get-JkEventDue $_ })
     $exam = @($up | Where-Object { $_.kind -eq 'exam' })[0]
     if ($exam) {
         $d = Get-JkEventDue $exam
@@ -57,7 +58,9 @@ function Show-JkCourseBrief($Course) {
         $t = ([string]$exam.title -replace '(?i)\s+closes?$', '').Trim()
         # the closing half of an online window: "closes Tue Dec 8 11:59 pm"
         $verb = $(if ([string]$exam.title -match '(?i)\s+closes?$') { 'closes ' } else { '' })
-        & $row 'exam' ((Paint 'bold white' $t) + (Paint 'muted' "  $verb$(Format-JkWhenShort $d $now)$in$(if ($exam.weight) { "  $($script:G.dot)  $($exam.weight)" })") + (Paint 'gray' "   $($script:G.arrow) jk exam $key"))
+        $whenTxt = "$verb$(Format-JkWhenShort $d $now)$in"
+        if ($d -le $now) { $whenTxt = "under way, until $(Format-JkTime (Get-JkExamEnd $exam).ToString('HH:mm', $script:Inv))" }
+        & $row 'exam' ((Paint 'bold white' $t) + (Paint 'muted' "  $whenTxt$(if ($exam.weight) { "  $($script:G.dot)  $($exam.weight)" })") + (Paint 'gray' "   $($script:G.arrow) jk exam $key"))
     }
     $dues = @($up | Where-Object { $_.kind -ne 'exam' } | Select-Object -First 4)
     if ($dues.Count) {
