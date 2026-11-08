@@ -180,8 +180,8 @@ function Register-JkTodayAlerts {
         if ($due.Date -ne $Now.Date -or $due -le $Now) { continue }
         $at = $due.AddSeconds(-$secs)
         if ($at -le $Now) {
-            # the morning run happens on the first wake after 7:45, and a laptop asleep until 6 pm
-            # is past the 5 pm warning for a 7 pm exam: warn now while there is time to act on it
+            # the morning run happens at the first unlock after 7:45 (jk-remind-unlock), and a laptop
+            # asleep until 6 pm is past the 5 pm warning for a 7 pm exam: warn now while there is time
             if (($due - $Now).TotalMinutes -lt 10) { continue }
             $at = $Now.AddMinutes(1)
         }
@@ -355,6 +355,9 @@ function Show-JkReminders {
         $next = ''
         if ($info.NextRunTime) { $next = " $($script:G.dot) next run $($info.NextRunTime.ToString('ddd h:mm tt', $script:Inv))" }
         Say ('  ' + (Paint 'green' "$($script:G.check) morning brief installed") + (Paint 'gray' " ($($info.State)$next)"))
+        # without the unlock task, a PC asleep at remind.time skips that day's brief
+        if (Get-JkTaskInfo $script:JkUnlockTaskName) { Say ('  ' + (Paint 'green' $script:G.check) + (Paint 'gray' ' if the PC sleeps through it, it runs when you unlock')) }
+        else { Say ('  ' + (Paint 'yellow' 'no catch-up after sleep') + (Paint 'gray' ' - a PC asleep then skips the brief; run: jk remind install')) }
     } else {
         Say ('  ' + (Paint 'yellow' 'morning brief not installed') + (Paint 'gray' ' - run: jk remind install'))
     }
