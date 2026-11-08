@@ -723,6 +723,19 @@ function Show-JkCourses {
 
 # ---------------------------------------------------------------- week grid
 
+# A title in fewer characters, for a cell too narrow for it: "Assignment 6" -> "A6", "Midterm 2" ->
+# "Mid 2", "Quiz 3" -> "Q3", and a window's "closes" (its deadline) dropped. Other words stay.
+function Get-JkShortTitle([string]$Title) {
+    $t = $Title -replace '(?i)\bAssignment\s*#?\s*(\d+[a-z]?)\b', 'A$1'
+    $t = $t -replace '(?i)\bQuiz\s*#?\s*(\d+)\b', 'Q$1'
+    $t = $t -replace '(?i)\bHomework\s*#?\s*(\d+)\b', 'HW$1'
+    $t = $t -replace '(?i)\bProblem Set\s*#?\s*(\d+)\b', 'PS$1'
+    $t = $t -replace '(?i)\bMidterm\b', 'Mid'
+    $t = $t -replace '(?i)\bAssignment\b', 'Asst'
+    $t = $t -replace '(?i)\bProject\b', 'Proj'
+    ($t -replace '(?i)\s+closes?$', '').Trim()
+}
+
 function Show-JkDueWeek {
     param([int]$Weeks = 2)
     # a term and a half at most: "jk due week 99999" would draw 99999 weeks, for a quarter of an hour
@@ -809,7 +822,10 @@ function Show-JkDueWeek {
                 if ($r -lt $list.Count) {
                     $e = $list[$r]
                     $code = (Get-JkCourseLabel $e $cmap) -replace '\s', ''
-                    $txt = Fit ("$code $($e.title)") ($colW - 1)
+                    # too long for the cell: "HEALTH105 A6", not "HEALTH105 As..." three times a day
+                    $txt = "$code $($e.title)"
+                    if ((Get-JkTextWidth $txt) -gt ($colW - 1)) { $txt = "$code $(Get-JkShortTitle ([string]$e.title))" }
+                    $txt = Fit $txt ($colW - 1)
                     $color = Get-JkCourseColor $e.course $cmap
                     $st = "#$color"
                     if ($e.kind -eq 'exam') { $st = "bold bg:#$color ink" }
