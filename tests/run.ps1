@@ -310,6 +310,39 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'a deadline no screen can read (date 2026-13-01) is set aside: every view still works, a save keeps it as it was, jk doctor names it; 7pm is read as 19:00' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'unreadable-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $json = @'
+{ "version": 1, "nextId": 4, "term": null,
+  "courses": [ { "key": "cs341", "code": "CS 341", "name": "Algorithms", "color": "#7C9CF8" } ],
+  "events": [
+    { "id": 1, "course": "cs341", "date": "2026-11-10", "time": "23:59", "title": "Assignment 3", "kind": "due" },
+    { "id": 2, "course": "cs341", "date": "2026-13-01", "time": "23:59", "title": "Assignment 4", "kind": "due" },
+    { "id": 3, "course": "cs341", "date": "2026-11-11", "time": "7pm", "title": "Midterm 2", "kind": "exam" }
+  ] }
+'@
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'deadlines.json'), $json)
+        $env:JK_NOW = '2026-11-09T09:00:00'
+        $d = Get-JkDueData
+        Assert-Eq "$(@($d.events).Count)|$(@(Get-JkProp $d 'unreadable' @()).Count)" '2|1' 'two readable, one set aside'
+        Assert-Eq ([string]@($d.events | Where-Object { $_.id -eq 3 })[0].time) '19:00' '7pm read as 19:00'
+        $failed = @()
+        foreach ($v in @({ Show-JkDashboard }, { Show-JkDue }, { Show-JkNext }, { Show-JkReview }, { $null = Get-JkBriefLine }, { Show-JkDueAll })) { try { $null = & $v 6>&1 } catch { $failed += $_.Exception.Message } }
+        Assert-True (-not $failed.Count) "every view works: $($failed -join ' / ')"
+        # a save (adding a deadline) writes the unreadable record back unchanged
+        $d = Get-JkDueData; $null = New-JkEvent -Data $d -Course 'cs341' -Date ([datetime]'2026-11-20') -Time '23:59' -Title 'Assignment 5'; Save-JkDueData $d
+        $raw = [IO.File]::ReadAllText((Join-Path $env:JK_HOME 'deadlines.json')) | ConvertFrom-Json
+        $kept = @($raw.events | Where-Object { [string]$_.id -eq '2' })[0]
+        Assert-True ($kept -and $kept.date -eq '2026-13-01' -and $kept.title -eq 'Assignment 4' -and @($raw.events).Count -eq 4 -and -not $raw.PSObject.Properties['unreadable']) "kept as it was: $($raw.events | ConvertTo-Json -Compress)"
+        $doc = @(Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'unreadable deadline\s' })
+        Assert-True ($doc.Count -eq 1 -and $doc[0] -match "#2 Assignment 4: date '2026-13-01'") "jk doctor: $($doc -join ' / ')"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'a course page keeps an exam being written as its exam, under way until its end, then the next one' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'coursexam-home'; $script:JkConfigCache = $null
