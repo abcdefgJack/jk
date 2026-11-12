@@ -310,6 +310,26 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk class pick: a catalog section whose time cannot be read is left out, the rest still list and can be picked; 1pm is read as 13:00' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'badcatalog-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs341' -Create; $b = Resolve-JkCourse $dd 'cs350' -Create; Save-JkDueData $dd
+        $sec = { param($course, $n, $start, $end) "{""course"":""$course"",""kind"":""LEC"",""section"":""$n"",""days"":[""Tue"",""Thu""],""start"":""$start"",""end"":""$end"",""room"":""MC 2017""}" }
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'sections.json'), "{""items"":[$(& $sec $a.key '001' 'morning' '14:20'),$(& $sec $b.key '001' '1pm' '14:20'),$(& $sec $b.key '002' '16:00' '17:20')]}")
+        $env:JK_NOW = '2026-11-09T09:00:00'
+        $cat = @(Get-JkSectionCatalog)
+        Assert-Eq "$($cat.Count)|$($cat[0].start)" '2|13:00' 'the unreadable section is left out, 1pm is 13:00'
+        $threw = $null; try { $null = Select-JkSections 6>&1 } catch { $threw = $_.Exception.Message }
+        Assert-True (-not $threw) "jk class pick lists the rest: $threw"
+        $threw = $null; try { $null = Select-JkSections $b.key 001 6>&1 } catch { $threw = $_.Exception.Message }
+        $mine = @((Get-JkClassData).items | Where-Object { $_.course -eq $b.key })
+        Assert-True (-not $threw -and $mine.Count -eq 1 -and $mine[0].start -eq '13:00') "and a readable section can be picked: [$threw] $($mine | ConvertTo-Json -Compress)"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'an unreadable popup stamp counts as never (the popup still shows), and a mark that is not a number is set aside, kept on save and named' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'stampgrade-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
