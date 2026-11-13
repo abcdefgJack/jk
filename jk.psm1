@@ -11,7 +11,7 @@ $script:JkCommands = [ordered]@{
     'class'  = @{ Fn = 'Invoke-JkClass'; Aliases = @('classes', 'cls', 'timetable', 'schedule', 'sched'); Desc = 'class schedule: what is on today, the next class, a weekly timetable' }
     'week'   = @{ Fn = 'Show-JkDueWeek'; Aliases = @('wk', 'w'); Desc = 'the next two weeks as a Mon-Sun grid (same as jk due week)' }
     'exams'  = @{ Fn = 'Invoke-JkExams'; Aliases = @('exam', 'midterms'); Desc = 'every remaining exam with a countdown; jk exam cs370 for one exam on a screen' }
-    'plan'   = @{ Fn = 'Invoke-JkPlan'; Aliases = @('study'); Desc = 'split today''s study time across upcoming exams and assignments; jk plan start' }
+    'plan'   = @{ Fn = 'Invoke-JkPlan'; Aliases = @('study'); Desc = 'split today''s study time across upcoming exams and assignments; jk plan week, jk plan start' }
     'review' = @{ Fn = 'Show-JkReview'; Aliases = @('weekly', 'retro'); Desc = 'last 7 days done and slipped, next 7 days load, where the marks are' }
     'todo'   = @{ Fn = 'Invoke-JkTodo'; Aliases = @('t', 'todos'); Desc = 'quick personal to-do list' }
     'jobs'   = @{ Fn = 'Invoke-JkJobs'; Aliases = @('job', 'apps', 'applications'); Desc = 'job applications: did I apply to X?, what is waiting on me, weekly pace (read-only)' }
@@ -208,7 +208,7 @@ $script:JkActions = @{
     'setup'  = @('install', 'uninstall', 'status', 'help')
     'speed'  = @('fix', 'undo', 'help')
     'backup' = @('list', 'restore', 'mirror')
-    'plan'   = @('start', 'help')
+    'plan'   = @('start', 'week', 'help')
     'jobs'   = @('todo', 'skipped', 'edit', 'path', 'help')
     'space'  = @('clean', 'help')
     'port'   = @()

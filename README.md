@@ -72,7 +72,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due files cs341 a2` | The files in that course's folder named after the deadline (`A2.tex`, `A2\...`, `a2a.pdf`), or its newest files; `jk find -o 1` opens one |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
-| | `jk plan` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight and days left; starts the next 25-minute block |
+| | `jk plan` / `jk plan week` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight, days left and your marks (a course behind its target gets more, its exams from 5 weeks out); the week as a day-by-day checklist; starts the next 25-minute block. `jk config set plan.skip <course>` leaves a course out |
 | | `jk grade cs350` | Running weighted average and "to finish with 80% you need 77% on the rest" |
 | | `jk grade cs370 if midterm 70` | What if: the average with that mark (several: `if midterm 70, a2 85`) and what the rest would then need; nothing is saved |
 | | `jk grade fill` | Goes through every past graded item with no mark: type it (`17/20`, `85`), Enter skips. Each marked item is checked off as of its due date |

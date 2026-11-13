@@ -6,6 +6,62 @@
 
 $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 $script:PlanBlock = 25
+# how far ahead an exam is planned for in a course whose marks are behind its target (others: 14)
+$script:PlanFarDays = 35
+
+# The courses jk plan leaves out (plan.skip), as course keys; a name that is no course is ignored.
+function Get-JkPlanSkip($Data) {
+    $raw = [string](Get-JkConfig 'plan.skip')
+    if (-not $raw -or $raw -match '^(off|none)$') { return @() }
+    @((Resolve-JkCourseList $Data $raw).Keys)
+}
+
+# "health105; CS 341" or "health105 cs341" -> course keys, and the names that are no course. A
+# piece between ; or , is tried whole first ("CS 341"), then word by word.
+function Resolve-JkCourseList($Data, [string]$Text) {
+    $keys = @(); $bad = @()
+    foreach ($piece in @($Text -split '[;,]+' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        $c = Resolve-JkCourse $Data $piece
+        if ($c) { $keys += [string]$c.key; continue }
+        foreach ($word in @($piece -split '\s+' | Where-Object { $_ })) {
+            $c = Resolve-JkCourse $Data $word
+            if ($c) { $keys += [string]$c.key } else { $bad += $word }
+        }
+    }
+    [pscustomobject]@{ Keys = @($keys | Select-Object -Unique); Bad = @($bad) }
+}
+
+# What a course's marks do to its study time. The mark still needed on the rest of the course for
+# its target (as jk grade works it out) is set against the target: 20 points more is 1.4 times the
+# work, capped at 1.5, and a course ahead of its target gets less, down to 0.75. No marks, no
+# change. A kind of work already at the target is not given more: assignments at 100% in a course
+# with a failed midterm stay as they are, and the exams get the time. Exam is the factor for exams,
+# Other for everything else; Need, Target and Average are the numbers behind them.
+function Get-JkPlanGradeFactor($Data, $GradeData, [string]$CourseKey) {
+    $none = [pscustomobject]@{ Exam = 1.0; Other = 1.0; Need = $null; Target = $null; Average = $null }
+    $items = @(Get-JkGradeItems $Data $GradeData $CourseKey)
+    if (-not @($items | Where-Object { $null -ne $_.Score }).Count) { return $none }
+    $m = Measure-JkGrade $items (Get-JkGradeRules $Data $CourseKey)
+    $rest = $m.Remaining + [double]$m.Unlisted
+    if ($m.Graded -le 0 -or $rest -le 0.0001) { return $none }
+    $target = Get-JkTarget $GradeData $CourseKey
+    $need = 100 * ($target - $m.Banked) / $rest
+    $f = [Math]::Round([Math]::Max(0.75, [Math]::Min(1.5, 1 + ($need - $target) / 50)), 2)
+    $fe = $f; $fo = $f
+    if ($f -gt 1) {
+        $kindOf = @{}
+        foreach ($e in @($Data.events)) { if ($e.course -eq $CourseKey) { $kindOf[[string]$e.id] = [string]$e.kind } }
+        $ew = 0.0; $eb = 0.0; $ow = 0.0; $ob = 0.0
+        foreach ($i in $items) {
+            if ($null -eq $i.Score) { continue }
+            if ($kindOf[[string]$i.Key] -eq 'exam') { $ew += $i.Weight; $eb += $i.Score * $i.Weight }
+            else { $ow += $i.Weight; $ob += $i.Score * $i.Weight }
+        }
+        if ($ew -gt 0 -and $eb / $ew -ge $target) { $fe = 1.0 }
+        if ($ow -gt 0 -and $ob / $ow -ge $target) { $fo = 1.0 }
+    }
+    [pscustomobject]@{ Exam = $fe; Other = $fo; Need = $need; Target = $target; Average = $m.Average }
+}
 
 function Get-JkPlanItems {
     param([datetime]$Now = (Get-JkNow), [int]$HorizonDays = 14)
@@ -14,16 +70,30 @@ function Get-JkPlanItems {
     $examPer = [double](Get-JkConfig 'plan.examMin')
     $duePer = [double](Get-JkConfig 'plan.dueMin')
     $groups = @{}
+    $skip = @(Get-JkPlanSkip $data)
+    $gd = $null; $gf = @{}
+    $farDays = [Math]::Max($HorizonDays, $script:PlanFarDays)
     # dates are ISO text: anything outside [today, horizon] is skipped before any parsing
     $fromDay = $Now.ToString('yyyy-MM-dd', $script:Inv)
-    $toDay = $Now.AddDays($HorizonDays).ToString('yyyy-MM-dd', $script:Inv)
+    $toDay = $Now.AddDays($farDays).ToString('yyyy-MM-dd', $script:Inv)
     foreach ($e in @($data.events)) {
         if ($e.done) { continue }
         if ([string]$e.date -lt $fromDay -or [string]$e.date -gt $toDay) { continue }
+        if ($skip -contains [string]$e.course) { continue }
         $w = Get-JkWeightValue $e.weight
         if ($w -le 0) { continue }
         $due = Get-JkEventDue $e
-        if ($due -le $Now -or $due -gt $Now.AddDays($HorizonDays)) { continue }
+        if ($due -le $Now) { continue }
+        # the course's marks: more time where it is behind its target, and its exams from further out
+        $ck = [string]$e.course
+        if (-not $gf.ContainsKey($ck)) {
+            if ($null -eq $gd) { $gd = Get-JkGradeData }
+            $gf[$ck] = Get-JkPlanGradeFactor $data $gd $ck
+        }
+        $factor = $(if ($e.kind -eq 'exam') { $gf[$ck].Exam } else { $gf[$ck].Other })
+        $horizon = $HorizonDays
+        if ($e.kind -eq 'exam' -and $factor -ge 1.2) { $horizon = $farDays }
+        if ($due -gt $Now.AddDays($horizon)) { continue }
         # an exam window (opens + closes) is one thing to prepare for: target the opening.
         # Other items sharing a title (weekly "Quiz") stay separate.
         $norm = ([string]$e.title -replace '(?i)\s+(opens?|closes?)$', '').Trim()
@@ -34,14 +104,15 @@ function Get-JkPlanItems {
         }
         if (-not $groups.ContainsKey($key) -or $due -lt $groups[$key].Due) {
             $per = $duePer; if ($e.kind -eq 'exam') { $per = $examPer }
-            $groups[$key] = [pscustomobject]@{ Key = $key; Course = [string]$e.course; Title = $norm; Due = $due; Weight = $w; Kind = [string]$e.kind; Id = $e.id; Effort = $w * $per; Done = 0.0 }
+            $groups[$key] = [pscustomobject]@{ Key = $key; Course = [string]$e.course; Title = $norm; Due = $due; Weight = $w; Kind = [string]$e.kind; Id = $e.id; Effort = $w * $per * $factor; Done = 0.0; Factor = $factor; Horizon = $horizon; Marks = $gf[$ck] }
         }
     }
     $items = @($groups.Values)
     # only the last two weeks of focus can count (items are at most 14 days out, and credit starts
     # 14 days before each); start stamps are ISO, so they compare as text without parsing. Each
     # label's course is resolved once: a term of sessions repeats a handful of labels.
-    $cutoff = $Now.Date.AddDays(-14).ToString('s', $script:Inv)
+    $back = 14; foreach ($it in $items) { if ($it.Horizon -gt $back) { $back = $it.Horizon } }
+    $cutoff = $Now.Date.AddDays(-$back).ToString('s', $script:Inv)
     $memo = @{}
     $sessions = foreach ($s in @($fd.sessions)) {
         if ([string]$s.start -lt $cutoff) { continue }
@@ -61,7 +132,7 @@ function Get-JkPlanItems {
     }
     foreach ($course in ($items | Group-Object Course)) {
         $courseItems = @($course.Group)
-        $since = ($courseItems | ForEach-Object { $_.Due.AddDays(-14) } | Measure-Object -Minimum).Minimum
+        $since = ($courseItems | ForEach-Object { $_.Due.AddDays(-[Math]::Max(14, $_.Horizon)) } | Measure-Object -Minimum).Minimum
         if ($lastDone[$course.Name]) {
             $at = [datetime]::Parse($lastDone[$course.Name], $script:Inv)
             if ($at -gt $since) { $since = $at }
@@ -70,8 +141,18 @@ function Get-JkPlanItems {
         foreach ($s in @($sessions)) {
             if ($s.Course -eq $course.Name -and $s.Start -ge $since -and $s.Start -le $Now) { $logged += $s.Minutes }
         }
-        $total = ($courseItems | Measure-Object -Property Effort -Sum).Sum
-        foreach ($it in $courseItems) { if ($total -gt 0) { $it.Done = [Math]::Min($it.Effort, $logged * $it.Effort / $total) } }
+        # an exam planned from further out (a course behind on its marks) takes only what the nearer
+        # items leave: an hour on Monday's assignment is not mostly credited to a final in December
+        $near = @($courseItems | Where-Object { $_.Due -le $Now.AddDays($HorizonDays) })
+        $far = @($courseItems | Where-Object { $_.Due -gt $Now.AddDays($HorizonDays) })
+        foreach ($part in @($near, $far)) {
+            $group = @($part)
+            $total = 0.0; foreach ($it in $group) { $total += $it.Effort }
+            if ($total -le 0) { continue }
+            $used = 0.0
+            foreach ($it in $group) { $it.Done = [Math]::Min($it.Effort, $logged * $it.Effort / $total); $used += $it.Done }
+            $logged = [Math]::Max(0, $logged - $used)
+        }
     }
     @($items | Sort-Object Due)
 }
@@ -171,6 +252,85 @@ function Get-JkPlanToday {
     [pscustomobject]@{ Items = $items; Schedule = $sched; Today = $sched[0]; Budget = $budget; BudgetKey = $budgetKey }
 }
 
+# Why the plan is not by weight alone, a line each: the courses left out, and what the marks change.
+function Get-JkPlanNotes($Plan, $Cmap, $Data) {
+    $notes = @()
+    $skip = @(Get-JkPlanSkip $Data)
+    if ($skip.Count) {
+        $names = @($skip | ForEach-Object { Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $Cmap })
+        $notes += "left out: $($names -join ', ')  (jk config set plan.skip off brings $(if ($names.Count -eq 1) { 'it' } else { 'them' }) back)"
+    }
+    if ($Plan) {
+        foreach ($g in @($Plan.Items | Where-Object { $_.Factor -ne 1 } | Group-Object Course)) {
+            $it = @($g.Group | Sort-Object Due)[0]; $m = $it.Marks
+            $what = $(if (@($g.Group | Where-Object { $_.Kind -ne 'exam' }).Count -eq 0) { ' exams' } elseif (@($g.Group | Where-Object { $_.Kind -eq 'exam' }).Count -eq 0) { ' work' } else { '' })
+            $txt = "by your marks: $(Get-JkCourseLabel $it $Cmap)$what x$(([double]$it.Factor).ToString('0.0', $script:Inv))"
+            if (@($g.Group | Where-Object { $_.Horizon -gt 14 }).Count) { $txt += ", from $([int]($script:PlanFarDays / 7)) weeks out" }
+            $need = $(if ($m.Need -gt 100) { "is out of reach on paper ($([int][Math]::Round($m.Need))% on the rest)" } elseif ($m.Need -le 0) { 'is locked in' } else { "takes $([int][Math]::Round($m.Need))% on the rest" })
+            $notes += "$txt $($script:G.dash) $([int][Math]::Round($m.Average))% so far, $([int]$m.Target)% $need"
+        }
+    }
+    $notes
+}
+
+# jk plan week: the next seven days as a checklist. Each day's study blocks (what jk plan would give
+# that day), and under them what is handed in or written that day.
+function Show-JkPlanWeek {
+    $p = Get-JkPlanToday
+    $now = Get-JkNow
+    $data = Get-JkDueData -Cached
+    $cmap = Get-JkCourseMap $data
+    $w = Get-JkWidth
+    $key = Get-JkPlanBudgetKey $now
+    Write-JkHeader 'Study week' "budget $(Format-JkMinutes ([double](Get-JkConfig $key) * 60))/day $($script:G.dot) jk config set $key $([int](Get-JkConfig $key) + 1)" -Sub "$($now.ToString('ddd MMM d', $script:Inv)) $($script:G.dash) $($now.AddDays(6).ToString('ddd MMM d', $script:Inv))"
+    $skip = @(Get-JkPlanSkip $data)
+    $left = @{}
+    if ($p) { foreach ($r in @(Get-JkPlanLeft $p (Get-JkTodayFocusByCourse $now))) { $left[$r.Item.Key] = $r.Left } }
+    $titleW = [Math]::Max(14, [Math]::Min(30, $w - 52))
+    $byCourse = @{}; $all = 0.0
+    for ($d = 0; $d -lt 7; $d++) {
+        $day = $now.Date.AddDays($d)
+        $s = $null; if ($p) { $s = @($p.Schedule | Where-Object { $_.Day -eq $day })[0] }
+        $its = @(); if ($s) { $its = @($p.Items | Where-Object { $s.Alloc.ContainsKey($_.Key) } | Sort-Object @{ e = { - $s.Alloc[$_.Key] } }, @{ e = { $_.Due } }) }
+        $dayKey = $day.ToString('yyyy-MM-dd', $script:Inv)
+        # handed in or written that day (not 0% work, not a window's opening, not a course left out)
+        $dueThat = @($data.events | Where-Object {
+                -not $_.done -and [string]$_.date -eq $dayKey -and $skip -notcontains [string]$_.course -and
+                [string]$_.title -notmatch '(?i)\s+opens?$' -and -not ($_.weight -and (Get-JkWeightValue $_.weight) -le 0) -and (Get-JkEventDue $_) -gt $now
+            } | Sort-Object { Get-JkEventDue $_ })
+        $sum = 0.0; foreach ($it in $its) { $sum += $s.Alloc[$it.Key] }
+        $name = $day.ToString('ddd MMM d', $script:Inv)
+        $tag = $(if ($d -eq 0) { '  today' } elseif ($d -eq 1) { '  tomorrow' } else { '' })
+        $total = $(if ($sum -gt 0) { Format-JkMinutes $sum } else { '' })
+        Say (' ' + (Paint 'bold white' $name) + (Paint 'muted' $tag) + (' ' * [Math]::Max(2, 38 + $titleW - $name.Length - $tag.Length - $total.Length)) + (Paint 'bold white' $total))
+        if (-not $its.Count -and -not $dueThat.Count) { Say (Paint 'gray' "   $($script:G.dash) nothing planned") }
+        foreach ($it in $its) {
+            $m = $s.Alloc[$it.Key]
+            $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $m; $all += $m
+            $color = Get-JkCourseColor $it.Course $cmap
+            $mark = $script:G.ring; $st = 'white'
+            if ($d -eq 0 -and $left.ContainsKey($it.Key) -and $left[$it.Key] -le 0) { $mark = $script:G.check; $st = 'gray' }
+            $days = [int]($it.Due.Date - $day).TotalDays
+            $when = $(if ($days -eq 0) { 'due today' } elseif ($days -eq 1) { 'due tomorrow' } else { 'due ' + (Format-JkComingDay $it.Due $now -Short) })
+            if ($it.Kind -eq 'exam') { $when = $when -replace '^due ', 'exam ' }
+            $ttl = [string]$it.Title; if ((Get-JkTextWidth $ttl) -gt ($titleW - 1)) { $ttl = Get-JkShortTitle $ttl }
+            Say ('   ' + (Paint $(if ($mark -eq $script:G.check) { 'green' } else { 'gray' }) $mark) + ' ' + (Paint "bold #$color" (Fit (Get-JkCourseLabel $it $cmap) 11)) + (Paint $st (Fit $ttl ($titleW - 1))) + ' ' + (Paint 'muted' (Fit $when 16)) + (Paint $st (Fit (Format-JkMinutes $m) 7 -Right)))
+        }
+        foreach ($e in $dueThat) {
+            $verb = $(if ($e.kind -eq 'exam') { 'exam' } elseif ($e.kind -eq 'appt') { 'at' } else { 'due' })
+            $at = $(if ($e.time) { ' ' + (Format-JkTime ([string]$e.time)) } else { '' })
+            Say ('   ' + (Paint 'orange' '!') + ' ' + (Paint 'orange' "$verb$at") + '  ' + (Paint 'white' "$(Get-JkCourseLabel $e $cmap) $(([string]$e.title -replace '(?i)\s+closes?$', '').Trim())") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }))
+        }
+    }
+    Say ''
+    if ($all -gt 0) {
+        $parts = @($byCourse.Keys | Sort-Object @{ e = { - $byCourse[$_] } }, @{ e = { $_ } } | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" })
+        Write-JkTip ('  ' + (Paint 'bold white' (Fit 'the week' 10))) 12 "$(Format-JkMinutes $all): $($parts -join "  $($script:G.dot)  ")" 'white' -Indent 12
+    } else { Say (Paint 'green' '  Nothing graded is due in the next two weeks.') }
+    foreach ($n in @(Get-JkPlanNotes $p $cmap $data)) { Write-JkTip '  ' 2 $n 'gray' -Indent 4 }
+    Say (Paint 'gray' "  jk plan start begins today's first block  $($script:G.dot)  jk plan is today alone")
+}
+
 # Which daily budget applies: plan.examHours during the study break and the exam period (no
 # classes), plan.hours otherwise.
 function Get-JkPlanBudgetKey([datetime]$Now = (Get-JkNow)) {
@@ -189,7 +349,7 @@ function Show-JkPlan {
     $w = Get-JkWidth
     $key = Get-JkPlanBudgetKey $now
     Write-JkHeader 'Study plan' "budget $(Format-JkMinutes ([double](Get-JkConfig $key) * 60))/day $($script:G.dot) jk config set $key $([int](Get-JkConfig $key) + 1)" -Sub ($now.ToString('dddd, MMM d', $script:Inv))
-    if (-not $p) { Say (Paint 'green' '  Nothing graded is due in the next two weeks.'); return }
+    if (-not $p) { Say (Paint 'green' '  Nothing graded is due in the next two weeks.'); foreach ($n in @(Get-JkPlanNotes $null $cmap $data)) { Write-JkTip '  ' 2 $n 'gray' -Indent 4 }; return }
     $logged = Get-JkTodayFocusByCourse $now
     $today = $p.Today
     Say (' ' + (Paint 'bold white' 'Today'))
@@ -218,6 +378,7 @@ function Show-JkPlan {
     if ($today.Need -gt $today.Budget * 1.15) {
         Say ('  ' + (Paint 'orange' "! the next deadlines want ~$(Format-JkMinutes $today.Need) today; the plan is squeezed into your budget"))
     }
+    foreach ($n in @(Get-JkPlanNotes $p $cmap $data)) { Write-JkTip '  ' 2 $n 'gray' -Indent 4 }
 
     # the week ahead: minutes per course per day
     Say ''
@@ -328,7 +489,8 @@ function Invoke-JkPlan {
     if ($a.Count -eq 0) { Show-JkPlan; return }
     switch -Regex (([string]$a[0]).ToLower()) {
         '^(start|go|next)$' { Start-JkPlanBlock; return }
+        '^(week|wk|w|7|list|checklist)$' { Show-JkPlanWeek; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'plan'; return }
     }
-    throw "unknown 'plan' action '$($a[0])' (jk plan | jk plan start)"
+    throw "unknown 'plan' action '$($a[0])' (jk plan | jk plan week | jk plan start)"
 }

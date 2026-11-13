@@ -310,6 +310,70 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk plan leaves out the courses in plan.skip (their deadlines stay in jk due), and jk plan week lists each day as a checklist' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'planskip-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs370' -Create; $h = Resolve-JkCourse $dd 'health105' -Create
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $h.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 7' -Weight '7.5%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-19') -Time '08:30' -Title 'Quiz 3' -Kind 'exam' -Weight '20%'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-13T09:00:00'; $env:JK_WIDTH = '100'
+        Assert-Eq (@(Get-JkPlanItems | ForEach-Object { $_.Course } | Sort-Object -Unique) -join ',') "$($a.key),$($h.key)" 'both courses are planned to begin with'
+        try { $null = Invoke-JkConfig set plan.skip 'HEALTH 105' 6>&1 } catch { }
+        Assert-Eq (Get-JkConfig 'plan.skip') ([string]$h.key) 'the course is stored by its key'
+        Assert-Eq (@(Get-JkPlanItems | ForEach-Object { $_.Course } | Select-Object -Unique) -join ',') ([string]$a.key) 'jk plan leaves it out'
+        Assert-True ((@(Show-JkDue 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'HEALTH 105\s+Assignment 7') 'its deadline stays in jk due'
+        Assert-Throws { Invoke-JkConfig set plan.skip nosuchcourse 6>$null } 'a name that is no course is refused'
+        $week = @(); try { $week = @(Show-JkPlanWeek 6>&1 | ForEach-Object { "$_" }) } catch { $week = @("error: $($_.Exception.Message)") }
+        $all = $week -join "`n"
+        Assert-True (@($week | Where-Object { $_ -match '^ (Fri Nov 13|Sat Nov 14|Sun Nov 15|Mon Nov 16|Tue Nov 17|Wed Nov 18|Thu Nov 19)\b' }).Count -eq 7) "seven days: $all"
+        Assert-True ($all -match 'CS 370\s+Assignment 3\s+due Mon\s+\d' -and $all -match 'CS 370\s+Quiz 3\s+exam Thu\s+\d') "each day's blocks say what and by when: $all"
+        Assert-True ($all -match '! due 11:59 pm\s+CS 370 Assignment 3' -and $all -match '! exam 8:30 am\s+CS 370 Quiz 3') "and what is handed in or written that day: $all"
+        Assert-True ($all -notmatch 'Assignment 7' -and $all -match 'left out: HEALTH 105') "the course left out is named, not listed: $all"
+        Assert-True ($all -match 'the week\s+\d+h \d+m: CS 370 ') "the week's total: $all"
+        try { $null = Invoke-JkConfig set plan.skip off 6>&1 } catch { }
+        Assert-Eq (@(Get-JkPlanItems | ForEach-Object { $_.Course } | Select-Object -Unique).Count) 2 'off brings it back'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
+Test 'jk plan follows the marks: a failed midterm gives the final more time and plans it from 5 weeks out; assignments at 100% and a course with no marks are unchanged' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'planmarks-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs370' -Create; $b = Resolve-JkCourse $dd 'cs341' -Create
+        $a1 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-05') -Time '23:59' -Title 'Assignment 1' -Weight '7%'
+        $mid = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-02') -Time '19:00' -Title 'Midterm' -Kind 'exam' -Weight '32%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-10') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        $null = New-JkEvent -Data $dd -Course $b.key -Date ([datetime]'2026-12-12') -Time '12:30' -End '15:00' -Title 'FINAL' -Kind 'exam' -Weight '44%'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-11-13T09:00:00'
+        $marks = { param($m) [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'grades.json'), "{""scores"":[{""id"":""$($a1.id)"",""score"":100},{""id"":""$($mid.id)"",""score"":$m}],""extras"":[],""targets"":[],""nextExtra"":1}") }
+        $row = { param($title) $it = @(Get-JkPlanItems | Where-Object { $_.Title -eq $title -and $_.Course -eq $a.key })[0]; if ($it) { "$([double]$it.Factor)|$([Math]::Round($it.Effort))" } else { 'absent' } }
+        # no marks at all: by weight, two weeks ahead
+        Assert-Eq "$(& $row 'Assignment 3')|$(& $row 'FINAL')" '1|210|absent' 'no marks: the assignment by weight, the final not yet'
+        # midterm 38.75%: 80% takes 99% on the rest, so the exams get 1.39 times the time, from now
+        & $marks 38.75
+        Assert-Eq "$(& $row 'Assignment 3')|$(& $row 'FINAL')" '1|210|1.39|834' 'a failed midterm: the final from 5 weeks out with more time, the assignment (100% so far) as it was'
+        Assert-True (-not @(Get-JkPlanItems | Where-Object { $_.Course -eq $b.key }).Count) 'a course with no marks: its final waits until two weeks before'
+        $notes = @(Show-JkPlan 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'by your marks' })
+        Assert-True ($notes.Count -eq 1 -and $notes[0] -match 'CS 370 exams x1\.4, from 5 weeks out . 50% so far, 80% takes 99% on the rest') "jk plan says why: $($notes -join ' / ')"
+        # focus on the course goes to the assignment due Monday first, not mostly to the final
+        Save-JkFocusData ([pscustomobject]@{ active = $null; sessions = @([pscustomobject]@{ start = '2026-11-13T08:00:00'; minutes = 50; actual = 50; label = "$($a.key) assignment 3" }) })
+        $done = @(Get-JkPlanItems | Where-Object { $_.Course -eq $a.key } | Sort-Object Due | ForEach-Object { [Math]::Round($_.Done) }) -join '|'
+        Assert-Eq $done '50|0' 'focus counts toward the nearer item first'
+        # midterm 95%: ahead of the target, so a little less, and the final at two weeks as usual
+        & $marks 95
+        Assert-Eq "$(& $row 'Assignment 3')|$(& $row 'FINAL')" '0.8|168|absent' 'ahead of the target: less time, the final not yet'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk class pick: a catalog section whose time cannot be read is left out, the rest still list and can be picked; 1pm is read as 13:00' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'badcatalog-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
@@ -2103,7 +2167,7 @@ Test 'every safe command and action runs on an empty install without a PowerShel
     # it is placed on one side or the other.
     $run = @(
         'due', 'due add', 'due done', 'due undone', 'due edit', 'due rm', 'due files', 'due all', 'due past', 'due week', 'due exams', 'due courses', 'due course',
-        'class', 'class week', 'class list', 'class next', 'class add', 'class rm', 'week', 'exams', 'plan', 'review',
+        'class', 'class week', 'class list', 'class next', 'class add', 'class rm', 'week', 'exams', 'plan', 'plan week', 'review',
         'todo', 'todo add', 'todo done', 'todo undo', 'todo rm', 'todo clear', 'todo edit', 'todo all', 'focus status', 'focus log',
         'remind', 'remind list', 'remind cancel', 'remind status', 'grade', 'grade set', 'grade clear', 'grade add', 'grade target',
         'next', 'time', 'time add', 'time rm', 'time off', 'weather', 'weather set', 'weather off', 'brief', 'config', 'config path', 'backup', 'backup list', 'help'

@@ -30,6 +30,7 @@ $script:JkTips = @(
 # What's new, newest first. Add an entry when a feature ships; the dashboard announces each one
 # once (three per run) and remembers the ids in state.json.
 $script:JkNews = @(
+    @{ Id = 'plan-week'; Cmd = 'jk plan week'; Text = 'the next seven days as a checklist; a course behind on its marks gets more time, and jk config set plan.skip <course> leaves one out' },
     @{ Id = 'next'; Cmd = 'jk next'; Text = 'the one thing to do now (work due tonight, a class soon, today''s study) and the command for it' },
     @{ Id = 'clip-ocr'; Cmd = 'jk clip ocr'; Text = 'snip anything with Win+Shift+S, then this puts the text in it on the clipboard' },
     @{ Id = 'shots-find'; Cmd = 'jk shots find backward euler'; Text = 'your screenshots by the words in them (a slide, an error, a question you snapped)' },
@@ -220,7 +221,7 @@ function Show-JkDashboard {
     # today's study blocks from jk plan (about 200 ms cold, so kept for the hour until the
     # deadlines, focus log or settings change)
     try {
-        $planKey = $now.ToString('yyyyMMddHH', $script:Inv) + '|' + (Get-JkFileStamp @((Get-JkPath 'deadlines.json'), (Get-JkPath 'focus.json'), (Get-JkPath 'config.json'))) + "|$script:JkUseColor|$script:JkLightTheme"
+        $planKey = $now.ToString('yyyyMMddHH', $script:Inv) + '|' + (Get-JkFileStamp @((Get-JkPath 'deadlines.json'), (Get-JkPath 'focus.json'), (Get-JkPath 'config.json'), (Get-JkPath 'grades.json'))) + "|$script:JkUseColor|$script:JkLightTheme"
         $planLine = Get-JkCached 'plan-line' $planKey { Get-JkPlanLine }
         if ($planLine) {
             Say ''
