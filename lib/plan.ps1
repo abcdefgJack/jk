@@ -161,15 +161,17 @@ function Get-JkPlanItems {
 # asks for remaining / days-left; asks are scaled to the budget, rounded to blocks, and
 # anything due within two days always gets at least one block.
 function Get-JkPlanSchedule {
-    param($Items, [datetime]$Now = (Get-JkNow), [int]$Days = 7, [double]$BudgetMin = 180, [double]$TodayLeftFraction = 1.0)
+    param($Items, [datetime]$Now = (Get-JkNow), [int]$Days = 7, [double]$BudgetMin = 180, [double]$TodayLeftFraction = 1.0, [double[]]$DayBudgets = @())
     $remaining = @{}
     $byKey = @{}
     foreach ($it in $Items) { $remaining[$it.Key] = [Math]::Max(0, $it.Effort - $it.Done); $byKey[$it.Key] = $it }
     $sched = @()
     for ($d = 0; $d -lt $Days; $d++) {
         $day = $Now.Date.AddDays($d)
+        # each day has its own budget: a week that runs into the study break has longer days there
         $budget = $BudgetMin
-        if ($d -eq 0) { $budget = $BudgetMin * $TodayLeftFraction }
+        if ($d -lt $DayBudgets.Count) { $budget = $DayBudgets[$d] }
+        if ($d -eq 0) { $budget = $budget * $TodayLeftFraction }
         $asks = @{}
         foreach ($it in $Items) {
             if ($it.Due.Date -lt $day -or $remaining[$it.Key] -le 0) { continue }
@@ -248,7 +250,9 @@ function Get-JkPlanToday {
     $frac = 1.0
     $h = $now.Hour + $now.Minute / 60.0
     if ($h -gt 8) { $frac = [Math]::Max(0.25, (23 - $h) / 15) }
-    $sched = @(Get-JkPlanSchedule -Items $items -Now $now -Days 7 -BudgetMin $budget -TodayLeftFraction $frac)
+    # plan.hours on class days, plan.examHours in the study break and the exam period, day by day
+    $dayBudgets = @(foreach ($d in 0..6) { [double](Get-JkConfig (Get-JkPlanBudgetKey $(if ($d) { $now.Date.AddDays($d).AddHours(12) } else { $now }))) * 60 })
+    $sched = @(Get-JkPlanSchedule -Items $items -Now $now -Days 7 -BudgetMin $budget -TodayLeftFraction $frac -DayBudgets $dayBudgets)
     [pscustomobject]@{ Items = $items; Schedule = $sched; Today = $sched[0]; Budget = $budget; BudgetKey = $budgetKey }
 }
 
