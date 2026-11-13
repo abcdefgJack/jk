@@ -54,6 +54,14 @@ function ConvertTo-JkConfigValue([string]$Key, [string]$Value) {
             throw "cp.lang is cpp, py, java or usaco, not '$v'"
         }
         'remind.time' { return (ConvertTo-JkTime $v) }
+        'plan.skip' {
+            # course names as jk reads them, stored as their keys: "health105, pd10" -> "health;pd10"
+            if ($v -match '^(off|none|-)?$') { return '' }
+            $dd = Get-JkDueData -Cached
+            $list = Resolve-JkCourseList $dd $v
+            if ($list.Bad.Count) { throw "plan.skip takes courses of yours ($((@($dd.courses) | ForEach-Object { Get-JkNormKey ([string]$_.code) }) -join ', ')) or off, not '$($list.Bad[0])'" }
+            return ($list.Keys -join ';')
+        }
         'notify' { if ($v -match '^(auto|popup|toast|off)$') { return $v }; throw 'notify must be auto, popup, toast or off' }
         'theme' { if ($v -match '^(dark|light)$') { return $v }; throw 'theme must be dark or light (your terminal background)' }
         { $_ -eq 'alert.before' -or $_ -eq 'alert.class' } { if ($v -notmatch '^(0|off|none)$') { $null = ConvertTo-JkSeconds $v }; return $v }

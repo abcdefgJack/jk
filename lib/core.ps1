@@ -331,6 +331,7 @@ $script:JkConfigDefaults = [ordered]@{
     'plan.examHours' = '6'        # the same during the study break and the exam period (no classes)
     'plan.examMin'  = '15'        # prep minutes per percent of grade, exams
     'plan.dueMin'   = '30'        # work minutes per percent of grade, assignments
+    'plan.skip'     = ''          # courses jk plan leaves out (health105;pd10); off = none
     'repos.roots'   = (Join-Path $HOME 'Desktop')
     'find.roots'    = ''          # folders jk find searches (a;b); empty = Desktop, Documents, Downloads
     'sync.url'      = ''          # calendar feed for jk due sync (LEARN > Calendar > Subscribe)
