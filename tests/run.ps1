@@ -310,6 +310,26 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'a week that runs into the study break plans those days at plan.examHours, the class days before at plan.hours' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'daybudget-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs370' -Create; $b = Resolve-JkCourse $dd 'cs341' -Create
+        Set-JkProp $dd 'term' ([pscustomobject]@{ name = 'Fall 2026'; start = '2026-09-08'; classesEnd = '2026-12-08'; examsStart = '2026-12-10'; examsEnd = '2026-12-22' })
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-10') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        $null = New-JkEvent -Data $dd -Course $b.key -Date ([datetime]'2026-12-12') -Time '12:30' -End '15:00' -Title 'FINAL' -Kind 'exam' -Weight '44%'
+        Save-JkDueData $dd
+        $env:JK_NOW = '2026-12-05T07:00:00'
+        $p = Get-JkPlanToday
+        $by = @{}; foreach ($s in $p.Schedule) { $by[$s.Day.ToString('MMM d', $script:Inv)] = [int]$s.Budget }
+        Assert-Eq "$($by['Dec 5'])|$($by['Dec 8'])|$($by['Dec 9'])|$($by['Dec 10'])" '180|180|360|360' 'Sat and the last day of classes at 3 h, the study break and the exam period at 6 h'
+        $planned = 0.0; foreach ($v in @($p.Schedule | Where-Object { $_.Day -eq [datetime]'2026-12-09' })[0].Alloc.Values) { $planned += $v }
+        Assert-True ($planned -gt 180) "Dec 9 is planned past 3 hours: $planned minutes"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk plan leaves out the courses in plan.skip (their deadlines stay in jk due), and jk plan week lists each day as a checklist' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'planskip-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
