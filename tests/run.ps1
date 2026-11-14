@@ -3280,6 +3280,35 @@ Test 'review fixes 3: same-title items, todo keywords, focus credit, process tre
         Assert-Eq "$total $($sched[0].Alloc['a'])" '25 25' '45 minutes left: one block, to the biggest share'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'jk plan week html: the week as a page, a box per study block, titles escaped, and the terminal checklist unchanged' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'week-html'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_NOW = '2026-11-13T10:00:00'; $env:JK_WIDTH = '120'
+        $d = Get-JkDueData; $a = Resolve-JkCourse $d 'cs341' -Create; $o = Resolve-JkCourse $d 'co367' -Create
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'A3 <graphs> & flows' -Weight '4%'
+        $null = New-JkEvent -Data $d -Course $o.key -Date ([datetime]'2026-11-19') -Time '19:00' -Title 'Quiz 3' -Kind 'exam' -Weight '20%'
+        Save-JkDueData $d
+        $days = @(Get-JkPlanWeekDays)
+        $blocks = 0; foreach ($x in $days) { $blocks += @($x.Blocks).Count }
+        Assert-Eq $days.Count 7 'seven days'
+        $f = Join-Path $env:JK_HOME 'week.html'
+        Export-JkPlanWeekHtml -Out $f -NoOpen 6>&1 | Out-Null
+        $h = [IO.File]::ReadAllText($f)
+        Assert-Eq ([regex]::Matches($h, '<input type="checkbox"').Count) $blocks "a box per block ($blocks)"
+        Assert-True ($h -match 'data-id="2026-11-13\|cs341\|#\d+"') 'each box keyed by day and item'
+        Assert-True ($h -match 'A3 &lt;graphs&gt; &amp; flows' -and $h -notmatch '<graphs>') 'titles escaped'
+        Assert-True ($h -match 'exam 7:00 pm' -and $h -match 'Thursday, Nov 19') 'what is written that day'
+        # jk plan week html goes to the page; plain jk plan week is the checklist as before
+        $t = (Show-JkPlanWeek 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($t -match 'Fri Nov 13\s+today' -and $t -match 'jk plan week html to tick off') "terminal: $t"
+        $null = Invoke-JkPlan week html 6>&1
+        Assert-True (Test-Path -LiteralPath (Get-JkPath 'plan-week.html')) 'jk plan week html writes ~\.jk\plan-week.html (not opened in a sandbox)'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk plan: an exam day holds only the time before the exam, and the days before take the rest' {
     $mk = { param($k, $due, $eff) [pscustomobject]@{ Key = $k; Course = 'x'; Title = $k; Due = [datetime]$due; Weight = 40; Kind = 'exam'; Id = 0; Effort = $eff; Done = 0.0 } }
     $sum = { param($sched, $k) $t = 0; foreach ($s in $sched) { $t += [double]$s.Alloc[$k] }; $t }

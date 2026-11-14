@@ -312,9 +312,51 @@ function Get-JkPlanNotes($Plan, $Cmap, $Data) {
     $notes
 }
 
+# The next seven days of jk plan week: per day, the study blocks (what jk plan gives that day) and
+# what is handed in or written that day. Shared by the terminal checklist and its web page.
+function Get-JkPlanWeekDays {
+    param($Plan = (Get-JkPlanToday), [datetime]$Now = (Get-JkNow))
+    $data = Get-JkDueData -Cached
+    $cmap = Get-JkCourseMap $data
+    $skip = @(Get-JkPlanSkip $data)
+    $left = @{}
+    if ($Plan) { foreach ($r in @(Get-JkPlanLeft $Plan (Get-JkTodayFocusByCourse $Now))) { $left[$r.Item.Key] = $r.Left } }
+    for ($d = 0; $d -lt 7; $d++) {
+        $day = $Now.Date.AddDays($d)
+        $s = $null; if ($Plan) { $s = @($Plan.Schedule | Where-Object { $_.Day -eq $day })[0] }
+        $its = @(); if ($s) { $its = @($Plan.Items | Where-Object { $s.Alloc.ContainsKey($_.Key) } | Sort-Object @{ e = { - $s.Alloc[$_.Key] } }, @{ e = { $_.Due } }) }
+        $dayKey = $day.ToString('yyyy-MM-dd', $script:Inv)
+        # handed in or written that day (not 0% work, not a window's opening, not a course left out)
+        $dueThat = @($data.events | Where-Object {
+                -not $_.done -and [string]$_.date -eq $dayKey -and $skip -notcontains [string]$_.course -and
+                [string]$_.title -notmatch '(?i)\s+opens?$' -and -not ($_.weight -and (Get-JkWeightValue $_.weight) -le 0) -and (Get-JkEventDue $_) -gt $Now
+            } | Sort-Object { Get-JkEventDue $_ })
+        $blocks = @(foreach ($it in $its) {
+                $days = [int]($it.Due.Date - $day).TotalDays
+                $when = $(if ($days -eq 0) { 'due today' } elseif ($days -eq 1) { 'due tomorrow' } else { 'due ' + (Format-JkComingDay $it.Due $Now -Short) })
+                if ($it.Kind -eq 'exam') { $when = $when -replace '^due ', 'exam ' }
+                [pscustomobject]@{
+                    Key = [string]$it.Key; Course = [string]$it.Course; Label = (Get-JkCourseLabel $it $cmap); Color = (Get-JkCourseColor $it.Course $cmap)
+                    Title = [string]$it.Title; When = $when; Minutes = [double]$s.Alloc[$it.Key]
+                    Done = [bool]($d -eq 0 -and $left.ContainsKey($it.Key) -and $left[$it.Key] -le 0)
+                }
+            })
+        $due = @(foreach ($e in $dueThat) {
+                $verb = $(if ($e.kind -eq 'exam') { 'exam' } elseif ($e.kind -eq 'appt') { 'at' } else { 'due' })
+                $at = $(if ($e.time) { ' ' + (Format-JkTime ([string]$e.time)) } else { '' })
+                [pscustomobject]@{ Verb = "$verb$at"; Text = "$(Get-JkCourseLabel $e $cmap) $(([string]$e.title -replace '(?i)\s+closes?$', '').Trim())"; Weight = [string]$e.weight; Course = [string]$e.course; Color = (Get-JkCourseColor $e.course $cmap) }
+            })
+        $sum = 0.0; foreach ($b in $blocks) { $sum += $b.Minutes }
+        [pscustomobject]@{ Day = $day; Index = $d; Blocks = $blocks; Due = $due; Minutes = $sum }
+    }
+}
+
 # jk plan week: the next seven days as a checklist. Each day's study blocks (what jk plan would give
-# that day), and under them what is handed in or written that day.
+# that day), and under them what is handed in or written that day. jk plan week html: the same as a
+# page with boxes to tick.
 function Show-JkPlanWeek {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)
+    if (@($Rest | Where-Object { "$_" -match '^(?i)(html|web|page|open|print)$' }).Count) { Export-JkPlanWeekHtml; return }
     $p = Get-JkPlanToday
     $now = Get-JkNow
     $data = Get-JkDueData -Cached
@@ -322,43 +364,23 @@ function Show-JkPlanWeek {
     $w = Get-JkWidth
     $key = Get-JkPlanBudgetKey $now
     Write-JkHeader 'Study week' "budget $(Format-JkMinutes ([double](Get-JkConfig $key) * 60))/day $($script:G.dot) jk config set $key $([int](Get-JkConfig $key) + 1)" -Sub "$($now.ToString('ddd MMM d', $script:Inv)) $($script:G.dash) $($now.AddDays(6).ToString('ddd MMM d', $script:Inv))"
-    $skip = @(Get-JkPlanSkip $data)
-    $left = @{}
-    if ($p) { foreach ($r in @(Get-JkPlanLeft $p (Get-JkTodayFocusByCourse $now))) { $left[$r.Item.Key] = $r.Left } }
     $titleW = [Math]::Max(14, [Math]::Min(30, $w - 52))
     $byCourse = @{}; $all = 0.0
-    for ($d = 0; $d -lt 7; $d++) {
-        $day = $now.Date.AddDays($d)
-        $s = $null; if ($p) { $s = @($p.Schedule | Where-Object { $_.Day -eq $day })[0] }
-        $its = @(); if ($s) { $its = @($p.Items | Where-Object { $s.Alloc.ContainsKey($_.Key) } | Sort-Object @{ e = { - $s.Alloc[$_.Key] } }, @{ e = { $_.Due } }) }
-        $dayKey = $day.ToString('yyyy-MM-dd', $script:Inv)
-        # handed in or written that day (not 0% work, not a window's opening, not a course left out)
-        $dueThat = @($data.events | Where-Object {
-                -not $_.done -and [string]$_.date -eq $dayKey -and $skip -notcontains [string]$_.course -and
-                [string]$_.title -notmatch '(?i)\s+opens?$' -and -not ($_.weight -and (Get-JkWeightValue $_.weight) -le 0) -and (Get-JkEventDue $_) -gt $now
-            } | Sort-Object { Get-JkEventDue $_ })
-        $sum = 0.0; foreach ($it in $its) { $sum += $s.Alloc[$it.Key] }
-        $name = $day.ToString('ddd MMM d', $script:Inv)
-        $tag = $(if ($d -eq 0) { '  today' } elseif ($d -eq 1) { '  tomorrow' } else { '' })
-        $total = $(if ($sum -gt 0) { Format-JkMinutes $sum } else { '' })
+    foreach ($dd in @(Get-JkPlanWeekDays $p $now)) {
+        $name = $dd.Day.ToString('ddd MMM d', $script:Inv)
+        $tag = $(if ($dd.Index -eq 0) { '  today' } elseif ($dd.Index -eq 1) { '  tomorrow' } else { '' })
+        $total = $(if ($dd.Minutes -gt 0) { Format-JkMinutes $dd.Minutes } else { '' })
         Say (' ' + (Paint 'bold white' $name) + (Paint 'muted' $tag) + (' ' * [Math]::Max(2, 38 + $titleW - $name.Length - $tag.Length - $total.Length)) + (Paint 'bold white' $total))
-        if (-not $its.Count -and -not $dueThat.Count) { Say (Paint 'gray' "   $($script:G.dash) nothing planned") }
-        foreach ($it in $its) {
-            $m = $s.Alloc[$it.Key]
-            $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $m; $all += $m
-            $color = Get-JkCourseColor $it.Course $cmap
+        if (-not $dd.Blocks.Count -and -not $dd.Due.Count) { Say (Paint 'gray' "   $($script:G.dash) nothing planned") }
+        foreach ($b in $dd.Blocks) {
+            $byCourse[$b.Course] = [double]$byCourse[$b.Course] + $b.Minutes; $all += $b.Minutes
             $mark = $script:G.ring; $st = 'white'
-            if ($d -eq 0 -and $left.ContainsKey($it.Key) -and $left[$it.Key] -le 0) { $mark = $script:G.check; $st = 'gray' }
-            $days = [int]($it.Due.Date - $day).TotalDays
-            $when = $(if ($days -eq 0) { 'due today' } elseif ($days -eq 1) { 'due tomorrow' } else { 'due ' + (Format-JkComingDay $it.Due $now -Short) })
-            if ($it.Kind -eq 'exam') { $when = $when -replace '^due ', 'exam ' }
-            $ttl = [string]$it.Title; if ((Get-JkTextWidth $ttl) -gt ($titleW - 1)) { $ttl = Get-JkShortTitle $ttl }
-            Say ('   ' + (Paint $(if ($mark -eq $script:G.check) { 'green' } else { 'gray' }) $mark) + ' ' + (Paint "bold #$color" (Fit (Get-JkCourseLabel $it $cmap) 11)) + (Paint $st (Fit $ttl ($titleW - 1))) + ' ' + (Paint 'muted' (Fit $when 16)) + (Paint $st (Fit (Format-JkMinutes $m) 7 -Right)))
+            if ($b.Done) { $mark = $script:G.check; $st = 'gray' }
+            $ttl = $b.Title; if ((Get-JkTextWidth $ttl) -gt ($titleW - 1)) { $ttl = Get-JkShortTitle $ttl }
+            Say ('   ' + (Paint $(if ($b.Done) { 'green' } else { 'gray' }) $mark) + ' ' + (Paint "bold #$($b.Color)" (Fit $b.Label 11)) + (Paint $st (Fit $ttl ($titleW - 1))) + ' ' + (Paint 'muted' (Fit $b.When 16)) + (Paint $st (Fit (Format-JkMinutes $b.Minutes) 7 -Right)))
         }
-        foreach ($e in $dueThat) {
-            $verb = $(if ($e.kind -eq 'exam') { 'exam' } elseif ($e.kind -eq 'appt') { 'at' } else { 'due' })
-            $at = $(if ($e.time) { ' ' + (Format-JkTime ([string]$e.time)) } else { '' })
-            Say ('   ' + (Paint 'orange' '!') + ' ' + (Paint 'orange' "$verb$at") + '  ' + (Paint 'white' "$(Get-JkCourseLabel $e $cmap) $(([string]$e.title -replace '(?i)\s+closes?$', '').Trim())") + $(if ($e.weight) { Paint 'gray' "  $($e.weight)" } else { '' }))
+        foreach ($e in $dd.Due) {
+            Say ('   ' + (Paint 'orange' '!') + ' ' + (Paint 'orange' $e.Verb) + '  ' + (Paint 'white' $e.Text) + $(if ($e.Weight) { Paint 'gray' "  $($e.Weight)" } else { '' }))
         }
     }
     Say ''
@@ -367,7 +389,82 @@ function Show-JkPlanWeek {
         Write-JkTip ('  ' + (Paint 'bold white' (Fit 'the week' 10))) 12 "$(Format-JkMinutes $all): $($parts -join "  $($script:G.dot)  ")" 'white' -Indent 12
     } else { Say (Paint 'green' '  Nothing graded is due in the next two weeks.') }
     foreach ($n in @(Get-JkPlanNotes $p $cmap $data)) { Write-JkTip '  ' 2 $n 'gray' -Indent 4 }
-    Say (Paint 'gray' "  jk plan start begins today's first block  $($script:G.dot)  jk plan is today alone")
+    Say (Paint 'gray' "  jk plan start begins today's first block  $($script:G.dot)  jk plan is today alone  $($script:G.dot)  jk plan week html to tick off")
+}
+
+# jk plan week html: the week as a page (~\.jk\plan-week.html) with a box for each study block. The
+# ticks are kept by the browser for that block and day, so re-making the page keeps them.
+function Export-JkPlanWeekHtml {
+    param([string]$Out, [switch]$NoOpen)
+    if (-not $Out) { $Out = Get-JkPath 'plan-week.html' }
+    $p = Get-JkPlanToday
+    $now = Get-JkNow
+    $data = Get-JkDueData -Cached
+    $cmap = Get-JkCourseMap $data
+    $enc = { param($t) [Net.WebUtility]::HtmlEncode([string]$t) }
+    $sb = New-Object System.Text.StringBuilder
+    $all = 0.0; $byCourse = @{}
+    foreach ($dd in @(Get-JkPlanWeekDays $p $now)) {
+        $tag = $(if ($dd.Index -eq 0) { ' <span class="tag">today</span>' } elseif ($dd.Index -eq 1) { ' <span class="tag">tomorrow</span>' } else { '' })
+        $total = $(if ($dd.Minutes -gt 0) { Format-JkMinutes $dd.Minutes } else { '' })
+        $null = $sb.Append("<section class=""day""><h2>$(& $enc $dd.Day.ToString('dddd, MMM d', $script:Inv))$tag<span class=""total"">$(& $enc $total)</span></h2>`n")
+        if (-not $dd.Blocks.Count -and -not $dd.Due.Count) { $null = $sb.Append("<p class=""none"">nothing planned</p>`n") }
+        foreach ($b in $dd.Blocks) {
+            $all += $b.Minutes; $byCourse[$b.Course] = [double]$byCourse[$b.Course] + $b.Minutes
+            $id = & $enc ("$($dd.Day.ToString('yyyy-MM-dd', $script:Inv))|$($b.Key)")
+            $chk = $(if ($b.Done) { ' checked' } else { '' })
+            $null = $sb.Append("<label class=""block"" style=""--c:#$($b.Color)""><input type=""checkbox"" data-id=""$id""$chk><span class=""course"">$(& $enc $b.Label)</span><span class=""title"">$(& $enc $b.Title)</span><span class=""when"">$(& $enc $b.When)</span><span class=""min"">$(& $enc (Format-JkMinutes $b.Minutes))</span></label>`n")
+        }
+        foreach ($e in $dd.Due) {
+            $null = $sb.Append("<div class=""due"" style=""--c:#$($e.Color)""><span class=""verb"">$(& $enc $e.Verb)</span><span class=""title"">$(& $enc $e.Text)</span><span class=""min"">$(& $enc $e.Weight)</span></div>`n")
+        }
+        $null = $sb.Append("</section>`n")
+    }
+    $sum = ''
+    if ($all -gt 0) {
+        $parts = @($byCourse.Keys | Sort-Object @{ e = { - $byCourse[$_] } }, @{ e = { $_ } } | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" })
+        $sum = "The week: $(Format-JkMinutes $all) $($script:G.dash) $($parts -join " $($script:G.dot) ")"
+    }
+    $notes = @(Get-JkPlanNotes $p $cmap $data | ForEach-Object { "<li>$(& $enc $_)</li>" }) -join ''
+    $range = "$($now.ToString('ddd MMM d', $script:Inv)) - $($now.AddDays(6).ToString('ddd MMM d', $script:Inv))"
+    $html = @"
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study week</title>
+<style>
+:root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1f; --muted:#6e6e73; --line:#e3e3e0; --warn:#c2410c; }
+@media (prefers-color-scheme: dark) { :root { --bg:#151517; --card:#1f1f22; --ink:#ececef; --muted:#9a9aa0; --line:#2e2e33; --warn:#fb923c; } }
+* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 "Segoe UI", system-ui, sans-serif; }
+main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+h1 { font-size:22px; margin:0 0 2px; } .sub { color:var(--muted); margin:0 0 18px; }
+.day { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px 12px; margin:0 0 12px; }
+h2 { font-size:15px; margin:2px 0 8px; display:flex; gap:8px; align-items:baseline; }
+.tag { color:var(--muted); font-weight:400; } .total { margin-left:auto; font-variant-numeric:tabular-nums; }
+.block, .due { display:grid; grid-template-columns:22px 92px 1fr auto 64px; gap:8px; align-items:center; padding:5px 0; border-top:1px solid var(--line); }
+.due { grid-template-columns:22px 92px 1fr 64px; color:var(--warn); }
+.block input { width:17px; height:17px; accent-color:var(--c); margin:0; }
+.course { color:var(--c); font-weight:600; } .when { color:var(--muted); font-size:13px; } .min { text-align:right; font-variant-numeric:tabular-nums; }
+.due .title { color:var(--ink); } .due .verb { grid-column:1 / span 2; font-weight:600; }
+.block:has(input:checked) .title, .block:has(input:checked) .min { text-decoration:line-through; color:var(--muted); }
+.none { color:var(--muted); margin:4px 0; } .sum { margin:16px 2px 6px; } ul { color:var(--muted); padding-left:20px; margin:4px 0; }
+@media (max-width:520px) { .block { grid-template-columns:22px 1fr 54px; } .block .course, .block .when { grid-column:2; } .block .course { grid-row:1; } .block .title { grid-row:2; grid-column:2; } .block .when { grid-row:3; } .block .min { grid-row:1; grid-column:3; } }
+@media print { body { background:#fff; } .day { break-inside:avoid; } }
+</style></head><body><main>
+<h1>Study week</h1><p class="sub">$(& $enc $range) $($script:G.dot) made by jk plan week html at $(& $enc $now.ToString('ddd h:mm tt', $script:Inv))</p>
+$($sb.ToString())<p class="sum">$(& $enc $sum)</p><ul>$notes</ul>
+</main>
+<script>
+document.querySelectorAll('input[data-id]').forEach(function (b) {
+  var k = 'jk-week:' + b.dataset.id, v = null;
+  try { v = localStorage.getItem(k); } catch (e) { }
+  if (v !== null) b.checked = v === '1';
+  b.addEventListener('change', function () { try { localStorage.setItem(k, b.checked ? '1' : '0'); } catch (e) { } });
+});
+</script></body></html>
+"@
+    Write-JkText $Out $html
+    Say ((Paint 'green' '  study week page  ') + $Out)
+    if (-not $NoOpen -and -not $env:JK_SANDBOX) { Start-Process $Out }
 }
 
 # Which daily budget applies: plan.examHours during the study break and the exam period (no
@@ -531,7 +628,7 @@ function Invoke-JkPlan {
     if ($a.Count -eq 0) { Show-JkPlan; return }
     switch -Regex (([string]$a[0]).ToLower()) {
         '^(start|go|next)$' { Start-JkPlanBlock; return }
-        '^(week|wk|w|7|list|checklist)$' { Show-JkPlanWeek; return }
+        '^(week|wk|w|7|list|checklist)$' { Show-JkPlanWeek @(@($a | Select-Object -Skip 1)); return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'plan'; return }
     }
     throw "unknown 'plan' action '$($a[0])' (jk plan | jk plan week | jk plan start)"
