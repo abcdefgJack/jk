@@ -1362,6 +1362,38 @@ Test 'countdowns count real hours: Monday 7 pm from Saturday 11 pm the weekend c
         Assert-True ($text -match "Fallback midterm.*\s$([regex]::Escape($cd))\s") "countdown $cd"
     } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow }
 }
+Test 'an exam tomorrow before 11 am gets a 9 pm alert tonight, once, that says when it starts' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'eve-alert'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $orig = ${function:Start-JkBackground}; $origNotify = ${function:Show-JkNotify}
+    try {
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:PopupTitle = $Title; $script:PopupLines = $Lines; 'stub' }
+        $d = Get-JkDueData; $o = Resolve-JkCourse $d 'co367' -Create; $c = Resolve-JkCourse $d 'cs370' -Create
+        $q = New-JkEvent -Data $d -Course $o.key -Date ([datetime]'2026-11-19') -Time '08:30' -End '09:50' -Title 'Quiz 3' -Kind 'exam' -Weight '20%'
+        $null = New-JkEvent -Data $d -Course $c.key -Date ([datetime]'2026-11-19') -Time '16:00' -Title 'Midterm' -Kind 'exam' -Weight '30%'
+        Save-JkDueData $d
+        $env:JK_NOW = '2026-11-18T10:00:00'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-11-18T10:00')) 1 'the 8:30 am quiz, not the 4 pm midterm'
+        $r = @((Get-JkReminderData).items)[0]
+        Assert-Eq $r.at '2026-11-18T21:00:00' 'at 9 pm'
+        Assert-Eq $r.text 'CO 367 Quiz 3 (exam) tomorrow at 8:30 am'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-11-18T18:00')) 0 'once'
+        # it fires that evening: when it starts, and the alarm
+        $env:JK_NOW = '2026-11-18T21:00:00'
+        Complete-JkReminder -Id ([int]$r.id)
+        Assert-True ($script:PopupLines[0] -like 'Starts 8:30 am tomorrow*' -and $script:PopupLines[-1] -match 'set an alarm') "popup: $($script:PopupLines -join ' / ')"
+        # first awake at 10 pm: in a minute; at 11 pm or later, too late to be useful
+        $rd = Get-JkReminderData; $rd.items = @(); Set-JkProp $rd 'alerted' @(); Save-JkReminderData $rd
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-11-18T23:10')) 0 'after 11 pm: nothing'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-11-18T22:00')) 1 'at 10 pm: now'
+        Assert-Eq @((Get-JkReminderData).items)[0].at '2026-11-18T22:01:00'
+    } finally {
+        Set-Item function:script:Start-JkBackground $orig; Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can be turned off' {
     $saved = $env:JK_HOME
     $env:JK_HOME = Join-Path $saved 'alerts-home'

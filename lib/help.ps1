@@ -79,8 +79,9 @@ jk remind install                   morning brief popup (today's classes, deadli
                                     If the PC slept through that time, the run happens when you unlock it
 jk remind uninstall | jk remind test | jk remind now
 Same-day alerts: the morning task also sets a popup 2 hours before each deadline or appointment
-that day (not 0% work or quiz openings; skipped if you mark it done first).
-jk config set alert.before 90m   or   off
+that day (not 0% work or quiz openings; skipped if you mark it done first), and at 9 pm the
+evening before an exam that starts before 11 am, so the alarm gets set.
+jk config set alert.before 90m   or   off (both)
 Class alerts: a popup 10 minutes before each class on your timetable (skips breaks and holidays).
 jk config set alert.class 5m   or   off
 '@

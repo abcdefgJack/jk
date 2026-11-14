@@ -130,9 +130,11 @@ function Complete-JkReminder {
         $e = @($data.events | Where-Object { [int]$_.id -eq $dueId })[0]
         if (-not $e -or $e.done -or -not $e.time) { return }
         $due = Get-JkEventDue $e
-        # moved to another day since the alert was set: nothing useful to say
+        # moved to another day since the alert was set: nothing useful to say. The evening before
+        # an early exam (eve:) expects it the next day
         $now = Get-JkNow
-        if ($due.Date -ne $at.Date) { return }
+        $eve = $key.StartsWith('eve:')
+        if ($due.Date -ne $(if ($eve) { $at.Date.AddDays(1) } else { $at.Date })) { return }
         if ($due -le $now) {
             # slept through the warning and the deadline. An exam or an interview is over either way;
             # work still open gets a late word within a day, while something can still be done
@@ -146,8 +148,10 @@ function Complete-JkReminder {
             $lines += "Written it? jk due done $dueId"
         } elseif ($e.kind -eq 'exam' -or $e.kind -eq 'appt') {
             # an exam or an interview is something to get to, not to hand in: when, and where
-            $lines += "Starts $(Format-JkTime $e.time) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
+            $lines += "Starts $(Format-JkTime $e.time)$(if ($eve) { ' tomorrow' }) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
             if ($e.note) { $lines += [string]$e.note }
+            # this PC may sleep through the morning: a phone alarm is what wakes you
+            if ($eve) { $lines += 'An early start: set an alarm on your phone tonight' }
             # what it will be like on the way there
             if ([string]$e.note -notmatch '(?i)\bonline\b') { try { $wx = Get-JkExamWeather $due; if ($wx) { $lines += "Weather: $wx" } } catch { } }
         } else {
@@ -166,7 +170,7 @@ function Complete-JkReminder {
 }
 
 # Same-day alerts: for each item due later today, a reminder alert.before ahead of it
-# (default 2h). Run by the morning task and again at sign-in; today's keys are remembered in
+# (default 2h), and at 9 pm a word about an exam tomorrow morning. Run by the morning task and again at sign-in; today's keys are remembered in
 # reminders.json, so an alert is set once even if it was cancelled or has already fired.
 function Register-JkTodayAlerts {
     param([datetime]$Now = (Get-JkNow))
@@ -199,6 +203,23 @@ function Register-JkTodayAlerts {
         $key = "due:$($e.id):$($e.date)"
         if ($known -contains $key) { continue }
         $text = "$(Get-JkCourseLabel $e $cmap) $($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' }) at $(Format-JkTime $e.time)"
+        $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
+        $added += $key
+        $n++
+    }
+    # an exam tomorrow before 11 am: a word at 9 pm tonight. The morning run waits for the first
+    # unlock after 7:45, which can be after an 8:30 quiz has begun
+    $eveAt = $Now.Date.AddHours(21)
+    foreach ($e in @($data.events)) {
+        if ($e.done -or -not $e.time -or $e.kind -ne 'exam') { continue }
+        if ([string]$e.title -match '(?i)\s+(opens?|closes?)$') { continue }
+        $due = Get-JkEventDue $e
+        if ($due.Date -ne $Now.Date.AddDays(1) -or $due.Hour -ge 11) { continue }
+        $at = $eveAt
+        if ($at -le $Now) { if ($Now.Hour -ge 23) { continue }; $at = $Now.AddMinutes(1) }
+        $key = "eve:$($e.id):$today"
+        if ($known -contains $key) { continue }
+        $text = "$(Get-JkCourseLabel $e $cmap) $($e.title) (exam) tomorrow at $(Format-JkTime $e.time)"
         $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
         $added += $key
         $n++
