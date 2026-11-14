@@ -1131,6 +1131,34 @@ Test 'jk exam <course> after its last exam says so, with the date, instead of "n
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
     }
 }
+Test 'jk exams: under each course''s next exam, what its marks need for the target and to pass' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'exams-needs'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_NOW = '2026-11-13T20:00:00'; $env:JK_WIDTH = '130'
+        $d = Get-JkDueData; $a = Resolve-JkCourse $d 'cs370' -Create; $b = Resolve-JkCourse $d 'cs350' -Create
+        $a1 = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-10-05') -Time '23:59' -Title 'Assignment 1' -Weight '7%'
+        $a2 = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-10-26') -Time '23:59' -Title 'Assignment 2' -Weight '7%'
+        $mid = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-11-02') -Time '19:00' -Title 'Midterm' -Kind 'exam' -Weight '32%'
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-12-04') -Time '23:59' -Title 'Assignment 4' -Weight '7%'
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-12-10') -Time '16:00' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        $null = New-JkEvent -Data $d -Course $b.key -Date ([datetime]'2026-10-29') -Time '16:30' -Title 'Midterm' -Kind 'exam' -Weight '25%'
+        $null = New-JkEvent -Data $d -Course $b.key -Date ([datetime]'2026-12-17') -Time '16:00' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        Save-JkDueData $d
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'grades.json'), "{""scores"":[{""id"":""$($a1.id)"",""score"":100},{""id"":""$($a2.id)"",""score"":100},{""id"":""$($mid.id)"",""score"":38.75}],""extras"":[],""targets"":[{""course"":""$($a.key)"",""target"":80}],""nextExtra"":1,""pass"":[{""course"":""$($a.key)"",""kind"":""exam"",""min"":50},{""course"":""$($b.key)"",""kind"":""exam"",""min"":50}]}")
+        $out = @(Show-JkExams 6>&1 | ForEach-Object { "$_" })
+        $txt = $out -join "`n"
+        $dot = [regex]::Escape($script:G.dot)
+        Assert-True ($txt -match "for 80%: 99% on the rest $dot to pass, the FINAL needs 59%") "CS 370: $txt"
+        # CS 350: a rule but no marks, so nothing to say yet (its midterm is written, just not marked)
+        $i = [array]::FindIndex([string[]]$out, [Predicate[string]] { param($l) $l -match 'CS 350\s+FINAL' })
+        Assert-True ($i -ge 0 -and ($i + 1 -ge $out.Count -or $out[$i + 1] -notmatch 'to pass|on the rest')) "CS 350: $txt"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk exams: an online window''s note line says the window once, then what its notes add' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'window-note'; $script:JkConfigCache = $null; $script:JkDueCache = $null

@@ -744,6 +744,9 @@ function Show-JkExams {
         $rows.Add([pscustomobject]@{ E = $e; Win = $win })
     }
     Write-JkHeader 'Upcoming exams' "$($rows.Count) left this term"
+    # under each course's next exam: what its marks need (the target, and the pass rule)
+    $gd = $null; try { $gd = Get-JkGradeData } catch { }
+    $needShown = @{}
     foreach ($row in $rows) {
         $e = $row.E
         $win = $row.Win
@@ -781,7 +784,31 @@ function Show-JkExams {
         Say $line
         $note = @($notes | Where-Object { $_ }) -join " $($script:G.dot) "
         if ($note) { Say ('                     ' + (Paint 'gray' (Fit $note ($w - 22)).TrimEnd())) }
+        if ($gd -and -not $needShown.ContainsKey([string]$e.course)) {
+            $needShown[[string]$e.course] = $true
+            $txt = ''
+            try { $txt = Get-JkExamNeedLine $data $gd ([string]$e.course) } catch { }
+            if ($txt) { Say ('                     ' + (Paint 'muted' (Fit $txt ($w - 22)).TrimEnd())) }
+        }
     }
+}
+
+# One line for jk exams: what the rest of a course needs for its target, and what an exam pass rule
+# needs ("for 80%: 99% on the rest . to pass, the FINAL needs 59%"). '' when there are no marks.
+function Get-JkExamNeedLine($Data, $GradeData, [string]$Course) {
+    $m = Measure-JkGrade (Get-JkGradeItems $Data $GradeData $Course) (Get-JkGradeRules $Data $Course)
+    $bits = @()
+    if ($m.Graded -gt 0) {
+        $target = Get-JkTarget $GradeData $Course
+        $bits += "for $(Format-JkPct $target 0): $((Get-JkNeededText $target $m)[0]) on the rest"
+    }
+    foreach ($r in @(Measure-JkPassRules $Data $GradeData $Course | Where-Object { $_.Kind -eq 'exam' -and $null -ne $_.Need -and $null -ne $_.Average -and -not $_.Held })) {
+        # only with marks behind it (as jk grade lists them): with none, "the exams left" would
+        # count a midterm already written but not yet marked
+        $what = $(if (@($r.Left).Count -eq 1) { "the $(@($r.Left)[0])" } else { 'the exams left' })
+        $bits += "to pass, $what $(if (@($r.Left).Count -eq 1) { 'needs' } else { 'need' }) $([int][Math]::Ceiling($r.Need - 0.0001))%"
+    }
+    $bits -join " $($script:G.dot) "
 }
 
 function Show-JkCourses {
