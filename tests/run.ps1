@@ -1110,6 +1110,28 @@ Test 'an online exam window (opens + closes) shows as one exam' {
     $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($dash -match 'NEXT EXAM\s+HEALTH 105 Midterm  in 4 days . Mon Oct 26 6:00 am . Tue 11:59 pm') 'dashboard callout spans the window'
 }
+Test 'jk exams: an online window''s note line says the window once, then what its notes add' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'window-note'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_NOW = '2026-11-13T20:00:00'; $env:JK_WIDTH = '120'
+        $d = Get-JkDueData; $h = Resolve-JkCourse $d 'health105' -Create
+        $o = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-12-07') -Time '06:00' -Title 'Midterm 2 opens' -Kind 'exam' -Weight '17.5%'
+        $c = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-12-08') -Time '23:59' -Title 'Midterm 2 closes' -Kind 'exam' -Weight '17.5%'
+        $o.note = "6:00 am Dec 7 $($script:G.arrow) 11:59 pm Dec 8 $($script:G.dot) LEARN quiz"
+        $c.note = "11:59 pm $($script:G.dot) no reopening"
+        Save-JkDueData $d
+        $out = @(Show-JkExams 6>&1 | ForEach-Object { "$_" })
+        $i = [array]::FindIndex([string[]]$out, [Predicate[string]] { param($l) $l -match 'HEALTH 105\s+Midterm 2\s' })
+        Assert-True ($i -ge 0) 'the row'
+        $note = $out[$i + 1].Trim()
+        $dot = [regex]::Escape($script:G.dot)
+        Assert-True ($note -match "^open until Tue Dec 8 11:59 pm $dot LEARN quiz $dot no reopening$") "the note line: $note"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'an exam is "in 30m", then "now" until it ends, then gone (end time known, or two hours)' {
     $savedNow = $env:JK_NOW
     $line = { ((Show-JkExams 6>&1 | ForEach-Object { "$_" }) | Where-Object { $_ -match 'CS 350\s+Midterm' }) -join '' }
