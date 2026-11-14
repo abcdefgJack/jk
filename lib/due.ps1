@@ -579,6 +579,8 @@ function Show-JkExamBrief {
                 $last = $past[-1]; $t = ([string]$last.title -replace '(?i)\s+closes?$', '').Trim()
                 throw "$code has no exam left: its $t was $((Get-JkEventDue $last).ToString('ddd MMM d', $script:Inv)) (jk grade $(Get-JkNormKey $code) for where the marks stand)"
             }
+            # an entry like Interviews or OA is no course: nothing to add
+            if ($code -notmatch '\d') { throw "$code has no exams (jk exams lists them all)" }
             throw "$code has no exams in jk (jk due add $(Get-JkNormKey $code) Midterm <date> <time> -Exam adds one)"
         }
         throw "no coming exam matches '$($Words -join ' ')' (jk exams lists them)"

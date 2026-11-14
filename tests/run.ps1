@@ -1124,6 +1124,10 @@ Test 'jk exam <course> after its last exam says so, with the date, instead of "n
         Assert-Eq $m 'CS 350 has no exam left: its FINAL was Thu Dec 17 (jk grade cs350 for where the marks stand)'
         $m = try { Show-JkExamBrief cs341 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
         Assert-True ($m -match '^CS 341 has no exams in jk \(jk due add cs341 ') "a course with none: $m"
+        # an entry that is no course gets no advice to add a midterm
+        $d = Get-JkDueData; $null = Resolve-JkCourse $d 'interviews' -Create; Save-JkDueData $d
+        $m = try { Show-JkExamBrief interviews 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
+        Assert-True ($m -match 'has no exams \(jk exams lists them all\)$' -and $m -notmatch 'Midterm') "not a course: $m"
         # title words that match nothing keep the old message
         $m = try { Show-JkExamBrief cs350 quiz 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
         Assert-True ($m -match "^no coming exam matches 'cs350 quiz'") "title words: $m"
