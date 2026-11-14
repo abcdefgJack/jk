@@ -3099,6 +3099,29 @@ Test 'review fixes 3: same-title items, todo keywords, focus credit, process tre
         Assert-Eq "$total $($sched[0].Alloc['a'])" '25 25' '45 minutes left: one block, to the biggest share'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'jk plan warns of a squeeze only when a whole day is short: an evening with 45 minutes left is not' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'squeeze-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs341' -Create
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 4' -Weight '10%'
+        Save-JkDueData $dd
+        $env:JK_WIDTH = '160'
+        $warn = { @(Show-JkPlan 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'squeezed' }) }
+        # the day's asks fit in a 3-hour day, but at 8 pm only a quarter of it is left
+        $env:JK_NOW = '2026-11-13T20:00:00'
+        $p = Get-JkPlanToday
+        Assert-True ($p.Today.Need -le 180 -and $p.Today.Need -gt $p.Today.Budget * 1.15) "the case: a day wants $($p.Today.Need)m, the evening has $($p.Today.Budget)m"
+        Assert-Eq (& $warn).Count 0 'no warning for an evening that is short by the clock'
+        # a 1-hour day is short whatever the time: the warning names the fix
+        $null = Invoke-JkConfig set plan.hours 1 6>&1; $script:JkConfigCache = $null
+        $w = @(& $warn)
+        Assert-True ($w.Count -eq 1 -and $w[0] -match 'a day, more than your 1h 00m: the plan is squeezed \(jk config set plan\.hours [2-3]\)') "the warning: $($w -join ' / ')"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'data safety: cp clean spares the data folder, tidy recycles only loose downloads, temp keeps fresh folders' {
     $root = Join-Path $env:JK_HOME ('safety-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
     New-Item -ItemType Directory -Force -Path $root | Out-Null
