@@ -11,6 +11,17 @@ function Get-JkDoneAt($Item) {
     try { [datetime]::Parse([string]$v, $script:Inv) } catch { $null }
 }
 
+# A sign that a deadline that passed without a check mark was handed in anyway: the newest file in
+# its course folder named after it (jk due files) that changed in the four days up to the
+# deadline (a draft.pdf written that afternoon). $null when there is none, or no folder.
+function Get-JkHandedInSign($Data, $Item) {
+    $due = Get-JkEventDue $Item
+    $f = $null
+    try { $f = Get-JkDueFileHits $Data $Item } catch { return $null }
+    if (-not $f) { return $null }
+    @($f.Hits | Where-Object { $_.Modified -le $due.AddMinutes(30) -and $_.Modified -ge $due.AddDays(-4) } | Sort-Object Modified -Descending)[0]
+}
+
 function Show-JkReview {
     param([int]$Days = 7)
     if ($Days -lt 1 -or $Days -gt 366) { throw 'jk review takes 1 to 366 days' }
@@ -56,10 +67,19 @@ function Show-JkReview {
     if ($slipped.Count) {
         Say ''
         Say ('  ' + (Paint 'yellow' "! $($slipped.Count) passed without a check mark") + (Paint 'gray' ' (done? jk due done <ids>; dropped? jk due rm <id>)'))
+        $likely = @()
         foreach ($e in ($slipped | Select-Object -First 6)) {
             $due = Get-JkEventDue $e
             Say ('    ' + (Paint 'gray' ("#$($e.id)".PadLeft(4))) + '  ' + (Paint "#$(Get-JkCourseColor $e.course $cmap)" (Fit (Get-JkCourseLabel $e $cmap) 11)) + (Fit ([string]$e.title) 30) + (Paint 'muted' $due.ToString('ddd MMM d', $script:Inv)))
+            # a file named after it that changed by the deadline: it was probably handed in
+            $sign = Get-JkHandedInSign $data $e
+            if ($sign) {
+                $likely += $e.id
+                $when = "$($sign.Modified.ToString('ddd', $script:Inv)) $(Format-JkTime $sign.Modified.ToString('HH:mm'))"
+                Say ('           ' + (Paint 'gray' (Fit "$($sign.Name) changed $when, before it was due" ([Math]::Max(20, $w - 12)))))
+            }
         }
+        if ($likely.Count) { Say ('    ' + (Paint 'gray' 'handed in? ') + (Paint 'cyan' "jk due done $($likely -join ' ')")) }
     }
 
     # job search: applications this week against the week before, and what is still on you
