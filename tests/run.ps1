@@ -1415,6 +1415,13 @@ Test 'an exam tomorrow before 11 am gets a 9 pm alert tonight, once, that says w
         $env:JK_NOW = '2026-11-18T21:00:00'
         Complete-JkReminder -Id ([int]$r.id)
         Assert-True ($script:PopupLines[0] -like 'Starts 8:30 am tomorrow*' -and $script:PopupLines[-1] -match 'set an alarm') "popup: $($script:PopupLines -join ' / ')"
+        # held in its Thursday class: the popup says where
+        $env:JK_NOW = '2026-11-18T21:00:00'
+        $d = Get-JkDueData; @($d.events | Where-Object { $_.id -eq $q.id })[0].note = 'in class'; Save-JkDueData $d
+        Save-JkClassData ([pscustomobject]@{ nextId = 2; items = @([pscustomobject]@{ id = 1; course = $o.key; kind = 'LEC'; days = @('Tue', 'Thu'); start = '08:30'; end = '09:50'; room = 'MC 2017'; from = ''; to = '' }) })
+        $a = New-JkReminder -At ([datetime]'2026-11-18T21:00') -Text 'x' -Key "eve:$($q.id):2026-11-18" -DueId ([int]$q.id)
+        Complete-JkReminder -Id ([int]$a.id)
+        Assert-True ($script:PopupLines -contains 'in class, MC 2017') "where: $($script:PopupLines -join ' / ')"
         # first awake at 10 pm: in a minute; at 11 pm or later, too late to be useful
         $rd = Get-JkReminderData; $rd.items = @(); Set-JkProp $rd 'alerted' @(); Save-JkReminderData $rd
         Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-11-18T23:10')) 0 'after 11 pm: nothing'
