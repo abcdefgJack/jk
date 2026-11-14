@@ -1586,6 +1586,8 @@ function Invoke-JkDueRemind {
         $lines += "LEARN moved: $(@($movedNotes | Select-Object -First 3) -join '; ')$more"
     }
     if ($weekLine) { $lines += $weekLine }
+    # a class that holds an exam is that exam, said below with its room
+    $classes = @($classes | Where-Object { $m = $_; -not @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'exam' -and $_.course -eq $m.Class.course -and ($c = Get-JkExamClass $_) -and $c.Start -eq $m.Start }).Count })
     if ($classes.Count) {
         $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
     }
@@ -1610,8 +1612,9 @@ function Invoke-JkDueRemind {
         if ($openNow -and $e.kind -ne 'exam') { $txt += ' (open now)' }
         if ($e.kind -eq 'exam') {
             $txt += $(if ($openNow) { ' (exam, open now)' } else { ' (exam)' })
-            # where and what to bring: "in person, room TBA", "one handwritten sheet, no calculator"
-            $note = Get-JkExamNote $e
+            # where and what to bring: "in person, room TBA", "one handwritten sheet, no calculator",
+            # "in class, MC 2017"
+            $note = Get-JkExamPlace $e
             if ($note) { $txt += " $($script:G.dot) $note" }
         }
         # an opening is not a deadline: say until when the window runs. Closing the day it opens,

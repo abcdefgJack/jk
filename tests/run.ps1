@@ -1421,6 +1421,15 @@ Test 'an exam held in a class takes the class room: jk next names it and drops t
         $next = (Show-JkNext 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($next -match 'CO 367 LEC in MC 2017 at 8:30 am') "a plain class: $next"
         Assert-True (((Get-JkBriefLine) -replace "$([char]27)\[[0-9;]*m", '') -match 'CO367 LEC 8:30 am MC 2017') 'and on the brief'
+        # the morning popup: one line for the quiz, with the room, and no class line for it
+        $origNotify = ${function:Show-JkNotify}
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:PopupLines = $Lines; 'stub' }
+        try {
+            $env:JK_NOW = '2026-11-19T07:45:00'
+            Invoke-JkDueRemind -Force -Quiet 6>&1 | Out-Null
+            $pl = $script:PopupLines -join ' / '
+            Assert-True ($pl -match 'CO 367 Quiz 3 \(exam\) . in class, MC 2017' -and $pl -notmatch 'Classes today') "popup: $pl"
+        } finally { Set-Item function:script:Show-JkNotify $origNotify }
     } finally {
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
     }
