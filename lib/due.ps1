@@ -623,6 +623,13 @@ function Show-JkExamBrief {
     } else {
         & $wrapRow 'marks' "none recorded for this course yet $($script:G.dash) jk grade fill, then this says what you need on it" 'gray'
     }
+    # the course's exam pass rule, when this exam is still to be written for it
+    try {
+        foreach ($r in @(Measure-JkPassRules $data $gd $e.course | Where-Object { $_.Kind -eq 'exam' -and $null -ne $_.Need })) {
+            $t = Format-JkPassRule $r
+            & $wrapRow 'pass' $t[0] $t[1]
+        }
+    } catch { }
     # what a mark here would leave the rest needing (the what-if of jk grade <course> if, at four marks)
     $gitems = @(Get-JkGradeItems $data $gd $e.course)
     $gi = @($gitems | Where-Object { $_.Key -eq [string]$e.id -or ($x.Win -and $_.Key -eq [string]$x.Win.Open.id) })[0]
