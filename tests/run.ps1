@@ -4787,6 +4787,35 @@ Test 'jk clip: unwraps PDF text and counts words the way a word limit does' {
     $m = Measure-JkText "Hello world, it's 2026.`n$zh"
     Assert-Eq "$($m.Words) $($m.Cjk) $($m.Lines)" '4 5 3'
 }
+Test 'jk review: a deadline that passed without a check mark, with a file named after it written by the deadline, reads as probably handed in' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'handed-in'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    try {
+        $top = Join-Path $env:JK_HOME 'desk'
+        $c = Join-Path $top 'Waterloo course\HEALTH105'
+        New-Item -ItemType Directory $c -Force | Out-Null
+        Set-JkConfig 'tidy.courses' $top
+        $env:JK_NOW = '2026-11-13T20:00:00'; $env:JK_WIDTH = '120'
+        $d = Get-JkDueData; $h = Resolve-JkCourse $d 'health105' -Create
+        $a6 = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-11-09') -Time '23:59' -Title 'Assignment 6' -Weight '7.5%'
+        $a5 = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-11-10') -Time '23:59' -Title 'Assignment 5' -Weight '7.5%'
+        $a4 = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-11-11') -Time '23:59' -Title 'Assignment 4' -Weight '7.5%'
+        Save-JkDueData $d
+        # A6: a draft written that afternoon. A5: only the handout, two weeks before. A4: a file after the deadline
+        $mk = { param($n, $t) $p = Join-Path $c $n; Set-Content $p 'x'; (Get-Item $p).LastWriteTime = [datetime]$t }
+        & $mk 'HEALTH105_Assignment6_Draft.pdf' '2026-11-09T13:47'
+        & $mk 'HEALTH105_Assignment5.pdf' '2026-10-27T10:00'
+        & $mk 'Assignment4_notes.md' '2026-11-12T09:00'
+        $out = @(Show-JkReview 6>&1 | ForEach-Object { "$_" })
+        $txt = $out -join "`n"
+        Assert-True ($txt -match '3 passed without a check mark') 'all three slipped'
+        Assert-True ($txt -match 'HEALTH105_Assignment6_Draft\.pdf changed Mon 1:47 pm, before it was due') "A6's draft: $txt"
+        Assert-True ($txt -notmatch 'HEALTH105_Assignment5\.pdf changed' -and $txt -notmatch 'Assignment4_notes\.md changed') 'not the handout two weeks before, not a file after the deadline'
+        Assert-True ($txt -match "handed in\? jk due done $($a6.id)\s*$" -or ($out | Where-Object { $_ -match "handed in\? jk due done $($a6.id)$" })) 'the command, for A6 alone'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk due files: the course folder''s files named after a deadline' {
     Assert-Eq ((Get-JkTitleFileTokens 'Assignment 2') -join ',') 'a2,a02,assignment 2,hw2,asst2'
     Assert-Eq ((Get-JkTitleFileTokens 'A2A Synchronization') -join ',') 'a2a'
