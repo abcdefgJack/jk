@@ -4142,6 +4142,28 @@ Test 'jk grade <course> if <item> <mark>: the course as it would stand, nothing 
     Assert-Throws { Show-JkGradeWhatIf cs350 @('bonus', '5') }
     Assert-Eq ([IO.File]::ReadAllText($file)) $before 'still nothing saved'
 }
+Test 'jk grade import with no course reads the course from the copied page' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'import-detect'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $d = Get-JkDueData; $a = Resolve-JkCourse $d 'cs350' -Create; $null = Resolve-JkCourse $d 'cs341' -Create; $null = Resolve-JkCourse $d 'co367' -Create
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-10-01') -Time '20:00' -Title 'A1 Threads' -Weight '10%'
+        Save-JkDueData $d
+        Assert-Eq ([string](Find-JkCourseInText $d "CS 350 - Operating Systems (Fall 2026)`nGrades`nA1 Threads`t9 / 10`t90 %`nview CS350 home").code) 'CS 350' 'named in the header and a link'
+        Assert-True ($null -eq (Find-JkCourseInText $d "Grades`nA1`t9 / 10")) 'named nowhere'
+        Assert-True ($null -eq (Find-JkCourseInText $d "CS 350 and CS 341 share a TA")) 'two named equally: no guess'
+        Assert-True ($null -eq (Find-JkCourseInText $d "CS 3501 notes")) 'CS 3501 is not CS 350'
+        $f = Join-Path $env:JK_HOME 'page.txt'
+        [IO.File]::WriteAllText($f, "CS 350 - Operating Systems (Fall 2026)`nGrades`nGrade Item`tPoints`tGrade`nA1 Threads`t9 / 10`t90 %")
+        $out = (Import-JkGrades -Path $f -Yes 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match "the copied page is CS 350's") "said which: $out"
+        Assert-Eq @(Get-JkGradeItems (Get-JkDueData) (Get-JkGradeData) $a.key | Where-Object { $_.Title -eq 'A1 Threads' })[0].Score 90 'recorded for CS 350'
+        [IO.File]::WriteAllText($f, "Grades`nA1`t9 / 10`t90 %")
+        $m = try { Import-JkGrades -Path $f 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
+        Assert-True ($m -match '^usage: jk grade import <course>') "no course on the page: $m"
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null; $script:JkDueCache = $null }
+}
 Test 'grade import: a copied LEARN Grades page becomes marks, matched by title, on a yes' {
     $page = "Grades`nFinal Calculated Grade`t-`nGrade Item`tPoints`tWeight Achieved`tGrade`nAssignments`t `t `t`nAssignment 01 - Stigma`t9 / 10`t9 / 10`t90 %`nAssignment 2`t- / 10`t- / 10`nMidterm`t27 / 30`t27 / 30`t90 %`tView feedback`nParticipation`t5 / 5`t2 / 2`t100 %"
     # LEARN's own totals must never be offered as extra parts of the grade (they would count twice)
