@@ -23,13 +23,13 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
         $start = Get-JkEventDue $e
         $stop = Get-JkExamEnd $e
         if ($Now -ge $start -and $Now -lt $stop) {
-            $where = Get-JkExamNote $e
+            $where = Get-JkExamPlace $e
             & $add "$(& $name $e), under way until $(Format-JkTime $stop.ToString('HH:mm', $script:Inv))" $(if ($where) { $where } else { 'the rest can wait until it ends' })
         }
     }
     # an exam within 6 hours: the last review, then getting there
     foreach ($x in @($ahead | Where-Object { $_.E.kind -eq 'exam' -and -not $_.Closes -and (& $within $_ 6) })) {
-        $where = Get-JkExamNote $x.E
+        $where = Get-JkExamPlace $x.E
         $hint = "jk exam $(& $key $x.E)"
         if ($where -notmatch '(?i)\bonline\b') { $hint = (@('leave in time', $where, $hint) | Where-Object { $_ }) -join " $($script:G.dot) " }
         & $add "$(& $name $x.E) $(if ($x.E.time) { "at $(& $clock $x)" } else { 'today' })" $hint
@@ -37,7 +37,10 @@ function Get-JkNextSteps([datetime]$Now = (Get-JkNow)) {
     }
     # a class starting within 45 minutes (or under way)
     try {
+        # a class that holds an exam is that exam, already above with its room
+        $examClasses = @(foreach ($e in @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'exam' -and $_.time })) { $c = Get-JkExamClass $e; if ($c) { "$($c.Class.course)|$($c.Start.ToString('s'))" } })
         foreach ($m in @(Get-JkClassesOn $Now.Date | Where-Object { $_.End -gt $Now -and ($_.Start - $Now).TotalMinutes -le 45 })) {
+            if ($examClasses -contains "$($m.Class.course)|$($m.Start.ToString('s'))") { continue }
             $room = $(if ($m.Class.room) { " in $($m.Class.room)" } else { '' })
             $when = $(if ($m.Start -le $Now) { "now, until $(Format-JkTime $m.End.ToString('HH:mm', $script:Inv))" } else { "at $(Format-JkTime $m.Start.ToString('HH:mm', $script:Inv)) (in $(Format-JkDuration ($m.Start - $Now)))" })
             & $add "$(Format-JkClassLabel $m.Class $cmap)$room $when" 'jk class'
