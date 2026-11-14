@@ -4809,6 +4809,37 @@ Test 'jk clip: unwraps PDF text and counts words the way a word limit does' {
     $m = Measure-JkText "Hello world, it's 2026.`n$zh"
     Assert-Eq "$($m.Words) $($m.Cjk) $($m.Lines)" '4 5 3'
 }
+Test 'the dashboard nudges for missing marks before class sections, naming the course with the most weight missing' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'marks-nudge'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_NOW = '2026-11-13T20:00:00'; $env:JK_WIDTH = '160'
+        $d = Get-JkDueData
+        Set-JkProp $d 'term' ([pscustomobject]@{ name = 'Fall 2026'; start = '2026-09-08'; classesEnd = '2026-12-08'; examsStart = '2026-12-10'; examsEnd = '2026-12-22' })
+        $a = Resolve-JkCourse $d 'cs350' -Create; $b = Resolve-JkCourse $d 'cs341' -Create; $h = Resolve-JkCourse $d 'health105' -Create
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-10-01') -Time '20:00' -Title 'A1' -Weight '10%'
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-10-29') -Time '16:30' -Title 'Midterm' -Kind 'exam' -Weight '20%'
+        $null = New-JkEvent -Data $d -Course $b.key -Date ([datetime]'2026-10-09') -Time '23:59' -Title 'Assignment 1' -Weight '4%'
+        $null = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-10-20') -Time '23:59' -Title 'Midterm 1' -Kind 'exam' -Weight '35%'
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-12-17') -Time '16:00' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        Save-JkDueData $d
+        $n = Get-JkMarksNudge (Get-JkDueData) (Get-JkNow)
+        Assert-Eq $n[0] 'jk grade import health105' 'by weight missing: HEALTH 105, 35%'
+        $null = Invoke-JkConfig set plan.skip health105 6>&1; $script:JkConfigCache = $null
+        $n = Get-JkMarksNudge (Get-JkDueData) (Get-JkNow)
+        Assert-Eq $n[0] 'jk grade import cs350' 'a course left out of jk plan is not the one named'
+        Assert-True ($n[1] -match '^4 past items have no mark yet \(CS 350 30% of the course\)') "why: $($n[1])"
+        $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($dash -match 'jk grade import cs350' -and $dash -notmatch 'jk class pick') "the dashboard shows it, ahead of class sections: $dash"
+        # two missing are not worth a nudge
+        $null = Invoke-JkGrade cs350 a1 80% 6>&1
+        $null = Invoke-JkGrade cs350 midterm 70% 6>&1
+        Assert-True ($null -eq (Get-JkMarksNudge (Get-JkDueData) (Get-JkNow))) 'fewer than 3 missing: no nudge'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk review: a deadline that passed without a check mark, with a file named after it written by the deadline, reads as probably handed in' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'handed-in'; $script:JkConfigCache = $null; $script:JkDueCache = $null
