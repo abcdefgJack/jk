@@ -111,6 +111,28 @@ function Get-JkClassRange($Class) {
     , @($f, $e)
 }
 
+# The class meeting an exam starts in (CO 367's Quiz 3 "in class", Thu 8:30 in MC 2017): a meeting
+# of the same course that day with Start <= the exam's start < End. $null when there is none.
+function Get-JkExamClass($Event) {
+    if (-not $Event -or $Event.kind -ne 'exam' -or -not $Event.time) { return $null }
+    $at = Get-JkEventDue $Event
+    try { @(Get-JkClassesOn $at.Date | Where-Object { $_.Class.course -eq $Event.course -and $_.Start -le $at -and $at -lt $_.End })[0] } catch { $null }
+}
+
+# Where an exam is: its note without the times, with the room of the class it falls in when the
+# note does not name one ("in class" -> "in class, MC 2017").
+function Get-JkExamPlace($Event) {
+    $note = Get-JkExamNote $Event
+    $m = Get-JkExamClass $Event
+    if (-not $m -or -not $m.Class.room) { return $note }
+    $room = [string]$m.Class.room
+    if ($note -and $note.Contains($room)) { return $note }
+    if (-not $note) { return $room }
+    $parts = @($note -split " $([regex]::Escape($script:G.dot)) ")
+    $parts[0] = "$($parts[0]), $room"
+    $parts -join " $($script:G.dot) "
+}
+
 # Every meeting on one date, as objects with Start/End datetimes, sorted by time.
 function Get-JkClassesOn([datetime]$Date, $Data = (Get-JkClassData), $Skip = (Get-JkTermSkipDays)) {
     $day = $Date.Date

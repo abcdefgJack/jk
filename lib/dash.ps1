@@ -423,13 +423,17 @@ function Get-JkBriefLine {
         elseif ($n -eq 1) { $when = 'tmrw'; $st = 'orange' }
         $color = Get-JkCourseColor $e.course $cmap
         $label = (Get-JkCourseLabel $e $cmap) -replace '\s', ''
-        (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when)
+        # today's exam in a class carries the class's room (the class itself is left off the line)
+        $room = ''; if ($n -eq 0) { $xc = Get-JkExamClass $e; if ($xc -and $xc.Class.room) { $room = ' ' + (Paint 'muted' ([string]$xc.Class.room)) } }
+        (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when) + $room
         }
     }
     $lead = @()
     # the next class today leads the line (absolute time: the line is cached for the hour)
     try {
         $nc = @(Get-JkClassesOn $now.Date | Where-Object { $_.End -gt $now }) | Select-Object -First 1
+        # a class that holds an exam on the line is that exam
+        if ($nc -and @($soon | Where-Object { $c = Get-JkExamClass $_; $c -and $c.Class.course -eq $nc.Class.course -and $c.Start -eq $nc.Start }).Count) { $nc = $null }
         if ($nc) {
             $label = (Format-JkClassLabel $nc.Class $cmap) -replace '\s(?=\d)', ''
             $room = ''; if ($nc.Class.room) { $room = ' ' + $nc.Class.room }

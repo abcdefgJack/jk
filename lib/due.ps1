@@ -604,7 +604,7 @@ function Show-JkExamBrief {
     # reopening", "6:00 am Dec 7 -> 11:59 pm Dec 8 - LEARN quiz") were two rows, both repeating them
     $parts = @()
     foreach ($src in @($(if ($x.Win) { $x.Win.Open }), $e) | Where-Object { $_ }) {
-        foreach ($seg in @((Get-JkExamNote $src) -split "\s*$([regex]::Escape($script:G.dot))\s*")) { if ($seg -and $parts -notcontains $seg) { $parts += $seg } }
+        foreach ($seg in @((Get-JkExamPlace $src) -split "\s*$([regex]::Escape($script:G.dot))\s*")) { if ($seg -and $parts -notcontains $seg) { $parts += $seg } }
     }
     if ($parts.Count) { & $wrapRow 'notes' ($parts -join " $($script:G.dot) ") 'muted' }
     # the weather on the way there, for one in person inside the forecast
@@ -751,7 +751,10 @@ function Show-JkExams {
         $title = [string]$e.title
         $when = $due.ToString('ddd MMM d', $script:Inv)
         if ($e.time) { $when += ' ' + (Format-JkTime $e.time) }
+        # with the room of the class it is held in ("in class, MC 2017")
         $notes = @([string]$e.note)
+        $xc = Get-JkExamClass $e
+        if ($xc -and $xc.Class.room -and -not ([string]$e.note).Contains([string]$xc.Class.room)) { $notes = @("$(@(([string]$e.note) -split " $([regex]::Escape($script:G.dot)) ")[0]), $($xc.Class.room)") + @(@(([string]$e.note) -split " $([regex]::Escape($script:G.dot)) ") | Select-Object -Skip 1) }
         if ($win) {
             $title = $win.Title
             $closeTxt = $win.Closes.ToString('ddd MMM d', $script:Inv) + ' ' + (Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv))

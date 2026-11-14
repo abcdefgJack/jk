@@ -1362,6 +1362,37 @@ Test 'countdowns count real hours: Monday 7 pm from Saturday 11 pm the weekend c
         Assert-True ($text -match "Fallback midterm.*\s$([regex]::Escape($cd))\s") "countdown $cd"
     } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow }
 }
+Test 'an exam held in a class takes the class room: jk next names it and drops the class line, jk brief shows one item' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'exam-room'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_WIDTH = '160'
+        $d = Get-JkDueData; $o = Resolve-JkCourse $d 'co367' -Create
+        $q = New-JkEvent -Data $d -Course $o.key -Date ([datetime]'2026-11-19') -Time '08:30' -End '09:50' -Title 'Quiz 3' -Kind 'exam' -Weight '20%'
+        $q.note = 'in class'
+        Save-JkDueData $d
+        Save-JkClassData ([pscustomobject]@{ nextId = 2; items = @([pscustomobject]@{ id = 1; course = $o.key; kind = 'LEC'; days = @('Tue', 'Thu'); start = '08:30'; end = '09:50'; room = 'MC 2017'; from = ''; to = '' }) })
+        Assert-Eq (Get-JkExamPlace $q) 'in class, MC 2017'
+        $env:JK_NOW = '2026-11-19T07:30:00'
+        $next = (Show-JkNext 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($next -match 'leave in time . in class, MC 2017') "the room: $next"
+        Assert-True ($next -notmatch 'CO 367 LEC') "no separate class line: $next"
+        $brief = (Get-JkBriefLine) -replace "$([char]27)\[[0-9;]*m", ''
+        Assert-True ($brief -match 'CO367 Quiz 3 today 8:30 am MC 2017' -and $brief -notmatch 'LEC') "brief: $brief"
+        $ex = (Show-JkExamBrief co367 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($ex -match 'notes\s+in class, MC 2017') "jk exam: $ex"
+        $exs = (Show-JkExams 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($exs -match 'in class, MC 2017') "jk exams: $exs"
+        # a Tuesday lecture is still a class
+        $env:JK_NOW = '2026-11-17T08:10:00'
+        $next = (Show-JkNext 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($next -match 'CO 367 LEC in MC 2017 at 8:30 am') "a plain class: $next"
+        Assert-True (((Get-JkBriefLine) -replace "$([char]27)\[[0-9;]*m", '') -match 'CO367 LEC 8:30 am MC 2017') 'and on the brief'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'an exam tomorrow before 11 am gets a 9 pm alert tonight, once, that says when it starts' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'eve-alert'; $script:JkConfigCache = $null; $script:JkDueCache = $null
