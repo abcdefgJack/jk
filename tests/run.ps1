@@ -3305,6 +3305,14 @@ Test 'jk plan week html: the week as a page, a box per study block, titles escap
         Assert-True ($t -match 'Fri Nov 13\s+today' -and $t -match 'jk plan week html to tick off') "terminal: $t"
         $null = Invoke-JkPlan week html 6>&1
         Assert-True (Test-Path -LiteralPath (Get-JkPath 'plan-week.html')) 'jk plan week html writes ~\.jk\plan-week.html (not opened in a sandbox)'
+        # the morning run makes it today's week, once it exists
+        $env:JK_NOW = '2026-11-14T08:00:00'
+        # every other step stubbed: a test never runs a real tick
+        $stubs = 'Restore-JkReminders', 'Sync-JkBackupMirror', 'Restore-JkFocusTimer', 'Register-JkTodayAlerts', 'Register-JkClassAlert', 'Update-JkDiskLog', 'Invoke-JkDueRemind', 'Limit-JkBackgroundLog', 'Start-JkBackground', 'Invoke-JkDueSync', 'Get-JkWeather'
+        $orig = @{}; foreach ($fn in $stubs) { $orig[$fn] = (Get-Item "function:$fn").ScriptBlock; Set-Item "function:script:$fn" { } }
+        try { Invoke-JkTick 6>&1 | Out-Null } finally { foreach ($fn in $stubs) { Set-Item "function:script:$fn" $orig[$fn] } }
+        $h2 = [IO.File]::ReadAllText((Get-JkPath 'plan-week.html'))
+        Assert-True ($h2 -match 'Sat Nov 14 - Fri Nov 20' -and $h2 -notmatch 'Friday, Nov 13') 'refreshed by the morning run'
     } finally {
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
     }

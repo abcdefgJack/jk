@@ -642,6 +642,8 @@ function Invoke-JkTick([switch]$CatchUp) {
     # the popup, caught like every other step: a failure here once left nothing in the log, only a
     # non-zero task result, and skipped the screenshot index after it
     try { Invoke-JkDueRemind -Quiet } catch { & $note 'popup' $_.Exception.Message }
+    # the study-week page, once it has been made (jk plan week html): today's week, nothing opened
+    try { if ([IO.File]::Exists((Get-JkPath 'plan-week.html'))) { $null = Export-JkPlanWeekHtml -NoOpen -Quiet } } catch { & $note 'study week page' $_.Exception.Message }
     # yesterday's screenshots read for jk shots find, once it has been used (after the popup,
     # at low priority, two minutes at most)
     try { if ([IO.File]::Exists((Get-JkShotsIndexPath)) -and -not $env:JK_NOW) { $null = Update-JkShotsIndex -Seconds 120 -LowPriority } } catch { & $note 'screenshot index' $_.Exception.Message }

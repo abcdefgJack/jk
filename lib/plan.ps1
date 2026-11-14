@@ -395,7 +395,7 @@ function Show-JkPlanWeek {
 # jk plan week html: the week as a page (~\.jk\plan-week.html) with a box for each study block. The
 # ticks are kept by the browser for that block and day, so re-making the page keeps them.
 function Export-JkPlanWeekHtml {
-    param([string]$Out, [switch]$NoOpen)
+    param([string]$Out, [switch]$NoOpen, [switch]$Quiet)
     if (-not $Out) { $Out = Get-JkPath 'plan-week.html' }
     $p = Get-JkPlanToday
     $now = Get-JkNow
@@ -463,7 +463,7 @@ document.querySelectorAll('input[data-id]').forEach(function (b) {
 </script></body></html>
 "@
     Write-JkText $Out $html
-    Say ((Paint 'green' '  study week page  ') + $Out)
+    if (-not $Quiet) { Say ((Paint 'green' '  study week page  ') + $Out) }
     if (-not $NoOpen -and -not $env:JK_SANDBOX) { Start-Process $Out }
 }
 
