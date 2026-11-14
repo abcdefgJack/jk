@@ -2594,6 +2594,33 @@ Test 'jk <course>: one course on a screen; a word after it goes to that command'
         Assert-True ((@(& { jk rec 14 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -notmatch 'unknown command') 'a command prefix with a number still reaches the command when no course is called that'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'an unknown command says what was probably meant: a typo, a swapped course number, or a word jk knows by another name' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'guess-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $d = Get-JkDueData; $null = Resolve-JkCourse $d 'cs341' -Create; $null = Resolve-JkCourse $d 'health105' -Create; Save-JkDueData $d
+        $say = { param($w) (@(& { jk $w } 6>&1 | ForEach-Object { "$_" }) -join "`n") }
+        Assert-True ((& $say 'gard') -match "unknown command 'gard'\. Did you mean jk grade\?") 'a typo: gard'
+        Assert-True ((& $say 'exmas') -match 'Did you mean jk exams\?') 'two letters swapped: exmas'
+        Assert-True ((& $say 'cs314') -match 'Did you mean jk cs341\?') 'a course number with two digits swapped'
+        Assert-True ((& $say 'today') -match 'Did you mean jk \(the dashboard\)\?') 'today is the dashboard'
+        Assert-True ((& $say 'dashbaord') -match 'Did you mean jk \(the dashboard\)\?') 'a typo of a word jk knows by another name'
+        Assert-True ((& $say 'time2') -match 'Did you mean jk time or jk focus\?') 'a tie: the command before the word'
+        Assert-True ((& $say 'helth') -match 'Did you mean jk health') 'a course by its name alone'
+        Assert-True ((& $say 'tomorrow') -match 'Did you mean jk due 2\?') 'tomorrow'
+        Assert-True ((& $say 'gpa') -match 'Did you mean jk grade\?') 'gpa'
+        Assert-True ((& $say 'midterm') -match 'Did you mean jk exams\?') 'midterm (the alias is midterms)'
+        # an alias's typo names the command it belongs to
+        Assert-True ((& $say 'pomodro') -match 'Did you mean jk focus\?') 'pomodro'
+        # nothing near: the old line, no guess
+        $b = & $say 'blorp'
+        Assert-True ($b -match "unknown command 'blorp'\. Try 'jk help'" -and $b -notmatch 'Did you mean') "blorp: $b"
+        # a two-letter word is not guessed at: "zz" is not one letter from anything worth naming
+        Assert-True ((& $say 'zz') -notmatch 'Did you mean') 'zz'
+        Assert-Eq (@(Get-JkCommandGuess 'grade').Count) 0 'a real command is not guessed at'
+    } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null; $script:JkDueCache = $null }
+}
 Test 'jk space: what grew since an earlier run (500 MB or more, 12 hours or more before)' {
     $p = Join-Path (Get-JkCacheDir) 'space.log'
     $saved = $null; if (Test-Path -LiteralPath $p) { $saved = [IO.File]::ReadAllText($p) }
