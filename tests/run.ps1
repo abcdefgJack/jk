@@ -4830,6 +4830,35 @@ Test 'jk clip: unwraps PDF text and counts words the way a word limit does' {
     $m = Measure-JkText "Hello world, it's 2026.`n$zh"
     Assert-Eq "$($m.Words) $($m.Cjk) $($m.Lines)" '4 5 3'
 }
+Test 'jk brief: an exam this week makes the line even behind three earlier deadlines, shown in date order' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'brief-exam'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_NOW = '2026-11-13T20:00:00'; $env:JK_WIDTH = '200'
+        $d = Get-JkDueData; $o = Resolve-JkCourse $d 'co367' -Create; $c = Resolve-JkCourse $d 'cs370' -Create; $h = Resolve-JkCourse $d 'health105' -Create
+        $null = New-JkEvent -Data $d -Course $o.key -Date ([datetime]'2026-11-16') -Time '23:00' -Title 'Assignment 4' -Weight '5%'
+        $null = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 7' -Weight '7.5%'
+        $null = New-JkEvent -Data $d -Course $c.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $d -Course $o.key -Date ([datetime]'2026-11-19') -Time '08:30' -Title 'Quiz 3' -Kind 'exam' -Weight '20%'
+        $null = New-JkEvent -Data $d -Course $c.key -Date ([datetime]'2026-11-20') -Time '23:59' -Title 'Assignment 9' -Weight '4%'
+        Save-JkDueData $d
+        $strip = { param($l) $l -replace "$([char]27)\[[0-9;]*m", '' }
+        $line = & $strip (Get-JkBriefLine)
+        Assert-True ($line -match 'CO367 Quiz 3 Thu') "the quiz is on the line: $line"
+        Assert-True ($line -match 'Assignment 4 Mon .+ Quiz 3 Thu' -and $line -match '\+2') "date order, two more: $line"
+        # anything due tomorrow still comes first
+        $env:JK_NOW = '2026-11-15T20:00:00'
+        $line = & $strip (Get-JkBriefLine)
+        Assert-True (([regex]::Matches($line, 'tmrw')).Count -eq 3 -and $line -notmatch 'Quiz 3') "three due tomorrow beat the quiz: $line"
+        # a narrow window drops the least pressing first, not the last on the line
+        $env:JK_NOW = '2026-11-13T20:00:00'; $env:JK_WIDTH = '70'
+        $line = & $strip (Get-JkBriefLine)
+        Assert-True ($line -match 'Quiz 3') "narrow: the quiz stays: $line"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'the dashboard nudges for missing marks before class sections, naming the course with the most weight missing' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'marks-nudge'; $script:JkConfigCache = $null; $script:JkDueCache = $null

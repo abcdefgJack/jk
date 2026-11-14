@@ -400,8 +400,18 @@ function Get-JkBriefLine {
     $data = Get-JkDueData -Cached
     $cmap = Get-JkCourseMap $data
     $soon = @($data.events | Where-Object { -not $_.done } | Where-Object { $d = Get-JkEventDue $_; $d -ge $now -and $d -lt $now.Date.AddDays(8) } | Sort-Object { Get-JkEventDue $_ })
-    $parts = @()
-    foreach ($e in ($soon | Select-Object -First 3)) {
+    # which three: anything due today or tomorrow, then an exam this week (a 20% quiz on Thursday
+    # matters more than two Monday assignments), then the rest by date; shown in date order. A
+    # narrow window drops the least pressing first.
+    # an online window counts once: by its opening while that is still to come
+    $rank = { param($x) $d = Get-JkEventDue $x; $n = ($d.Date - $now.Date).TotalDays
+        if ($n -le 1) { return 0 }
+        if ($x.kind -ne 'exam') { return 2 }
+        if ([string]$x.title -match '(?i)\s+closes?$') { $win = Get-JkEventWindow $x $data; if ($win -and @($soon | Where-Object { $_.id -eq $win.Open.id }).Count) { return 2 } }
+        1 }
+    $byRank = @($soon | Sort-Object @{ e = { & $rank $_ } }, @{ e = { Get-JkEventDue $_ } })
+    $render = { param($pick)
+        foreach ($e in @($pick | Sort-Object { Get-JkEventDue $_ })) {
         $due = Get-JkEventDue $e
         $n = [int]($due.Date - $now.Date).TotalDays
         $when = $due.ToString('ddd', [Globalization.CultureInfo]::InvariantCulture)
@@ -413,16 +423,17 @@ function Get-JkBriefLine {
         elseif ($n -eq 1) { $when = 'tmrw'; $st = 'orange' }
         $color = Get-JkCourseColor $e.course $cmap
         $label = (Get-JkCourseLabel $e $cmap) -replace '\s', ''
-        $parts += (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when)
+        (Paint "#$color" $label) + ' ' + (Paint 'white' ([string]$e.title)) + ' ' + (Paint $st $when)
+        }
     }
+    $lead = @()
     # the next class today leads the line (absolute time: the line is cached for the hour)
     try {
         $nc = @(Get-JkClassesOn $now.Date | Where-Object { $_.End -gt $now }) | Select-Object -First 1
         if ($nc) {
             $label = (Format-JkClassLabel $nc.Class $cmap) -replace '\s(?=\d)', ''
             $room = ''; if ($nc.Class.room) { $room = ' ' + $nc.Class.room }
-            $parts = @((Paint "bold #$(Get-JkCourseColor $nc.Class.course $cmap)" $label) + ' ' + (Paint 'white' (Format-JkTime $nc.Start.ToString('HH:mm'))) + (Paint 'muted' $room)) + $parts
-            $soon = @($null) + $soon   # keeps the "+N more" arithmetic in step with $parts
+            $lead = @((Paint "bold #$(Get-JkCourseColor $nc.Class.course $cmap)" $label) + ' ' + (Paint 'white' (Format-JkTime $nc.Start.ToString('HH:mm'))) + (Paint 'muted' $room))
         }
     } catch { }
     $td = Get-JkTodoData
@@ -434,17 +445,22 @@ function Get-JkBriefLine {
     $tail += Paint 'gray' '   (jk for more)'
     # keep it on one line: drop trailing items (they become "+N") until it fits the window
     $width = Get-JkWidth
-    $shown = $parts.Count
+    $k = [Math]::Min(3, $byRank.Count)
+    $shown = $lead.Count + $k
     while ($true) {
+        $parts = @($lead) + @(& $render @($byRank | Select-Object -First $k))
+        # the class goes last, after every deadline has been dropped
+        $parts = @($parts | Select-Object -First $shown)
         $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' '
-        if ($shown -gt 0) { $line += (@($parts | Select-Object -First $shown) -join (Paint 'gray' "  $($script:G.dot)  ")) }
+        if ($shown -gt 0) { $line += ($parts -join (Paint 'gray' "  $($script:G.dot)  ")) }
         else { $line += Paint 'green' 'nothing due this week' }
-        $more = $soon.Count - $shown
-        $dueCount = @($soon | Where-Object { $_ }).Count
+        $more = $soon.Count - [Math]::Max(0, $shown - $lead.Count)
+        $dueCount = $soon.Count
         if ($shown -eq 0 -and $dueCount) { $line = ' ' + (Paint 'bold bg:#7C9CF8 ink' ' jk ') + ' ' + (Paint 'white' "$(Format-JkDueCounts (Measure-JkDue $soon)) this week"); $more = 0 }
         if ($more -gt 0) { $line += Paint 'gray' "  +$more" }
         $line += $tail
         if ((Get-JkVisibleLength $line) -le $width -or $shown -eq 0) { break }
+        if ($k -gt 0) { $k-- }
         $shown--
     }
     $line
