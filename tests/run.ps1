@@ -310,6 +310,49 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk grade pass: the exams must average 50% (CS 370: the final needs 59%), shown in jk grade, jk exam and the overview; cap, off and bad input' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'passrule-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs370' -Create; $b = Resolve-JkCourse $dd 'cs350' -Create
+        $a1 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-05') -Time '23:59' -Title 'Assignment 1' -Weight '7%'
+        $a2 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-26') -Time '23:59' -Title 'Assignment 2' -Weight '7%'
+        $mid = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-02') -Time '19:00' -Title 'Midterm' -Kind 'exam' -Weight '32%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-04') -Time '23:59' -Title 'Assignment 4' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-10') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        $null = New-JkEvent -Data $dd -Course $b.key -Date ([datetime]'2026-12-17') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        Save-JkDueData $dd
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'grades.json'), "{""scores"":[{""id"":""$($a1.id)"",""score"":100},{""id"":""$($a2.id)"",""score"":100},{""id"":""$($mid.id)"",""score"":38.75}],""extras"":[],""targets"":[],""nextExtra"":1}")
+        $env:JK_NOW = '2026-11-13T10:00:00'; $env:JK_WIDTH = '140'
+        $lines = { param($sb) @(& $sb 6>&1 | ForEach-Object { "$_" }) }
+        $g = & $lines { Invoke-JkGrade pass cs370 exams 50 }
+        Assert-True ((($g | Where-Object { $_ -match '^\s+pass\s' }) -join ' ') -match 'the exams \(72% of the course\) must average 50% to pass: 38[.,]8% so far, the FINAL needs 59%') "jk grade cs370: $(($g | Where-Object { $_ -match 'pass' }) -join ' / ')"
+        $r = @(Measure-JkPassRules (Get-JkDueData) (Get-JkGradeData) $a.key)[0]
+        Assert-Eq "$($r.Weight)|$([Math]::Round($r.Need, 1))|$($r.Held)" '72|59|False' 'the numbers: 72% of exams, 59% on the final'
+        $x = & $lines { Invoke-JkExams cs370 }
+        Assert-True (@($x | Where-Object { $_ -match '^\s+pass\s+the exams .* the FINAL needs 59%' }).Count -eq 1) "jk exam cs370: $(($x | Where-Object { $_ -match 'pass' }) -join ' / ')"
+        # CS 350: two rules and a cap; nothing marked yet, so the overview leaves it out
+        $null = & $lines { Invoke-JkGrade pass cs350 exams 50 work 50 cap 46 }
+        $c = & $lines { Show-JkGrade cs350 }
+        Assert-True (@($c | Where-Object { $_ -match '^\s+pass\s+the exams .* or the course is capped at 46%' }).Count -eq 1 -and @($c | Where-Object { $_ -match '^\s+pass\s+the assignments and other work' }).Count -eq 1) "jk grade cs350: $(($c | Where-Object { $_ -match 'pass' }) -join ' / ')"
+        $o = & $lines { Show-JkGradeOverview }
+        $op = @($o | Where-Object { $_ -match '^\s+pass\s' })
+        Assert-True ($op.Count -eq 1 -and $op[0] -match 'CS 370: the exams') "the overview lists only a rule with marks behind it: $($op -join ' / ')"
+        # a final of 60 holds it
+        $g2 = Get-JkGradeData; $fin = @((Get-JkDueData).events | Where-Object { $_.course -eq $a.key -and $_.title -eq 'FINAL' })[0]
+        $g2.scores = @($g2.scores) + [pscustomobject]@{ id = [string]$fin.id; score = 60 }; Save-JkGradeData $g2
+        Assert-True (@(Measure-JkPassRules (Get-JkDueData) (Get-JkGradeData) $a.key)[0].Held) 'with 60 on the final the rule holds'
+        Assert-Throws { Invoke-JkGrade pass cs370 exams lots 6>$null } 'a percent is required'
+        Assert-Throws { Invoke-JkGrade pass cs370 quizzes 50 6>$null } 'an unknown kind is refused'
+        $null = & $lines { Invoke-JkGrade pass cs370 off }
+        Assert-Eq @(Get-JkPassRules (Get-JkGradeData) $a.key).Count 0 'off removes it'
+        Assert-Eq @(Get-JkPassRules (Get-JkGradeData) $b.key).Count 2 'and leaves the other course alone'
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk exam with the target out of reach says where the course can still end, what 70% and 60% take, and that the week is only part of the prep' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'outofreach-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
@@ -2224,7 +2267,7 @@ Test 'every safe command and action runs on an empty install without a PowerShel
         'due', 'due add', 'due done', 'due undone', 'due edit', 'due rm', 'due files', 'due all', 'due past', 'due week', 'due exams', 'due courses', 'due course',
         'class', 'class week', 'class list', 'class next', 'class add', 'class rm', 'week', 'exams', 'plan', 'plan week', 'review',
         'todo', 'todo add', 'todo done', 'todo undo', 'todo rm', 'todo clear', 'todo edit', 'todo all', 'focus status', 'focus log',
-        'remind', 'remind list', 'remind cancel', 'remind status', 'grade', 'grade set', 'grade clear', 'grade add', 'grade target',
+        'remind', 'remind list', 'remind cancel', 'remind status', 'grade', 'grade set', 'grade clear', 'grade add', 'grade target', 'grade pass',
         'next', 'time', 'time add', 'time rm', 'time off', 'weather', 'weather set', 'weather off', 'brief', 'config', 'config path', 'backup', 'backup list', 'help'
     )
     # these reach past the data folder: timers and popups, a browser or editor, the clipboard, the

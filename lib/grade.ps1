@@ -6,7 +6,7 @@
 function Get-JkGradeData {
     $d = Read-JkJson 'grades.json' $null
     if (-not $d) { $d = [pscustomobject]@{ scores = @(); extras = @(); targets = @(); nextExtra = 1 } }
-    foreach ($p in 'scores', 'extras', 'targets') { if ($null -eq (Get-JkProp $d $p)) { Set-JkProp $d $p @() } }
+    foreach ($p in 'scores', 'extras', 'targets', 'pass') { if ($null -eq (Get-JkProp $d $p)) { Set-JkProp $d $p @() } }
     if (-not (Get-JkProp $d 'nextExtra')) { Set-JkProp $d 'nextExtra' 1 }
     # a mark that is not a number ("great", a hand edit) is kept aside, not counted (core.ps1): it
     # stopped jk grade, the course's grades and its exam brief
@@ -19,7 +19,7 @@ function Get-JkGradeData {
 }
 
 function Save-JkGradeData($Data) {
-    foreach ($p in 'scores', 'extras', 'targets') { $Data.$p = @($Data.$p) }
+    foreach ($p in 'scores', 'extras', 'targets', 'pass') { if ($null -ne (Get-JkProp $Data $p)) { $Data.$p = @($Data.$p) } }
     Save-JkWithUnreadable $Data 'scores' { Save-JkJson 'grades.json' $Data }
 }
 
@@ -119,6 +119,95 @@ function Measure-JkGrade {
     [pscustomobject]@{ Banked = $banked; Graded = $graded; Remaining = $remaining; Unlisted = $unlisted; Total = $total; Average = $avg; Dropped = @($dropped | ForEach-Object { $_.Key }) }
 }
 
+# A course's pass rules (jk grade pass): the exams, or the other work, must average at least Min%
+# on their own, or the course is capped (Cap, when the outline gives one) or failed. CS 370: the
+# midterm and final must average 50% ("36 out of 72"); CS 350: exams and assignments 50% each, or 46.
+function Get-JkPassRules($GradeData, [string]$CourseKey) {
+    @(@(Get-JkProp $GradeData 'pass' @()) | Where-Object { $_.course -eq $CourseKey })
+}
+
+# Each rule measured: the weight of its kind, the average so far, and what its ungraded part needs.
+# Need: the average on what is left of that kind for the rule to hold (<= 0: it holds already;
+# > 100: out of reach). Left names the ungraded items of that kind ("FINAL").
+function Measure-JkPassRules($Data, $GradeData, [string]$CourseKey) {
+    $rules = @(Get-JkPassRules $GradeData $CourseKey)
+    if (-not $rules.Count) { return @() }
+    $kindOf = @{}
+    foreach ($e in @($Data.events)) { if ($e.course -eq $CourseKey) { $kindOf[[string]$e.id] = [string]$e.kind } }
+    # a window's mark can sit on its opening half: look up the kind by either half
+    foreach ($e in @($Data.events)) {
+        if ($e.course -ne $CourseKey -or [string]$e.title -notmatch '(?i)\s+(opens?|closes?)$') { continue }
+        $win = Get-JkEventWindow $e $Data
+        if ($win) { $kindOf[[string]$win.Open.id] = [string]$win.Close.kind }
+    }
+    $items = @(Get-JkGradeItems $Data $GradeData $CourseKey)
+    foreach ($r in $rules) {
+        $mine = @($items | Where-Object { $isExam = (-not $_.Extra) -and $kindOf[[string]$_.Key] -eq 'exam'; if ($r.kind -eq 'exam') { $isExam } else { -not $isExam } })
+        $w = 0.0; $gw = 0.0; $b = 0.0; $left = @()
+        foreach ($i in $mine) {
+            $w += $i.Weight
+            if ($null -ne $i.Score) { $gw += $i.Weight; $b += $i.Score * $i.Weight / 100 } else { $left += $i.Title }
+        }
+        $rest = $w - $gw
+        $need = $null
+        if ($rest -gt 0.0001) { $need = 100 * ([double]$r.min * $w / 100 - $b) / $rest }
+        [pscustomobject]@{
+            Kind = [string]$r.kind; Min = [double]$r.min; Cap = $(if ($null -ne (Get-JkProp $r 'cap' $null)) { [double]$r.cap } else { $null })
+            Weight = $w; Graded = $gw; Average = $(if ($gw -gt 0) { 100 * $b / $gw } else { $null }); Need = $need; Left = @($left)
+            Held = $(if ($rest -le 0.0001) { $gw -gt 0 -and 100 * $b / $gw -ge [double]$r.min } else { $need -le 0 })
+        }
+    }
+}
+
+# One rule in words: "the exams (72% of the course) must average 50%: 38.8% so far, the FINAL needs
+# 59%". Style is the colour the need deserves.
+function Format-JkPassRule($R) {
+    $what = $(if ($R.Kind -eq 'exam') { 'the exams' } else { 'the assignments and other work' })
+    $txt = "$what ($(Format-JkWeightPct $R.Weight) of the course) must average $(Format-JkPct $R.Min 0)"
+    $cap = $(if ($null -ne $R.Cap) { " or the course is capped at $(Format-JkPct $R.Cap 0)" } else { ' to pass' })
+    $so = $(if ($null -ne $R.Average) { "$(Format-JkPct $R.Average) so far" } else { 'nothing marked yet' })
+    $rest = $(if ($R.Left.Count -eq 1) { "the $($R.Left[0])" } elseif ($R.Left.Count) { "the rest of them" } else { '' })
+    if ($null -eq $R.Need) {
+        $st = $(if ($R.Held) { 'green' } else { 'red' })
+        return @("$txt$cap`: $so, $(if ($R.Held) { "held $($script:G.check)" } else { 'not held' })", $st)
+    }
+    if ($R.Need -le 0) { return @("$txt$cap`: $so, held whatever $rest scores $($script:G.check)", 'green') }
+    if ($R.Need -gt 100) { return @("$txt$cap`: $so, $rest would need $([int][Math]::Round($R.Need))% (out of reach)", 'red') }
+    $st = $(if ($R.Need -ge 70) { 'orange' } else { 'white' })
+    @("$txt$cap`: $so, $rest needs $([int][Math]::Ceiling($R.Need - 0.0001))%", $st)
+}
+
+# jk grade pass cs370 exams 50 | jk grade pass cs350 exams 50 work 50 cap 46 | jk grade pass cs370 off
+function Set-JkGradePass {
+    $a = @($args | ForEach-Object { [string]$_ })
+    if (-not $a.Count) { throw 'usage: jk grade pass <course> exams 50 [work 50] [cap 46]   |   jk grade pass <course> off' }
+    $due = Get-JkDueData
+    $c = Resolve-JkCourse $due $a[0]
+    if (-not $c) { throw "unknown course '$($a[0])'" }
+    $gd = Get-JkGradeData
+    $others = @(@(Get-JkProp $gd 'pass' @()) | Where-Object { $_.course -ne $c.key })
+    if ($a.Count -eq 1) { Show-JkGrade $c.key; return }
+    if ($a[1] -match '^(?i)(off|none|clear|rm)$') { Set-JkProp $gd 'pass' $others; Save-JkGradeData $gd; Say (Paint 'gray' "  $($c.code): no pass rule"); return }
+    $new = @(); $cap = $null
+    for ($i = 1; $i -lt $a.Count; $i += 2) {
+        $k = $a[$i].ToLower(); $v = $(if ($i + 1 -lt $a.Count) { $a[$i + 1] } else { '' })
+        if ($v -notmatch '^\d+(\.\d+)?%?$') { throw "a pass rule takes a percent after '$k', not '$v' (jk grade pass $($c.key) exams 50)" }
+        $n = [double]::Parse($v.TrimEnd('%'), $script:Inv)
+        if ($n -le 0 -or $n -gt 100) { throw "'$v' is not a percent from 1 to 100" }
+        switch -Regex ($k) {
+            '^(exams?|tests?|midterms?|finals?)$' { $new += [pscustomobject]@{ course = $c.key; kind = 'exam'; min = $n } }
+            '^(work|assignments?|asst|a|other|homework|hw)$' { $new += [pscustomobject]@{ course = $c.key; kind = 'work'; min = $n } }
+            '^(cap|capped|max)$' { $cap = $n }
+            default { throw "'$k' is not exams, work or cap (jk grade pass $($c.key) exams 50 work 50 cap 46)" }
+        }
+    }
+    if (-not $new.Count) { throw 'name what must be passed: exams 50, work 50, or both' }
+    if ($null -ne $cap) { foreach ($r in $new) { $r | Add-Member -NotePropertyName cap -NotePropertyValue $cap } }
+    Set-JkProp $gd 'pass' @($others + $new)
+    Save-JkGradeData $gd
+    Show-JkGrade $c.key
+}
+
 function Get-JkTarget($GradeData, [string]$CourseKey) {
     $t = @($GradeData.targets | Where-Object { $_.course -eq $CourseKey })
     if ($t) { return [double]$t[0].target }
@@ -197,6 +286,16 @@ function Show-JkGradeOverview {
         if ($null -ne $m.Average) { if ($m.Average -ge $target) { $avgStyle = 'green' } elseif ($m.Average -lt $target - 10) { $avgStyle = 'orange' } }
         Say ('  ' + (Paint "bold #$(([string]$c.color).TrimStart('#'))" (Fit $c.code 12)) + (Paint 'muted' (Fit (Format-JkPct $m.Graded 0) 9 -Right)) + (Paint $avgStyle (Fit (Format-JkPct $m.Average) 10 -Right)) + (Paint 'muted' (Fit ('{0:N1}' -f $m.Banked) 9 -Right)) + (Paint 'gray' (Fit (Format-JkPct $target 0) 9 -Right)) + (Paint $need[1] (Fit $need[0] 15 -Right)))
     }
+    # pass rules that still want something
+    $passLines = @(foreach ($c in @($due.courses)) {
+            foreach ($r in @(Measure-JkPassRules $due $gd $c.key)) {
+                # held already, or nothing marked of its kind yet (then it says no more than the target)
+                if ($r.Held -or $null -eq $r.Average) { continue }
+                $t = Format-JkPassRule $r
+                "$($c.code): $($t[0])"
+            }
+        })
+    if ($passLines.Count) { Say ''; foreach ($l in $passLines) { Write-JkTip ('  ' + (Paint 'bold white' (Fit 'pass' 7))) 9 $l 'white' -Indent 9 } }
     Say ''
     $unmarked = @(Get-JkUnmarkedItems).Count
     if ($unmarked) { Say ('  ' + (Paint 'amber' "$(Format-JkCount $unmarked 'past item') with no mark yet") + (Paint 'gray' "  $($script:G.arrow) ") + (Paint 'cyan' 'jk grade import <course>') + (Paint 'gray' ' reads a copied LEARN Grades page, or ') + (Paint 'cyan' 'jk grade fill') + (Paint 'gray' ' asks')) }
@@ -238,6 +337,12 @@ function Show-JkGrade {
     elseif ($m.Total -gt 100.5) { $sumNote = Paint 'yellow' "  (weights add up to $(Format-JkPct $m.Total 1) - is something counted twice? jk due edit <id> -Weight 0, or jk grade clear x<n>)" }
     Say ('  graded ' + (Paint 'white' (Format-JkPct $m.Graded 1)) + ' of the course  ' + $script:G.dot + '  average ' + (Paint "bold #$color" (Format-JkPct $m.Average)) + '  ' + $script:G.dot + '  banked ' + (Paint 'white' ('{0:N2}' -f $m.Banked)) + ' / ' + ('{0:N1}' -f $m.Graded) + $sumNote)
     Write-JkNeedTable $m $target
+    # the course's own pass rules: a minimum on the exams (or the work) whatever the total
+    $pr = @(Measure-JkPassRules $due $gd $c.key)
+    if ($pr.Count) {
+        Say ''
+        foreach ($r in $pr) { $t = Format-JkPassRule $r; Write-JkTip ('  ' + (Paint 'bold white' (Fit 'pass' 7))) 9 $t[0] $t[1] -Indent 9 }
+    } else { Say (Paint 'gray' "  a rule like `"the exams must average 50%`" in the outline? jk grade pass $($c.key) exams 50") }
 }
 
 # "to finish with 50% 60% ... / you need ..." for what is left of the course.
@@ -610,6 +715,7 @@ function Invoke-JkGrade {
         '^(clear|unset|rm)$' { Clear-JkGrade @rest; return }
         '^(add|extra)$' { Add-JkGradeExtra @rest; return }
         '^(target|goal)$' { Set-JkGradeTarget @rest; return }
+        '^(pass|rule|minimum|min)$' { Set-JkGradePass @rest; return }
         '^(fill|catchup|marks)$' { Invoke-JkGradeFill; return }
         '^(import|learn|paste)$' { Import-JkGrades @rest; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'grade'; return }
