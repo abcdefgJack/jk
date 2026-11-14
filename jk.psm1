@@ -57,6 +57,56 @@ function Resolve-JkCommand([string]$Name) {
     $null
 }
 
+# Words people type for something jk has under another name: jk today is the dashboard.
+$script:JkCommandWords = [ordered]@{
+    'jk'           = @('today', 'dash', 'dashboard', 'home', 'overview', 'summary')
+    'jk due 2'     = @('tomorrow', 'tmrw', 'tmr')
+    'jk grade'     = @('gpa', 'avg', 'average', 'score', 'scores')
+    'jk exams'     = @('final', 'finals', 'quiz', 'quizzes', 'test', 'tests', 'midterm')
+    'jk focus'     = @('timer', 'study-timer', 'tomato')
+    'jk due cal'   = @('cal', 'calendar', 'ics')
+    'jk todo'      = @('task', 'tasks', 'list')
+    'jk in'        = @('alarm', 'remindme', 'later')
+    'jk plan week' = @('checklist', 'routine')
+}
+
+# What an unknown first word was probably meant to be: a word jk knows by another name, or a
+# command, alias or course one or two typos away (two only when one of the words has 5 letters).
+# Up to three, the closest first; @() when nothing is near.
+function Get-JkCommandGuess([string]$Word) {
+    $w = $Word.ToLowerInvariant()
+    if (-not $w) { return @() }
+    foreach ($k in $script:JkCommandWords.Keys) { if ($script:JkCommandWords[$k] -contains $w) { return @($(if ($k -eq 'jk') { 'jk (the dashboard)' } else { $k })) } }
+    $pool = [ordered]@{}
+    foreach ($k in $script:JkCommands.Keys) {
+        if (-not $pool.Contains($k)) { $pool[$k] = "jk $k" }
+        foreach ($al in @($script:JkCommands[$k].Aliases)) { if ($al -match '^[a-z]{2,}$' -and -not $pool.Contains($al)) { $pool[$al] = "jk $k" } }
+    }
+    foreach ($k in $script:JkCommandWords.Keys) { foreach ($x in $script:JkCommandWords[$k]) { if (-not $pool.Contains($x)) { $pool[$x] = $k } } }
+    try {
+        $subj = @{}
+        foreach ($c in @((Get-JkDueData -Cached).courses)) {
+            $ck = Get-JkNormKey ([string]$c.code); if (-not $ck) { $ck = [string]$c.key }
+            if ($ck -and -not $pool.Contains($ck)) { $pool[$ck] = "jk $ck" }
+            # "health" alone is HEALTH 105 when no other course starts with it (jk health works)
+            if ($ck -match '^([a-z]{4,})\d') { $subj[$Matches[1]] = @($subj[$Matches[1]]) + $ck }
+        }
+        foreach ($s in $subj.Keys) { if (@($subj[$s] | Where-Object { $_ }).Count -eq 1 -and -not $pool.Contains($s)) { $pool[$s] = "jk $s" } }
+    } catch { }
+    if ($w.Length -lt 2) { return @() }
+    $i = 0
+    $hits = foreach ($cand in $pool.Keys) {
+        $i++
+        $d = Get-JkEditDistance $w $cand
+        # "gr" is one letter from "go" and from "grep": too short to say which
+        if ($d -eq 0) { return @() }
+        $max = $(if ([Math]::Max($w.Length, $cand.Length) -ge 5) { 2 } else { 1 })
+        if ($d -le $max -and $d -lt $cand.Length - 1) { [pscustomobject]@{ Shown = $pool[$cand]; D = $d; I = $i } }
+    }
+    # the closest first; on a tie, commands before aliases before other words (the pool's order)
+    @($hits | Sort-Object D, I | ForEach-Object { if ($_.Shown -eq 'jk') { 'jk (the dashboard)' } else { $_.Shown } } | Select-Object -Unique -First 3)
+}
+
 function jk {
     # jk reports through its own messages; git and compilers it runs along the way must not leave
     # their exit codes behind for the prompt or a calling script
@@ -127,7 +177,9 @@ function Invoke-JkCommand {
     }
     $name = $null; if ($route) { $name = $route.Command }
     if (-not $name) {
-        Write-Host (Paint 'red' "  jk: unknown command '$($a[0])'.") (Paint 'gray' "Try 'jk help'.")
+        $guess = @(Get-JkCommandGuess ([string]$a[0]))
+        if ($guess.Count) { Write-Host (Paint 'red' "  jk: unknown command '$($a[0])'.") (Paint 'white' "Did you mean $(($guess | ForEach-Object { $_ }) -join ' or ')?") (Paint 'gray' "(jk help lists them all)") }
+        else { Write-Host (Paint 'red' "  jk: unknown command '$($a[0])'.") (Paint 'gray' "Try 'jk help'.") }
         return
     }
     $rest = @()
