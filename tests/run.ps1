@@ -310,6 +310,41 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk exam with the target out of reach says where the course can still end, what 70% and 60% take, and that the week is only part of the prep' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'outofreach-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs370' -Create; $b = Resolve-JkCourse $dd 'co367' -Create
+        $a1 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-05') -Time '23:59' -Title 'Assignment 1' -Weight '7%'
+        $a2 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-26') -Time '23:59' -Title 'Assignment 2' -Weight '7%'
+        $mid = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-02') -Time '19:00' -Title 'Midterm' -Kind 'exam' -Weight '32%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-10') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        $null = New-JkEvent -Data $dd -Course $b.key -Date ([datetime]'2026-11-19') -Time '08:30' -End '09:50' -Title 'Quiz 3' -Kind 'exam' -Weight '20%'
+        Save-JkDueData $dd
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'grades.json'), "{""scores"":[{""id"":""$($a1.id)"",""score"":100},{""id"":""$($a2.id)"",""score"":100},{""id"":""$($mid.id)"",""score"":38.75}],""extras"":[],""targets"":[],""nextExtra"":1}")
+        $env:JK_NOW = '2026-11-13T10:00:00'; $env:JK_WIDTH = '130'
+        $brief = @(Invoke-JkExams $a.key 6>&1 | ForEach-Object { "$_" })
+        # a row and the lines it wraps onto
+        $row = { param($lines, $k)
+            $out = @(); $on = $false
+            foreach ($l in $lines) { if ($l -match "^\s+$k\s") { $on = $true; $out += $l } elseif ($on -and $l -match '^\s{11}\S') { $out += $l.Trim() } else { $on = $false } }
+            ($out -join ' ') }
+        $if = & $row $brief 'if'
+        Assert-True ($if -match '60 . 64%' -and $if -match '90 . 76%' -and $if -match 'for the course at most' -and $if -match '80% is out of reach' -and $if -notmatch '\(!\)') "the if row: $if"
+        $marks = & $row $brief 'marks'
+        Assert-True ($marks -match 'you need 99% on the rest' -and $marks -match '\(70% takes 81%, 60% takes 62%\)') "the marks row: $marks"
+        $prep = & $row $brief 'prep'
+        Assert-True ($prep -match 'jk plan has \S+( \S+)? of it in the next 7 days') "prep, an exam four weeks off: $prep"
+        # a course with no marks, its quiz inside the week: as before
+        $q = @(Invoke-JkExams $b.key 6>&1 | ForEach-Object { "$_" })
+        Assert-True ((& $row $q 'if') -match '60 . 85%') "no marks: what the rest needs, as before: $(& $row $q 'if')"
+        Assert-True ((& $row $q 'prep') -match 'before it') "prep, an exam this week: $(& $row $q 'prep')"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'a week that runs into the study break plans those days at plan.examHours, the class days before at plan.hours' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
     $env:JK_HOME = Join-Path $saved 'daybudget-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
