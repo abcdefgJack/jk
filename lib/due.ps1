@@ -570,7 +570,19 @@ function Show-JkExamBrief {
         [pscustomobject]@{ E = $e; Win = $win; Title = $title; Start = $(if ($win) { $win.Opens } else { $end }); End = $end }
     }
     $x = @($cands | Sort-Object Start)[0]
-    if (-not $x) { throw "no coming exam matches '$($Words -join ' ')' (jk exams lists them)" }
+    if (-not $x) {
+        # a course named alone, past its last exam (or with none): say so, not that nothing matched
+        if ($course -and -not $rx.Count) {
+            $code = Get-JkCourseLabel ([pscustomobject]@{ course = $course.key }) $cmap
+            $past = @($data.events | Where-Object { $_.kind -eq 'exam' -and $_.course -eq $course.key -and [string]$_.title -notmatch '(?i)\s+opens?$' } | Sort-Object { Get-JkEventDue $_ })
+            if ($past.Count) {
+                $last = $past[-1]; $t = ([string]$last.title -replace '(?i)\s+closes?$', '').Trim()
+                throw "$code has no exam left: its $t was $((Get-JkEventDue $last).ToString('ddd MMM d', $script:Inv)) (jk grade $(Get-JkNormKey $code) for where the marks stand)"
+            }
+            throw "$code has no exams in jk (jk due add $(Get-JkNormKey $code) Midterm <date> <time> -Exam adds one)"
+        }
+        throw "no coming exam matches '$($Words -join ' ')' (jk exams lists them)"
+    }
     $e = $x.E
     $label = "$(Get-JkCourseLabel $e $cmap) $($x.Title)"
     $left = $x.Start - $now

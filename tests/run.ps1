@@ -1110,6 +1110,27 @@ Test 'an online exam window (opens + closes) shows as one exam' {
     $dash = (Show-JkDashboard 6>&1 | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($dash -match 'NEXT EXAM\s+HEALTH 105 Midterm  in 4 days . Mon Oct 26 6:00 am . Tue 11:59 pm') 'dashboard callout spans the window'
 }
+Test 'jk exam <course> after its last exam says so, with the date, instead of "no coming exam matches"' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'exam-after'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $d = Get-JkDueData; $a = Resolve-JkCourse $d 'cs350' -Create; $null = Resolve-JkCourse $d 'cs341' -Create
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-10-29') -Time '16:30' -Title 'Midterm' -Kind 'exam' -Weight '20%'
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-12-17') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        Save-JkDueData $d
+        $env:JK_NOW = '2026-12-17T20:00:00'
+        $m = try { Show-JkExamBrief cs350 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
+        Assert-Eq $m 'CS 350 has no exam left: its FINAL was Thu Dec 17 (jk grade cs350 for where the marks stand)'
+        $m = try { Show-JkExamBrief cs341 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
+        Assert-True ($m -match '^CS 341 has no exams in jk \(jk due add cs341 ') "a course with none: $m"
+        # title words that match nothing keep the old message
+        $m = try { Show-JkExamBrief cs350 quiz 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
+        Assert-True ($m -match "^no coming exam matches 'cs350 quiz'") "title words: $m"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk exams: an online window''s note line says the window once, then what its notes add' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'window-note'; $script:JkConfigCache = $null; $script:JkDueCache = $null
