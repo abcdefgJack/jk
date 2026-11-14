@@ -612,7 +612,14 @@ function Show-JkExamBrief {
     }
     if ($m.Graded -gt 0) {
         $need = Get-JkNeededText $target $m
-        & $wrapRow 'marks' "$(Format-JkPct $m.Average) on the $(Format-JkPct $m.Graded 0) graded so far; to finish at $(Format-JkPct $target 0) you need $($need[0]) on the rest, this exam included" 'muted'
+        # when the target takes nearly everything, what the lower finishes take says more
+        $lower = ''
+        $restAll = $m.Remaining + [double]$m.Unlisted
+        if ($restAll -gt 0.0001 -and 100 * ($target - $m.Banked) / $restAll -gt 90) {
+            $bits = @(foreach ($t in 70, 60, 50) { if ($t -lt $target - 5) { $n = 100 * ($t - $m.Banked) / $restAll; if ($n -gt 0 -and $n -le 90) { "$t% takes $([int][Math]::Round($n))%" } } })
+            if ($bits.Count) { $lower = " ($(@($bits | Select-Object -First 2) -join ', '))" }
+        }
+        & $wrapRow 'marks' "$(Format-JkPct $m.Average) on the $(Format-JkPct $m.Graded 0) graded so far; to finish at $(Format-JkPct $target 0) you need $($need[0]) on the rest, this exam included$lower" 'muted'
     } else {
         & $wrapRow 'marks' "none recorded for this course yet $($script:G.dash) jk grade fill, then this says what you need on it" 'gray'
     }
@@ -624,10 +631,18 @@ function Show-JkExamBrief {
             $scores = @(@($gd.scores | ForEach-Object { [pscustomobject]@{ id = [string]$_.id; score = [double]$_.score } }) | Where-Object { $_.id -ne $gi.Key }) + [pscustomobject]@{ id = [string]$gi.Key; score = [double]$p }
             $hypo = [pscustomobject]@{ scores = $scores; extras = $gd.extras; targets = $gd.targets; nextExtra = $gd.nextExtra }
             $mh = Measure-JkGrade (Get-JkGradeItems $data $hypo $e.course) (Get-JkGradeRules $data $e.course)
-            "$p $($script:G.arrow) $((Get-JkNeededText $target $mh)[0])"
+            $restH = $mh.Remaining + [double]$mh.Unlisted
+            [pscustomobject]@{ Text = "$p $($script:G.arrow) $((Get-JkNeededText $target $mh)[0])"; Most = $mh.Banked + $restH; Mark = $p
+                Reach = $(if ($restH -gt 0.0001) { 100 * ($target - $mh.Banked) / $restH -le 100 } else { $mh.Banked -ge $target }) }
         }
         $note = ''; if ($m.Graded -le 0) { $note = ' (no marks in yet, so all the other work counts as still to come)' }
-        & $wrapRow 'if' "a mark here of $($cells -join "  $($script:G.dot)  ") on the rest, for $(Format-JkPct $target 0)$note" 'muted'
+        if (-not @($cells | Where-Object { $_.Reach }).Count) {
+            # the target is gone whatever the mark ("60 -> 211% (!)" four times says nothing): where the
+            # course can still end, with full marks on everything else
+            $most = @($cells | ForEach-Object { "$($_.Mark) $($script:G.arrow) $([int][Math]::Floor($_.Most))%" })
+            & $wrapRow 'if' "a mark here of $($most -join "  $($script:G.dot)  ") for the course at most, with full marks on the rest ($(Format-JkPct $target 0) is out of reach)" 'muted'
+        }
+        else { & $wrapRow 'if' "a mark here of $(@($cells | ForEach-Object { $_.Text }) -join "  $($script:G.dot)  ") on the rest, for $(Format-JkPct $target 0)$note" 'muted' }
     }
 
     # prep: jk plan's estimate for it, focus already credited, and the blocks scheduled before it
@@ -641,7 +656,9 @@ function Show-JkExamBrief {
             foreach ($d in @($p.Schedule)) { $mins = [double]$d.Alloc[$it.Key]; $before += $mins; if ($d.Day -eq $now.Date) { $today = $mins } }
             $txt = "about $(Format-JkMinutes $it.Effort) of prep for $(Format-JkWeightPct $wt)"
             if ($it.Done -gt 0) { $txt += ", $(Format-JkMinutes $it.Done) of it logged" }
-            $sched = "; jk plan has $(Format-JkMinutes $before) before it"
+            # the plan is drawn a week ahead: for an exam past that, the week is not all of its prep
+            $last = @($p.Schedule)[-1].Day
+            $sched = $(if ($x.Start.Date -gt $last) { "; jk plan has $(Format-JkMinutes $before) of it in the next 7 days" } else { "; jk plan has $(Format-JkMinutes $before) before it" })
             if ($today -gt 0) { $sched += " ($(Format-JkMinutes $today) today)" }
             & $wrapRow 'prep' ($txt + $sched) 'muted'
         }
