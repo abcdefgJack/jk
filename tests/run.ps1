@@ -310,6 +310,37 @@ Test 'term week, reading week and exam phase' {
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-15')).Phase 'exams'
     Assert-Eq (Get-JkTermInfo $d ([datetime]'2026-12-09')).Phase 'study'
 }
+Test 'jk plan follows a pass rule too: with an easy target but exams at 38.75%, the final still gets more time, and the note says what it needs to pass' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'passplan-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $dd = Get-JkDueData; $a = Resolve-JkCourse $dd 'cs370' -Create
+        $a1 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-05') -Time '23:59' -Title 'Assignment 1' -Weight '7%'
+        $a2 = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-10-26') -Time '23:59' -Title 'Assignment 2' -Weight '7%'
+        $mid = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-02') -Time '19:00' -Title 'Midterm' -Kind 'exam' -Weight '32%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-11-16') -Time '23:59' -Title 'Assignment 3' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-04') -Time '23:59' -Title 'Assignment 4' -Weight '7%'
+        $null = New-JkEvent -Data $dd -Course $a.key -Date ([datetime]'2026-12-10') -Time '16:00' -End '18:30' -Title 'FINAL' -Kind 'exam' -Weight '40%'
+        Save-JkDueData $dd
+        # a target of 50%: the total is comfortable (44% on the rest), so by the target alone the course gets less
+        [IO.File]::WriteAllText((Join-Path $env:JK_HOME 'grades.json'), "{""scores"":[{""id"":""$($a1.id)"",""score"":100},{""id"":""$($a2.id)"",""score"":100},{""id"":""$($mid.id)"",""score"":38.75}],""extras"":[],""targets"":[{""course"":""$($a.key)"",""target"":50}],""nextExtra"":1}")
+        $env:JK_NOW = '2026-11-13T10:00:00'
+        $f = { $it = @(Get-JkPlanItems | Where-Object { $_.Title -eq 'FINAL' })[0]; if ($it) { "$([double]$it.Factor)" } else { 'absent' } }
+        Assert-Eq (& $f) 'absent' 'by the target alone, the final waits until two weeks before'
+        # the rule: the exams must average 50%, so the final needs 59% against 38.75% so far
+        $null = Invoke-JkGrade pass $a.key exams 50 6>&1
+        Assert-Eq (& $f) '1.4' 'the pass rule gives the final 1.4 times the time, from 5 weeks out'
+        $env:JK_WIDTH = '160'
+        $notes = @(Show-JkPlan 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'by your marks' })
+        Assert-True ($notes.Count -eq 1 -and $notes[0] -match 'CS 370 exams x1\.4, from 5 weeks out .+ to pass, the exams must average 50%: 39% so far, the FINAL needs 59%') "the note: $($notes -join ' / ')"
+        # the assignments, at 100%, are not given more by it
+        $a3 = @(Get-JkPlanItems | Where-Object { $_.Title -eq 'Assignment 3' })[0]
+        Assert-True ([double]$a3.Factor -lt 1) "the assignments keep the target's share: $($a3.Factor)"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'jk grade pass: the exams must average 50% (CS 370: the final needs 59%), shown in jk grade, jk exam and the overview; cap, off and bad input' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'passrule-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
