@@ -567,13 +567,34 @@ $script:JkLearnHomeUrl = 'https://learn.uwaterloo.ca/d2l/home'
 
 # jk grade import cs341: the course's LEARN Grades page, copied, becomes marks. Shows what matched
 # and what did not, then records on a yes (-Yes skips the question); handed-in items are checked off.
+# The course a copied LEARN page is about: the one course code it names most ("CS 350 - Operating
+# Systems" in the header, CS350 in links), or $null when it names none or two equally often.
+function Find-JkCourseInText($Data, [string]$Text) {
+    if (-not $Text) { return $null }
+    $hits = foreach ($c in @($Data.courses)) {
+        $code = [string]$c.code
+        if ($code -notmatch '^\s*([A-Za-z]+)\s*(\d+[A-Za-z]?)\s*$') { continue }
+        $n = [regex]::Matches($Text, "(?i)(?<![A-Za-z])$($Matches[1])[ _-]?$($Matches[2])(?![0-9])").Count
+        if ($n) { [pscustomobject]@{ C = $c; N = $n } }
+    }
+    $hits = @($hits | Sort-Object N -Descending)
+    if (-not $hits.Count -or ($hits.Count -gt 1 -and $hits[0].N -eq $hits[1].N)) { return $null }
+    $hits[0].C
+}
+
 function Import-JkGrades {
     param([Parameter(Position = 0)][string]$Course, [string]$Path, [switch]$Yes)
-    if (-not $Course) { throw 'usage: jk grade import <course>   (copy the course''s Grades page in LEARN first)' }
     $due = Get-JkDueData
-    $c = Resolve-JkCourse $due $Course
-    if (-not $c) { throw "unknown course '$Course'" }
     $read = { if ($Path) { [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path).ProviderPath) } else { Get-JkClipboardText } }
+    if (-not $Course) {
+        # no course named: the copied page says which one
+        $c = Find-JkCourseInText $due (& $read)
+        if (-not $c) { throw 'usage: jk grade import <course>   (copy the course''s Grades page in LEARN first; with it copied, jk grade import alone finds the course)' }
+        Say (Paint 'gray' "  the copied page is $($c.code)'s")
+    } else {
+        $c = Resolve-JkCourse $due $Course
+        if (-not $c) { throw "unknown course '$Course'" }
+    }
     $rows = @(ConvertFrom-JkGradesText (& $read))
     if (-not $Path -and -not @($rows | Where-Object { $null -ne $_.Pct }).Count -and (Test-JkInteractive)) {
         # nothing copied yet: open LEARN, then read the page once it is on the clipboard
