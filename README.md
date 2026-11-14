@@ -44,7 +44,8 @@ Install does three things:
   - syncs your LEARN feed, once it is connected;
   - sets a popup 2 hours before each deadline or appointment later that day (`alert.before`).
     Interviews and OAs count too; work marked 0% and quiz-window openings don't, and an item you
-    mark done first stays quiet;
+    mark done first stays quiet. An exam tomorrow before 11 am also gets one at 9 pm tonight, to
+    set an alarm: the morning run waits for the first unlock;
   - sets a popup 10 minutes before each class, with the room (`alert.class`). Only one class timer
     waits at a time; each sets the next as it fires.
 
@@ -64,7 +65,7 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 |---|---|---|
 | School | `jk class` / `jk class week` | Today's classes ("now, ends 9:50", "in 25m"), next class, weekly timetable; `jk class pick` asks for your sections (or `jk class pick cs341 003`); `jk class import` reads Quest's List View (nothing copied yet: it opens Quest and waits for the copy) |
 | | `jk cs341` / `jk co 367` | One course on a screen: its exam (how far off, worth), its next deadlines, marks so far and what the rest needs, its classes, the study `jk plan` has for it today, and the newest files in its folder (`jk find -o 1` opens one). A word after it goes to that command for the course: `jk cs341 exam`, `grade`, `grep <words>`, `due`, `files <deadline>`, `go` |
-| | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams`, `jk due cs350` |
+| | `jk due` | Deadlines in the next 14 days with countdowns. `jk week` grid, `jk exams` (every exam left, with what each course's marks need: "for 80%: 99% on the rest · to pass, the FINAL needs 59%"), `jk due cs350` |
 | | `jk exam cs370` | One exam on a screen: when and where, worth, what you need on it, the prep `jk plan` expects and has scheduled, what lands the week before, and its review files (`jk find -o 1` opens one) |
 | | `jk grep cs370 condition number` | Words inside your course files, page by page: lecture PDFs, slides (`.pptx`), Word files, notebooks (by cell), notes and code across this term's course folders (`jk grep all ...` for every term), each hit with its page and the words picked out; `jk find -o 1` opens a PDF at that page. PDF text is read once (pdftotext from MiKTeX or Git, else pypdf) and kept by file size and time, so later searches take a fraction of a second; handwritten PDFs are counted, not searched |
 | | `jk due add cs350 "A4" dec 2 8pm -Weight 10` | Natural dates: `fri`, `next week`, `tomorrow`, `+3`, `oct 28`, `Mon Nov 9`, `12/2` |
@@ -72,14 +73,15 @@ jk due sync        # after copying LEARN > Calendar > Subscribe: takes the link 
 | | `jk due done a2a` | Complete by id or by part of the title (Tab completes ids, with titles) |
 | | `jk due files cs341 a2` | The files in that course's folder named after the deadline (`A2.tex`, `A2\...`, `a2a.pdf`), or its newest files; `jk find -o 1` opens one |
 | | `jk due cal` / `jk due ics` | Generated calendar web page / `.ics` for Google Calendar or Outlook |
-| | `jk plan` / `jk plan week` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight, days left and your marks (a course behind its target gets more, its exams from 5 weeks out); the week as a day-by-day checklist; starts the next 25-minute block. `jk config set plan.skip <course>` leaves a course out |
+| | `jk plan` / `jk plan week` / `jk plan start` | Splits today's study time across upcoming exams and assignments by weight, days left and your marks (a course behind its target gets more, its exams from 5 weeks out); the week as a day-by-day checklist; starts the next 25-minute block. A course's pass rule (`jk grade pass`) weighs in like its target, and an exam's own day holds only the time before it. `jk config set plan.skip <course>` leaves a course out |
 | | `jk grade cs350` | Running weighted average and "to finish with 80% you need 77% on the rest" |
 | | `jk grade cs370 if midterm 70` | What if: the average with that mark (several: `if midterm 70, a2 85`) and what the rest would then need; nothing is saved |
 | | `jk grade fill` | Goes through every past graded item with no mark: type it (`17/20`, `85`), Enter skips. Each marked item is checked off as of its due date |
-| | `jk grade import cs341` | Copy the course's Grades page in LEARN (Ctrl+A, Ctrl+C): each row is matched to its deadline by title, shown with what did not match, and recorded on a yes. Nothing copied yet? It opens LEARN and waits |
+| | `jk grade import` | Copy a course's Grades page in LEARN (Ctrl+A, Ctrl+C), then run it: the course is read off the page (or name it: `jk grade import cs341`), each row is matched to its deadline by title, shown with what did not match, and recorded on a yes. Nothing copied yet? It opens LEARN and waits |
+| | `jk grade pass cs370 exams 50` | A course's own pass rule ("the exams must average 50%", `work 50`, `cap 46`): `jk grade`, `jk exam` and `jk plan` say what the rest needs for it |
 | | `jk todo "email the TA" -Due fri` | Lightweight to-do list |
 | | `jk pdf *.jpg` / `jk pdf p1.jpg a3.pdf -Out hw3.pdf` | Photos of handwritten work into one PDF for a LEARN dropbox or Crowdmark: each turned upright by the phone's rotation tag, a page each (landscape pages for landscape photos), Letter or `-A4`, in natural order (IMG_2 before IMG_10); PDFs in the list are merged in (pypdf or pdfunite); `-Small` shrinks photos for upload limits; never overwrites |
-| | `jk review` | Last 7 days (done, slipped, focus per course) and next 7 (load, where the marks are) |
+| | `jk review` | Last 7 days (done, slipped, focus per course) and next 7 (load, where the marks are). A slipped deadline with a file named after it written by then reads as probably handed in, with the `jk due done` to type |
 | | `jk jobs` / `jk jobs stripe` | Job applications from your tracker table: applied, waiting on you (sign-ins, MFA, take-homes), ruled out, weekly pace; search answers "did I already apply?" (read-only) |
 | Time | `jk focus 50 cs350` | Focus block; a popup slides in when it ends. `jk focus log` for the week |
 | | `jk next` | The one thing to do now and the two after it: an exam within 6 hours (leave in time, the room), a class within 45 minutes, work due within 12 hours, to-dos due today, then the study `jk plan` has for today, each with the command that does it |
