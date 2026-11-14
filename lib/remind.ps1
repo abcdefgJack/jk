@@ -149,7 +149,9 @@ function Complete-JkReminder {
         } elseif ($e.kind -eq 'exam' -or $e.kind -eq 'appt') {
             # an exam or an interview is something to get to, not to hand in: when, and where
             $lines += "Starts $(Format-JkTime $e.time)$(if ($eve) { ' tomorrow' }) $($script:G.dot) in $(Format-JkDuration (Get-JkTimeLeft $due $now))"
-            if ($e.note) { $lines += [string]$e.note }
+            # where, with the room of the class it is held in ("in class, MC 2017")
+            $place = $(if ($e.kind -eq 'exam') { Get-JkExamPlace $e } else { [string]$e.note })
+            if ($place) { $lines += $place }
             # this PC may sleep through the morning: a phone alarm is what wakes you
             if ($eve) { $lines += 'An early start: set an alarm on your phone tonight' }
             # what it will be like on the way there
