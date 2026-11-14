@@ -38,7 +38,7 @@ function Resolve-JkCourseList($Data, [string]$Text) {
 # with a failed midterm stay as they are, and the exams get the time. Exam is the factor for exams,
 # Other for everything else; Need, Target and Average are the numbers behind them.
 function Get-JkPlanGradeFactor($Data, $GradeData, [string]$CourseKey) {
-    $none = [pscustomobject]@{ Exam = 1.0; Other = 1.0; Need = $null; Target = $null; Average = $null }
+    $none = [pscustomobject]@{ Exam = 1.0; Other = 1.0; Need = $null; Target = $null; Average = $null; Pass = $null }
     $items = @(Get-JkGradeItems $Data $GradeData $CourseKey)
     if (-not @($items | Where-Object { $null -ne $_.Score }).Count) { return $none }
     $m = Measure-JkGrade $items (Get-JkGradeRules $Data $CourseKey)
@@ -60,7 +60,17 @@ function Get-JkPlanGradeFactor($Data, $GradeData, [string]$CourseKey) {
         if ($ew -gt 0 -and $eb / $ew -ge $target) { $fe = 1.0 }
         if ($ow -gt 0 -and $ob / $ow -ge $target) { $fo = 1.0 }
     }
-    [pscustomobject]@{ Exam = $fe; Other = $fo; Need = $need; Target = $target; Average = $m.Average }
+    # the course's own pass rule (jk grade pass): the exams must average 50% whatever the total.
+    # A rule that needs more on what is left than its kind has averaged so far gets the same
+    # treatment as a target does: 20 points more is 1.4 times the time, capped at 1.5.
+    $pass = $null
+    foreach ($r in @(Measure-JkPassRules $Data $GradeData $CourseKey)) {
+        if ($r.Held -or $null -eq $r.Need -or $null -eq $r.Average -or $r.Need -le $r.Average) { continue }
+        $pf = [Math]::Round([Math]::Min(1.5, 1 + ($r.Need - $r.Average) / 50), 2)
+        if ($r.Kind -eq 'exam') { if ($pf -gt $fe) { $fe = $pf; $pass = $r } }
+        elseif ($pf -gt $fo) { $fo = $pf; $pass = $r }
+    }
+    [pscustomobject]@{ Exam = $fe; Other = $fo; Need = $need; Target = $target; Average = $m.Average; Pass = $pass }
 }
 
 function Get-JkPlanItems {
@@ -271,6 +281,20 @@ function Get-JkPlanNotes($Plan, $Cmap, $Data) {
             $txt = "by your marks: $(Get-JkCourseLabel $it $Cmap)$what x$(([double]$it.Factor).ToString('0.0', $script:Inv))"
             if (@($g.Group | Where-Object { $_.Horizon -gt 14 }).Count) { $txt += ", from $([int]($script:PlanFarDays / 7)) weeks out" }
             $need = $(if ($m.Need -gt 100) { "is out of reach on paper ($([int][Math]::Round($m.Need))% on the rest)" } elseif ($m.Need -le 0) { 'is locked in' } else { "takes $([int][Math]::Round($m.Need))% on the rest" })
+            # when the course's pass rule is what sets the time, say that instead, with the factor
+            # of the kind the rule is about (not the earliest item's, which may be the other kind)
+            if ($m.Pass) {
+                $isExam = $m.Pass.Kind -eq 'exam'
+                $what = $(if ($isExam) { 'exams' } else { 'work' })
+                $kin = @($g.Group | Where-Object { ($_.Kind -eq 'exam') -eq $isExam } | Sort-Object Factor -Descending)
+                if ($kin.Count) {
+                    $txt = "by your marks: $(Get-JkCourseLabel $it $Cmap) $what x$(([double]$kin[0].Factor).ToString('0.0', $script:Inv))"
+                    if (@($kin | Where-Object { $_.Horizon -gt 14 }).Count) { $txt += ", from $([int]($script:PlanFarDays / 7)) weeks out" }
+                }
+                $rest = $(if ($m.Pass.Left.Count -eq 1) { "the $($m.Pass.Left[0])" } else { 'the rest' })
+                $notes += "$txt $($script:G.dash) to pass, the $what must average $([int]$m.Pass.Min)%: $([int][Math]::Round($m.Pass.Average))% so far, $rest needs $([int][Math]::Ceiling($m.Pass.Need - 0.0001))%"
+                continue
+            }
             $notes += "$txt $($script:G.dash) $([int][Math]::Round($m.Average))% so far, $([int]$m.Target)% $need"
         }
     }
