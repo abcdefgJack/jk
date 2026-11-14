@@ -328,8 +328,13 @@ function Show-JkDashboard {
     $nudge = { param([string]$Cmd, [string]$Why) Write-JkTip ('  ' + (Paint 'cyan' "$($script:G.star) $Cmd") + '  ') (6 + (Get-JkTextWidth $Cmd)) $Why -Indent 4 }
     # the morning task first: without it nothing else reminds you of anything (a sandbox has none)
     $taskProblem = @(); if (-not $env:JK_SANDBOX) { try { $taskProblem = @(Get-JkTaskNudge $now) } catch { } }
+    # marks before sections: jk plan splits the time by them, and a course with none is planned blind
+    $marks = $null
+    if ($phase -in '', 'classes', 'study', 'exams') { try { $marks = Get-JkMarksNudge $data $now } catch { } }
     if ($taskProblem.Count) {
         & $nudge $taskProblem[0] $taskProblem[1]
+    } elseif ($marks) {
+        & $nudge $marks[0] $marks[1]
     } elseif (-not @($data.events).Count -and $phase -ne 'next') {
         # a brand-new setup: the first thing worth doing
         & $nudge 'jk due sync' 'bring in your deadlines: in LEARN, Calendar > Subscribe, copy the link, then run it'
@@ -348,6 +353,27 @@ function Show-JkDashboard {
         $tip = $script:JkTips[(Get-Random -Maximum $script:JkTips.Count)]
         Say (Paint 'gray' "  tip: $tip")
     }
+}
+
+# The dashboard's nudge for marks not yet in: @(command, why) when 3 or more past graded items have
+# none, naming the course (not left out of jk plan) with the most weight missing; $null otherwise.
+function Get-JkMarksNudge($Data, [datetime]$Now) {
+    $items = @(Get-JkUnmarkedItems $Now)
+    if ($items.Count -lt 3) { return $null }
+    $skip = @(Get-JkPlanSkip $Data)
+    $byCourse = @{}
+    foreach ($e in @($Data.events)) {
+        $it = @($items | Where-Object { $_.Id -eq [string]$e.id })[0]
+        if (-not $it -or $skip -contains [string]$e.course) { continue }
+        $byCourse[[string]$e.course] = [double]$byCourse[[string]$e.course] + [double]$it.Weight
+    }
+    if (-not $byCourse.Count) { return $null }
+    $top = @($byCourse.Keys | Sort-Object @{ e = { - $byCourse[$_] } }, @{ e = { $_ } })[0]
+    $cmap = Get-JkCourseMap $Data
+    $code = Get-JkCourseLabel ([pscustomobject]@{ course = $top }) $cmap
+    $key = Get-JkNormKey $code; if (-not $key) { $key = $top }
+    $pct = Format-JkWeightPct $byCourse[$top]
+    @("jk grade import $key", "$(Format-JkCount $items.Count 'past item') have no mark yet ($code $pct of the course): copy its LEARN Grades page first (Ctrl+A, Ctrl+C), and jk plan weighs it by your marks")
 }
 
 # One line, shown by the profile hook when a terminal opens. The rendered line is cached
