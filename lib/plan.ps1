@@ -176,6 +176,8 @@ function Get-JkPlanSchedule {
     $byKey = @{}
     foreach ($it in $Items) { $remaining[$it.Key] = [Math]::Max(0, $it.Effort - $it.Done); $byKey[$it.Key] = $it }
     $sched = @()
+    # minutes free on the due day before it: from 9 am to an hour before
+    $dueDayFree = { param($it) [Math]::Max(0.0, $it.Due.TimeOfDay.TotalMinutes - 9 * 60 - 60) }
     for ($d = 0; $d -lt $Days; $d++) {
         $day = $Now.Date.AddDays($d)
         # each day has its own budget: a week that runs into the study break has longer days there
@@ -190,7 +192,11 @@ function Get-JkPlanSchedule {
             # when the item is at noon or later (a 4:30 pm midterm leaves its morning for review),
             # and today only while more than an hour is left
             $usableDueDay = $it.Due.Hour -ge 12
-            $daysLeft = [Math]::Max(1, ($it.Due.Date - $day).TotalDays + $(if ($usableDueDay) { 1 } else { 0 }))
+            # the due day counts for the time before it (from 9 am, keeping the last hour free) as a
+            # share of a day's budget: a 12:30 pm final leaves 2h 30m, not a whole day of review
+            $w = 0.0
+            if ($usableDueDay) { $w = [Math]::Max(0.0, [Math]::Min(1.0, (& $dueDayFree $it) / [Math]::Max(60.0, $budget / $(if ($d -eq 0) { [Math]::Max(0.01, $TodayLeftFraction) } else { 1 })))) }
+            $daysLeft = [Math]::Max(1, ($it.Due.Date - $day).TotalDays + $w)
             if ($it.Due.Date -eq $day -and -not $usableDueDay) { continue }
             if ($d -eq 0 -and ($it.Due - $Now).TotalMinutes -lt 60) { continue }
             $asks[$it.Key] = $remaining[$it.Key] / $daysLeft
@@ -217,6 +223,8 @@ function Get-JkPlanSchedule {
             else { $m = [Math]::Round($asks[$k] / $script:PlanBlock) * $script:PlanBlock }
             if ($m -lt $script:PlanBlock -and ($it.Due.Date - $day).TotalDays -le 2) { $m = $script:PlanBlock }
             $m = [Math]::Min($m, [Math]::Ceiling($remaining[$k] / $script:PlanBlock) * $script:PlanBlock)
+            # on the day itself, no more than fits before it (one block at least, while any fits)
+            if ($it.Due.Date -eq $day) { $m = [Math]::Min($m, [Math]::Max([Math]::Min($script:PlanBlock, $m), [Math]::Floor((& $dueDayFree $it) / $script:PlanBlock) * $script:PlanBlock)) }
             if ($m -gt 0) { $alloc[$k] = $m; $remaining[$k] = [Math]::Max(0, $remaining[$k] - $m) }
         }
         # Need is a whole day's worth (remaining / days left); Budget is what is left of the day,
