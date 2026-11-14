@@ -743,7 +743,9 @@ function Show-JkExams {
         if ($win) {
             $title = $win.Title
             $closeTxt = $win.Closes.ToString('ddd MMM d', $script:Inv) + ' ' + (Format-JkTime $win.Closes.ToString('HH:mm', $script:Inv))
-            $notes = @([string]$win.Open.note, [string]$win.Close.note)
+            # the halves' notes without the times the row already gives ("6:00 am Dec 7 -> 11:59 pm
+            # Dec 8" and "11:59 pm"), each part once: "LEARN quiz", "no reopening"
+            $notes = @(@((Get-JkExamNote $win.Open) -split " $([regex]::Escape($script:G.dot)) ") + @((Get-JkExamNote $win.Close) -split " $([regex]::Escape($script:G.dot)) ") | Where-Object { $_ } | Select-Object -Unique)
             if ($win.Opens -ge $now) {
                 $due = $win.Opens
                 $when = $due.ToString('ddd MMM d', $script:Inv) + ' ' + (Format-JkTime $due.ToString('HH:mm', $script:Inv))
