@@ -181,6 +181,7 @@ function Get-JkPlanSchedule {
         # each day has its own budget: a week that runs into the study break has longer days there
         $budget = $BudgetMin
         if ($d -lt $DayBudgets.Count) { $budget = $DayBudgets[$d] }
+        $dayBudget = $budget
         if ($d -eq 0) { $budget = $budget * $TodayLeftFraction }
         $asks = @{}
         foreach ($it in $Items) {
@@ -218,7 +219,9 @@ function Get-JkPlanSchedule {
             $m = [Math]::Min($m, [Math]::Ceiling($remaining[$k] / $script:PlanBlock) * $script:PlanBlock)
             if ($m -gt 0) { $alloc[$k] = $m; $remaining[$k] = [Math]::Max(0, $remaining[$k] - $m) }
         }
-        $sched += [pscustomobject]@{ Day = $day; Alloc = $alloc; Need = $sum; Budget = $budget }
+        # Need is a whole day's worth (remaining / days left); Budget is what is left of the day,
+        # DayBudget the whole day's
+        $sched += [pscustomobject]@{ Day = $day; Alloc = $alloc; Need = $sum; Budget = $budget; DayBudget = $dayBudget }
     }
     $sched
 }
@@ -403,8 +406,11 @@ function Show-JkPlan {
     Say ''
     $prog = 0.0; if ($planned -gt 0) { $prog = [Math]::Min(1, $doneToday / $planned) }
     Say ('  ' + (Get-JkBar $prog 30 'green') + '  ' + (Paint 'white' "$(Format-JkMinutes $doneToday) of $(Format-JkMinutes $planned) focused today"))
-    if ($today.Need -gt $today.Budget * 1.15) {
-        Say ('  ' + (Paint 'orange' "! the next deadlines want ~$(Format-JkMinutes $today.Need) today; the plan is squeezed into your budget"))
+    # Need is a whole day's worth of work, so it is weighed against the whole day's budget: an
+    # evening that has only 45 minutes left is short by the clock, not by the budget
+    if ($today.Need -gt $today.DayBudget * 1.15) {
+        $more = [int][Math]::Ceiling($today.Need / 60)
+        Say ('  ' + (Paint 'orange' "! the next deadlines want ~$(Format-JkMinutes $today.Need) a day, more than your $(Format-JkMinutes $today.DayBudget): the plan is squeezed (jk config set $($p.BudgetKey) $more)"))
     }
     foreach ($n in @(Get-JkPlanNotes $p $cmap $data)) { Write-JkTip '  ' 2 $n 'gray' -Indent 4 }
 
