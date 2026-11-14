@@ -3267,6 +3267,19 @@ Test 'review fixes 3: same-title items, todo keywords, focus credit, process tre
         Assert-Eq "$total $($sched[0].Alloc['a'])" '25 25' '45 minutes left: one block, to the biggest share'
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
+Test 'jk plan: an exam day holds only the time before the exam, and the days before take the rest' {
+    $mk = { param($k, $due, $eff) [pscustomobject]@{ Key = $k; Course = 'x'; Title = $k; Due = [datetime]$due; Weight = 40; Kind = 'exam'; Id = 0; Effort = $eff; Done = 0.0 } }
+    $sum = { param($sched, $k) $t = 0; foreach ($s in $sched) { $t += [double]$s.Alloc[$k] }; $t }
+    # a 12:30 pm final, 10 hours of prep, 6-hour days from Tuesday
+    $sched = @(Get-JkPlanSchedule -Items @(& $mk 'noon' '2026-12-12T12:30' 600) -Now ([datetime]'2026-12-08T09:00') -Days 5 -BudgetMin 360)
+    $day = $sched[4].Alloc['noon']; $eve = $sched[3].Alloc['noon']
+    Assert-True ($day -le 150) "the morning of a 12:30 exam: 9 to 11:30 at most, got $day"
+    Assert-True ($eve -gt $day) "the day before takes more: $eve vs $day"
+    Assert-True ((& $sum $sched 'noon') -ge 575) "all of it still planned: $(& $sum $sched 'noon')"
+    # a 7:30 pm final keeps a whole day; an 11:59 pm deadline too
+    $late = @(Get-JkPlanSchedule -Items @(& $mk 'eve' '2026-12-12T19:30' 600) -Now ([datetime]'2026-12-08T09:00') -Days 5 -BudgetMin 360)
+    Assert-True ($late[4].Alloc['eve'] -ge 100) "an evening exam's day is a study day like the others: $($late[4].Alloc['eve'])"
+}
 Test 'jk plan warns of a squeeze only when a whole day is short: an evening with 45 minutes left is not' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'squeeze-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
