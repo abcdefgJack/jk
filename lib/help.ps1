@@ -288,6 +288,7 @@ A blocked row counts as done once a later row applies to the same company and ro
 jk space                       sizes of Downloads, Recycle Bin, temp, conda/pip/npm caches, Gradle, Maven,
                                Docker's disk, browser/editor caches and every node_modules under the Desktop
 jk space -NoNodeModules        skip the node_modules search (faster)
+jk space clean caches          the four below in one go (temp, conda, pip, npm), with what each freed
 jk space clean temp            delete temp files older than 7 days (-Days 30 to keep more)
 jk space clean conda           conda clean --all   (also: pip, npm)
 jk space clean jetbrains       caches of JetBrains IDE versions no longer installed (CLion2023.1 after 2024.2)

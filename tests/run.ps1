@@ -3353,6 +3353,20 @@ Test 'jk plan warns of a squeeze only when a whole day is short: an evening with
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null
     }
 }
+Test 'jk space clean caches runs temp, conda, pip and npm in turn, skips one that cannot run, and says what it freed' {
+    $orig = ${function:Invoke-JkSpaceCleanStep}
+    $script:Steps = @()
+    # never the real conda, pip or npm here
+    function script:Invoke-JkSpaceCleanStep([string]$Step, [int]$Days) { $script:Steps += "$Step/$Days"; if ($Step -eq 'npm') { throw 'npm not found' }; "cleaned $Step" }
+    try {
+        $out = (Invoke-JkSpaceClean caches -Days 9 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-Eq ($script:Steps -join ',') 'temp/9,conda/9,pip/9,npm/9' 'all four, in order, with -Days'
+        Assert-True ($out -match 'cleaned conda' -and $out -match 'skipped: npm not found') "each step said: $out"
+        Assert-True ($out -match 'freed .+ in all') 'a total at the end'
+    } finally { Set-Item function:script:Invoke-JkSpaceCleanStep $orig }
+    $m = try { Invoke-JkSpaceClean bogus; '' } catch { $_.Exception.Message }
+    Assert-True ($m -match 'caches\|temp\|conda') "usage names caches: $m"
+}
 Test 'data safety: cp clean spares the data folder, tidy recycles only loose downloads, temp keeps fresh folders' {
     $root = Join-Path $env:JK_HOME ('safety-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
     New-Item -ItemType Directory -Force -Path $root | Out-Null
