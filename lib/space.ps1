@@ -25,11 +25,20 @@ function Get-JkSpaceTargets {
         if ($c -and (Test-Path -LiteralPath (Join-Path $c 'pkgs'))) { $condaRoot = $c; break }
     }
     $sid = ([Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+    # what conda clean --all can free: the downloaded archives. The unpacked packages are what the
+    # environments use (8.8 GB reported, 2.5 GB freed on this machine)
+    $condaFix = 'jk space clean conda  (conda clean --all)'
+    if ($condaRoot) {
+        try {
+            $tar = (Get-ChildItem -LiteralPath (Join-Path $condaRoot 'pkgs') -File -Force -ErrorAction Stop | Where-Object { $_.Name -match '\.(conda|tar\.bz2)$' } | Measure-Object Length -Sum).Sum
+            $condaFix = $(if ($tar -gt 0) { "jk space clean conda  (conda clean --all frees about $(Format-JkSize $tar) of downloaded archives; the rest is packages your environments use)" } else { 'nothing for conda clean: what is left is packages your environments use' })
+        } catch { }
+    }
     $list = @(
         @{ Key = 'downloads'; Name = 'Downloads folder'; Path = (Get-JkDownloadsPath); Fix = 'jk tidy old  (old installers/archives)  /  jk tidy dupes' }
         @{ Key = 'recycle'; Name = 'Recycle Bin (C:)'; Path = "C:\`$Recycle.Bin\$sid"; Fix = 'empty it: right-click the Recycle Bin > Empty' }
         @{ Key = 'temp'; Name = 'Your temp folder'; Path = $env:TEMP; Fix = 'jk space clean temp  (files older than 7 days)'; Clean = 'temp' }
-        @{ Key = 'conda'; Name = 'conda package cache'; Path = $(if ($condaRoot) { Join-Path $condaRoot 'pkgs' }); Fix = 'jk space clean conda  (conda clean --all)'; Clean = 'conda' }
+        @{ Key = 'conda'; Name = 'conda package cache'; Path = $(if ($condaRoot) { Join-Path $condaRoot 'pkgs' }); Fix = $condaFix; Clean = 'conda' }
         @{ Key = 'pip'; Name = 'pip cache'; Path = (Join-Path $la 'pip\cache'); Fix = 'jk space clean pip  (pip cache purge)'; Clean = 'pip' }
         @{ Key = 'npm'; Name = 'npm cache'; Path = (Join-Path $la 'npm-cache'); Fix = 'jk space clean npm  (npm cache clean --force)'; Clean = 'npm' }
         @{ Key = 'gradle'; Name = 'Gradle caches'; Path = (Join-Path $HOME '.gradle\caches'); Fix = 'safe to delete; rebuilt on the next build' }
@@ -242,9 +251,31 @@ function Get-JkStaleJetBrainsCaches([string]$Root = (Join-Path $env:LOCALAPPDATA
     @($dirs | Where-Object { $Installed -notcontains $_.Dir.Name -and $_.Version -ne $newest[$_.Product] } | ForEach-Object { $_.Dir })
 }
 
+# One step of jk space clean caches (its own function, so a test can stand in for conda and pip)
+function Invoke-JkSpaceCleanStep([string]$Step, [int]$Days = 7) { Invoke-JkSpaceClean $Step -Days $Days }
+
 function Invoke-JkSpaceClean {
     param([Parameter(Position = 0)][string]$What, [int]$Days = 7)
     switch -Regex ($What) {
+        '^(caches|all|everything)$' {
+            # the four that come back on their own when needed: temp files older than a week, then
+            # the conda, pip and npm download caches. Each step that cannot run here is skipped
+            $drive = Split-Path -Qualifier $env:TEMP
+            $free = { try { [double](Get-PSDrive ($drive.TrimEnd(':'))).Free } catch { 0.0 } }
+            $start = & $free
+            foreach ($step in 'temp', 'conda', 'pip', 'npm') {
+                $b = & $free
+                Say (Paint 'bold white' "  $step")
+                try { Invoke-JkSpaceCleanStep $step $Days 2>&1 | ForEach-Object { if ("$_".Trim()) { Say (Paint 'gray' "    $_") } } }
+                catch { Say (Paint 'gray' "    skipped: $($_.Exception.Message)"); continue }
+                $got = (& $free) - $b
+                if ($got -gt 0) { Say (Paint 'green' "    +$(Format-JkSize $got) free") }
+            }
+            $total = (& $free) - $start
+            Say ''
+            Say ((Paint 'green' "  freed $(Format-JkSize ([Math]::Max(0, $total))) in all $($script:G.check)") + (Paint 'gray' "  ($drive now $(Format-JkSize (& $free)) free; the caches refill as you install packages)"))
+            return
+        }
         '^temp$' {
             # -Days 0 or less puts the cut-off at now or later: every temp file, in use by a build or not
             if ($Days -lt 1) { throw 'jk space clean temp -Days takes 1 or more: it removes files older than that' }
@@ -288,7 +319,7 @@ function Invoke-JkSpaceClean {
             }
             Say ((Paint 'green' "  freed $(Format-JkSize $freed) $($script:G.check)") + (Paint 'gray' '  caches of IDE versions no longer installed; your settings (AppData\Roaming) stay'))
         }
-        default { throw 'usage: jk space clean temp|conda|pip|npm|jetbrains   (other items list the right tool to use)' }
+        default { throw 'usage: jk space clean caches|temp|conda|pip|npm|jetbrains   (caches is the first four in one go; other items list the right tool to use)' }
     }
 }
 
