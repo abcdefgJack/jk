@@ -185,7 +185,7 @@ function Get-JkPlanSchedule {
         if ($d -lt $DayBudgets.Count) { $budget = $DayBudgets[$d] }
         $dayBudget = $budget
         if ($d -eq 0) { $budget = $budget * $TodayLeftFraction }
-        $asks = @{}
+        $asks = @{}; $lastDay = @{}
         foreach ($it in $Items) {
             if ($it.Due.Date -lt $day -or $remaining[$it.Key] -le 0) { continue }
             # days available count today and stop the day before the due date, plus the due day itself
@@ -200,17 +200,28 @@ function Get-JkPlanSchedule {
             if ($it.Due.Date -eq $day -and -not $usableDueDay) { continue }
             if ($d -eq 0 -and ($it.Due - $Now).TotalMinutes -lt 60) { continue }
             $asks[$it.Key] = $remaining[$it.Key] / $daysLeft
+            # today is the last day for it: due tonight, or tomorrow before noon
+            $lastDay[$it.Key] = ($it.Due.Date - $day).TotalDays + $w -le 1
         }
         $sum = 0.0; foreach ($v in $asks.Values) { $sum += $v }
         $scale = 1.0
         if ($sum -gt $budget -and $sum -gt 0) { $scale = $budget / $sum }
         # when squeezed, hand out the whole blocks that fit by largest share first; rounding each
-        # share on its own can leave every item at zero (three 15-minute shares of a 45-minute evening)
+        # share on its own can leave every item at zero (three 15-minute shares of a 45-minute evening).
+        # Work whose last day it is comes first, in full while the day holds it: an assignment due
+        # tonight cannot wait, a final two weeks out can take its share on the days after.
         $blocksFor = @{}
         if ($scale -lt 1) {
+            $lastSum = 0.0; foreach ($k in $asks.Keys) { if ($lastDay[$k]) { $lastSum += $asks[$k] } }
+            $lastScale = 1.0; $restScale = 0.0
+            if ($lastSum -ge $budget) { $lastScale = $budget / $lastSum }
+            elseif ($sum -gt $lastSum) { $restScale = ($budget - $lastSum) / ($sum - $lastSum) }
             $free = [int][Math]::Floor($budget / $script:PlanBlock)
             $exact = @{}
-            foreach ($k in $asks.Keys) { $exact[$k] = $asks[$k] * $scale / $script:PlanBlock; $blocksFor[$k] = [int][Math]::Floor($exact[$k]); $free -= $blocksFor[$k] }
+            foreach ($k in $asks.Keys) {
+                $exact[$k] = $asks[$k] * $(if ($lastDay[$k]) { $lastScale } else { $restScale }) / $script:PlanBlock
+                $blocksFor[$k] = [int][Math]::Floor($exact[$k]); $free -= $blocksFor[$k]
+            }
             foreach ($k in @($asks.Keys | Sort-Object @{ Expression = { $exact[$_] - $blocksFor[$_] }; Descending = $true }, @{ Expression = { $byKey[$_].Due } })) {
                 if ($free -le 0) { break }
                 $blocksFor[$k]++; $free--

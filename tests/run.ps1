@@ -3330,6 +3330,21 @@ Test 'jk plan: an exam day holds only the time before the exam, and the days bef
     $late = @(Get-JkPlanSchedule -Items @(& $mk 'eve' '2026-12-12T19:30' 600) -Now ([datetime]'2026-12-08T09:00') -Days 5 -BudgetMin 360)
     Assert-True ($late[4].Alloc['eve'] -ge 100) "an evening exam's day is a study day like the others: $($late[4].Alloc['eve'])"
 }
+Test 'jk plan: on a squeezed day, work whose last day it is (due tonight, or tomorrow morning) comes first, and finals weeks out wait' {
+    $mk = { param($k, $due, $eff, $kind) [pscustomobject]@{ Key = $k; Course = $k; Title = $k; Due = [datetime]$due; Weight = 10; Kind = $kind; Id = 0; Effort = $eff; Done = 0.0 } }
+    $finals = @((& $mk 'fin1' '2026-12-10T16:00' 760 'exam'), (& $mk 'fin2' '2026-12-12T12:30' 845 'exam'))
+    # 5 hours of an assignment due at 8 tonight, a 3-hour day: all of the day goes to it
+    $s = @(Get-JkPlanSchedule -Items (@(& $mk 'a3' '2026-11-25T20:00' 300 'due') + $finals) -Now ([datetime]'2026-11-25T08:00') -Days 2 -BudgetMin 180)
+    Assert-Eq "$($s[0].Alloc['a3']) $([int]$s[0].Alloc['fin1']) $([int]$s[0].Alloc['fin2'])" '175 0 0' 'tonight''s assignment takes the day'
+    Assert-True ($s[1].Alloc['fin1'] -ge 50 -and $s[1].Alloc['fin2'] -ge 50) "tomorrow the finals share the day: $($s[1].Alloc['fin1']) / $($s[1].Alloc['fin2'])"
+    # less than the day: tonight's 50 minutes and a 9 am quiz's 100 in full, the finals share the rest
+    $s = @(Get-JkPlanSchedule -Items (@((& $mk 'small' '2026-11-25T20:00' 50 'due'), (& $mk 'quiz' '2026-11-26T09:00' 100 'exam')) + $finals) -Now ([datetime]'2026-11-25T08:00') -Days 1 -BudgetMin 180)
+    $rest = [int]$s[0].Alloc['fin1'] + [int]$s[0].Alloc['fin2']
+    Assert-Eq "$($s[0].Alloc['small']) $($s[0].Alloc['quiz']) $rest" '50 100 25' 'the last-day items in full, the rest to the finals'
+    # a day with no last-day work shares as before: in proportion to each ask
+    $s = @(Get-JkPlanSchedule -Items (@(& $mk 'a4' '2026-12-04T23:59' 1200 'due') + $finals) -Now ([datetime]'2026-11-25T08:00') -Days 1 -BudgetMin 180)
+    Assert-True ($s[0].Alloc['fin1'] -ge 25 -and $s[0].Alloc['fin2'] -ge 25 -and $s[0].Alloc['a4'] -ge 75 -and $s[0].Need -gt 180) "shared: $($s[0].Alloc['a4']) / $($s[0].Alloc['fin1']) / $($s[0].Alloc['fin2'])"
+}
 Test 'jk plan warns of a squeeze only when a whole day is short: an evening with 45 minutes left is not' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'squeeze-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
