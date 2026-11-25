@@ -3428,6 +3428,8 @@ Test 'jk exam <course> papers: the past papers for its next exam, paired with th
             $txt = (& $say { Start-JkPlanBlock }) -join "`n"
             Assert-True ($txt -match 'paper: F2002 cs-370-1029-final\.pdf .* jk find -o 1 .* jk exam cs370 did 2 when done') "plan start: $txt"
             Assert-Eq (Split-Path @(Get-JkFindLast)[0] -Leaf) 'cs-370-1029-final.pdf' 'jk find -o 1 opens it'
+            # and the morning popup, under its study line
+            Assert-Eq (Get-JkPlanPaperHint (Get-JkPlanToday) (Get-JkDueData) $c.key) 'Next past paper: CS 370 F2002 cs-370-1029-final.pdf (jk exam cs370 papers)' 'the popup line'
         } finally { Set-Item function:script:Start-JkFocus $origFocus; $env:JK_NOW = '2026-11-25T10:00:00' }
         # a week with nothing on the timer: jk review says how studying still counts
         $txt = (& $say { Show-JkReview }) -join "`n"

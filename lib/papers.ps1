@@ -181,6 +181,23 @@ function Get-JkNextPaper($Papers) {
     0
 }
 
+# For a course in today's plan whose time goes to an exam: "Next past paper: CS 370 F2005
+# cs-370-1059-final.pdf (jk exam cs370 papers)", or $null.
+function Get-JkPlanPaperHint($Plan, $Data, [string]$Course) {
+    if (-not $Plan -or -not $Course) { return $null }
+    $it = @($Plan.Items | Where-Object { $_.Course -eq $Course -and $_.Kind -eq 'exam' -and $Plan.Today.Alloc.ContainsKey($_.Key) } | Sort-Object Due)[0]
+    if (-not $it) { return $null }
+    $e = @($Data.events | Where-Object { [string]$_.id -eq [string]$it.Id })[0]
+    if (-not $e) { return $null }
+    $p = Get-JkExamPapers $Data ([pscustomobject]@{ E = $e; Title = $it.Title })
+    if (-not $p) { return $null }
+    $n = Get-JkNextPaper $p
+    if (-not $n) { return $null }
+    $g = $p.All[$n - 1]
+    $code = Get-JkCourseLabel $e (Get-JkCourseMap $Data)
+    "Next past paper: $code $(if ($g.Term.Label) { "$($g.Term.Label) " })$($g.Paper.Name) (jk exam $(Get-JkNormKey $code) papers)"
+}
+
 # "74", "74%", "17/20" -> 74 / 85; nothing -> $null
 function ConvertTo-JkPaperMark([string]$Text) {
     $t = $Text.Trim().TrimEnd('%')
