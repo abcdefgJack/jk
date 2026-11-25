@@ -618,10 +618,22 @@ function Start-JkPlanBlock {
     $next = Get-JkPlanNext $p (Get-JkTodayFocusByCourse)
     if (-not $next) { Say (Paint 'green' "  Today's plan is covered. $($script:G.check)"); return }
     Start-JkFocus ([string]$script:PlanBlock) @($next.Course, $next.Title)
-    # the files for it, one jk find -o away
+    # the files for it, one jk find -o away; for an exam, the next past paper to sit
     try {
         $data = Get-JkDueData
         $e = @($data.events | Where-Object { [string]$_.id -eq [string]$next.Id })[0]
+        if ($e -and $next.Kind -eq 'exam') {
+            $pp = Get-JkExamPapers $data ([pscustomobject]@{ E = $e; Title = $next.Title })
+            $n = 0; if ($pp) { $n = Get-JkNextPaper $pp }
+            if ($n) {
+                $g = $pp.All[$n - 1]
+                Save-JkFindLast @($g.Paper)
+                $key = Get-JkNormKey (Get-JkCourseLabel $e (Get-JkCourseMap $data))
+                $name = $(if ($g.Term.Label) { "$($g.Term.Label) $($g.Paper.Name)" } else { $g.Paper.Name })
+                Say ('  ' + (Paint 'gray' 'paper: ') + (Paint 'white' $name) + (Paint 'gray' "   $($script:G.arrow) jk find -o 1  $($script:G.dot)  jk exam $key did $n when done"))
+                return
+            }
+        }
         $f = $null; if ($e) { $f = Get-JkDueFileHits $data $e }
         if ($f -and $f.Hits.Count) {
             $top = @($f.Hits | Select-Object -First 3)

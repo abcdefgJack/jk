@@ -52,6 +52,8 @@ function Show-JkReview {
         (Paint 'green' "$($script:G.check) $($doneTodo.Count) to-do$(if ($doneTodo.Count -ne 1) {'s'})"),
         (Paint 'cyan' "$($script:G.circle) $(Format-JkMinutes $focusMin) focused")
     )
+    # nothing on the timer all week: studying still happened, it just was not logged
+    if (-not $sessions.Count) { $bits += Paint 'gray' "(studied without the timer? jk plan did 2h cs350)" }
     Say ('  ' + ($bits -join '   '))
     if ($sessions.Count) {
         $byCourse = $sessions | Group-Object { $l = ([string]$_.label -split '\s+')[0]; $c = $null; if ($l) { $c = Resolve-JkCourse $data $l }; if ($c) { $c.key } else { '(other)' } } | ForEach-Object {
