@@ -114,7 +114,7 @@ function Get-JkPlanItems {
         }
         if (-not $groups.ContainsKey($key) -or $due -lt $groups[$key].Due) {
             $per = $duePer; if ($e.kind -eq 'exam') { $per = $examPer }
-            $groups[$key] = [pscustomobject]@{ Key = $key; Course = [string]$e.course; Title = $norm; Due = $due; Weight = $w; Kind = [string]$e.kind; Id = $e.id; Effort = $w * $per * $factor; Done = 0.0; Factor = $factor; Horizon = $horizon; Marks = $gf[$ck] }
+            $groups[$key] = [pscustomobject]@{ Key = $key; Course = [string]$e.course; Title = $norm; Due = $due; Weight = $w; Kind = [string]$e.kind; Id = $e.id; Effort = $w * $per * $factor; Done = 0.0; DoneToday = 0.0; Factor = $factor; Horizon = $horizon; Marks = $gf[$ck] }
         }
     }
     $items = @($groups.Values)
@@ -147,21 +147,37 @@ function Get-JkPlanItems {
             $at = [datetime]::Parse($lastDone[$course.Name], $script:Inv)
             if ($at -gt $since) { $since = $at }
         }
-        $logged = 0.0
+        $logged = 0.0; $loggedBefore = 0.0
         foreach ($s in @($sessions)) {
-            if ($s.Course -eq $course.Name -and $s.Start -ge $since -and $s.Start -le $Now) { $logged += $s.Minutes }
+            if ($s.Course -eq $course.Name -and $s.Start -ge $since -and $s.Start -le $Now) {
+                $logged += $s.Minutes
+                if ($s.Start -lt $Now.Date) { $loggedBefore += $s.Minutes }
+            }
         }
         # an exam planned from further out (a course behind on its marks) takes only what the nearer
         # items leave: an hour on Monday's assignment is not mostly credited to a final in December
         $near = @($courseItems | Where-Object { $_.Due -le $Now.AddDays($HorizonDays) })
         $far = @($courseItems | Where-Object { $_.Due -gt $Now.AddDays($HorizonDays) })
-        foreach ($part in @($near, $far)) {
-            $group = @($part)
-            $total = 0.0; foreach ($it in $group) { $total += $it.Effort }
-            if ($total -le 0) { continue }
-            $used = 0.0
-            foreach ($it in $group) { $it.Done = [Math]::Min($it.Effort, $logged * $it.Effort / $total); $used += $it.Done }
-            $logged = [Math]::Max(0, $logged - $used)
+        # the same sharing for the focus before today: what was done today (DoneToday) is planned as
+        # part of today, so a block logged at noon fills the day's plan instead of shrinking it
+        $share = {
+            param([double]$Minutes)
+            $out = @{}
+            foreach ($part in @($near, $far)) {
+                $group = @($part)
+                $total = 0.0; foreach ($it in $group) { $total += $it.Effort }
+                if ($total -le 0) { continue }
+                $used = 0.0
+                foreach ($it in $group) { $v = [Math]::Min($it.Effort, $Minutes * $it.Effort / $total); $out[$it.Key] = $v; $used += $v }
+                $Minutes = [Math]::Max(0.0, $Minutes - $used)
+            }
+            $out
+        }
+        $all = & $share $logged
+        $before = & $share $loggedBefore
+        foreach ($it in $courseItems) {
+            $it.Done = [double]$all[$it.Key]
+            $it.DoneToday = [Math]::Max(0.0, $it.Done - [double]$before[$it.Key])
         }
     }
     @($items | Sort-Object Due)
@@ -174,7 +190,14 @@ function Get-JkPlanSchedule {
     param($Items, [datetime]$Now = (Get-JkNow), [int]$Days = 7, [double]$BudgetMin = 180, [double]$TodayLeftFraction = 1.0, [double[]]$DayBudgets = @())
     $remaining = @{}
     $byKey = @{}
-    foreach ($it in $Items) { $remaining[$it.Key] = [Math]::Max(0, $it.Effort - $it.Done); $byKey[$it.Key] = $it }
+    # today is planned from what was left this morning: focus logged today (DoneToday) is part of
+    # today's blocks, not taken off before them, and it does not use up what is left of the day
+    $doneToday = @{}; $todayDone = 0.0
+    foreach ($it in $Items) {
+        $dt = [double](Get-JkProp $it 'DoneToday' 0.0)
+        $doneToday[$it.Key] = $dt; $todayDone += $dt
+        $remaining[$it.Key] = [Math]::Max(0.0, $it.Effort - $it.Done + $dt); $byKey[$it.Key] = $it
+    }
     $sched = @()
     # minutes free on the due day before it: from 9 am to an hour before
     $dueDayFree = { param($it) [Math]::Max(0.0, $it.Due.TimeOfDay.TotalMinutes - 9 * 60 - 60) }
@@ -184,7 +207,7 @@ function Get-JkPlanSchedule {
         $budget = $BudgetMin
         if ($d -lt $DayBudgets.Count) { $budget = $DayBudgets[$d] }
         $dayBudget = $budget
-        if ($d -eq 0) { $budget = $budget * $TodayLeftFraction }
+        if ($d -eq 0) { $budget = $todayDone + [Math]::Max(0.0, [Math]::Min($budget * $TodayLeftFraction, $budget - $todayDone)) }
         $asks = @{}; $lastDay = @{}
         foreach ($it in $Items) {
             if ($it.Due.Date -lt $day -or $remaining[$it.Key] -le 0) { continue }
@@ -195,8 +218,8 @@ function Get-JkPlanSchedule {
             # the due day counts for the time before it (from 9 am, keeping the last hour free) as a
             # share of a day's budget: a 12:30 pm final leaves 2h 30m, not a whole day of review
             $w = 0.0
-            if ($usableDueDay) { $w = [Math]::Max(0.0, [Math]::Min(1.0, (& $dueDayFree $it) / [Math]::Max(60.0, $budget / $(if ($d -eq 0) { [Math]::Max(0.01, $TodayLeftFraction) } else { 1 })))) }
-            $daysLeft = [Math]::Max(1, ($it.Due.Date - $day).TotalDays + $w)
+            if ($usableDueDay) { $w = [Math]::Max(0.0, [Math]::Min(1.0, (& $dueDayFree $it) / [Math]::Max(60.0, $dayBudget))) }
+            $daysLeft = [Math]::Max(1.0, ($it.Due.Date - $day).TotalDays + $w)
             if ($it.Due.Date -eq $day -and -not $usableDueDay) { continue }
             if ($d -eq 0 -and ($it.Due - $Now).TotalMinutes -lt 60) { continue }
             $asks[$it.Key] = $remaining[$it.Key] / $daysLeft
@@ -236,7 +259,14 @@ function Get-JkPlanSchedule {
             $m = [Math]::Min($m, [Math]::Ceiling($remaining[$k] / $script:PlanBlock) * $script:PlanBlock)
             # on the day itself, no more than fits before it (one block at least, while any fits)
             if ($it.Due.Date -eq $day) { $m = [Math]::Min($m, [Math]::Max([Math]::Min($script:PlanBlock, $m), [Math]::Floor((& $dueDayFree $it) / $script:PlanBlock) * $script:PlanBlock)) }
-            if ($m -gt 0) { $alloc[$k] = $m; $remaining[$k] = [Math]::Max(0, $remaining[$k] - $m) }
+            if ($m -gt 0) { $alloc[$k] = $m; $remaining[$k] = [Math]::Max(0.0, $remaining[$k] - $m) }
+        }
+        # what today's focus did beyond its blocks is done too (an item off today's plan included)
+        if ($d -eq 0) {
+            foreach ($k in @($remaining.Keys)) {
+                $extra = $doneToday[$k] - [double]$alloc[$k]
+                if ($extra -gt 0) { $remaining[$k] = [Math]::Max(0.0, $remaining[$k] - $extra) }
+            }
         }
         # Need is a whole day's worth (remaining / days left); Budget is what is left of the day,
         # DayBudget the whole day's
@@ -512,7 +542,7 @@ function Show-JkPlan {
         # the plan looks two weeks ahead: past the first, "Mon" would name the wrong Monday
         $when = Format-JkComingDay $it.Due $now -Short; if ($days -eq 0) { $when = 'today' } elseif ($days -eq 1) { $when = 'tmrw' }
         $blocks = Paint "#$color" ($script:G.full * [int]($m / $script:PlanBlock))
-        $left = [Math]::Max(0, $it.Effort - $it.Done)
+        $left = [Math]::Max(0.0, $it.Effort - $it.Done)
         # a narrow window: "A6" rather than "Assignment..." (and a space before the next column)
         $ttl = [string]$it.Title; if ((Get-JkTextWidth $ttl) -gt ($titleW - 1)) { $ttl = Get-JkShortTitle $ttl }
         Say ('  ' + (Paint "bold #$color" (Fit $code 11)) + (Paint 'white' (Fit $ttl ($titleW - 1))) + ' ' + (Paint 'muted' (Fit "$when $($script:G.dot) $($it.Weight)%" 13)) + (Paint 'bold white' (Fit (Format-JkMinutes $m) 7 -Right)) + '  ' + $blocks + (Paint 'gray' "   ~$(Format-JkMinutes $left) of work left"))
@@ -520,8 +550,14 @@ function Show-JkPlan {
     $planned = 0.0; foreach ($v in $today.Alloc.Values) { $planned += $v }
     $doneToday = 0.0; foreach ($v in $logged.Values) { $doneToday += $v }
     Say ''
-    $prog = 0.0; if ($planned -gt 0) { $prog = [Math]::Min(1, $doneToday / $planned) }
-    Say ('  ' + (Get-JkBar $prog 30 'green') + '  ' + (Paint 'white' "$(Format-JkMinutes $doneToday) of $(Format-JkMinutes $planned) focused today"))
+    $prog = 0.0; if ($planned -gt 0) { $prog = [Math]::Min(1.0, $doneToday / $planned) }
+    $progLine = '  ' + (Get-JkBar $prog 30 'green') + '  ' + (Paint 'white' "$(Format-JkMinutes $doneToday) of $(Format-JkMinutes $planned) focused today")
+    # nothing on the timer today: time studied without it can still count, when the line has room
+    if ($doneToday -le 0 -and $order.Count) {
+        $hint = Paint 'gray' "  $($script:G.dot) no timer? jk plan did 1h $($order[0].Course)"
+        if ((Get-JkVisibleLength ($progLine + $hint)) -le $w - 1) { $progLine += $hint }
+    }
+    Say $progLine
     # Need is a whole day's worth of work, so it is weighed against the whole day's budget: an
     # evening that has only 45 minutes left is short by the clock, not by the budget
     if ($today.Need -gt $today.DayBudget * 1.15) {
@@ -640,7 +676,8 @@ function Invoke-JkPlan {
     switch -Regex (([string]$a[0]).ToLower()) {
         '^(start|go|next)$' { Start-JkPlanBlock; return }
         '^(week|wk|w|7|list|checklist)$' { Show-JkPlanWeek @(@($a | Select-Object -Skip 1)); return }
+        '^(did|done|add|log)$' { $r = @($a | Select-Object -Skip 1); Add-JkFocusLog @r; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'plan'; return }
     }
-    throw "unknown 'plan' action '$($a[0])' (jk plan | jk plan week | jk plan start)"
+    throw "unknown 'plan' action '$($a[0])' (jk plan | jk plan week | jk plan start | jk plan did 1h cs350)"
 }

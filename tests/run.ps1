@@ -2451,7 +2451,7 @@ Test 'every safe command and action runs on an empty install without a PowerShel
     $run = @(
         'due', 'due add', 'due done', 'due undone', 'due edit', 'due rm', 'due files', 'due all', 'due past', 'due week', 'due exams', 'due courses', 'due course',
         'class', 'class week', 'class list', 'class next', 'class add', 'class rm', 'week', 'exams', 'plan', 'plan week', 'review',
-        'todo', 'todo add', 'todo done', 'todo undo', 'todo rm', 'todo clear', 'todo edit', 'todo all', 'focus status', 'focus log',
+        'todo', 'todo add', 'todo done', 'todo undo', 'todo rm', 'todo clear', 'todo edit', 'todo all', 'focus status', 'focus log', 'focus add', 'focus undo', 'plan did',
         'remind', 'remind list', 'remind cancel', 'remind status', 'grade', 'grade set', 'grade clear', 'grade add', 'grade target', 'grade pass',
         'next', 'time', 'time add', 'time rm', 'time off', 'weather', 'weather set', 'weather off', 'brief', 'config', 'config path', 'backup', 'backup list', 'help'
     )
@@ -3329,6 +3329,62 @@ Test 'jk plan: an exam day holds only the time before the exam, and the days bef
     # a 7:30 pm final keeps a whole day; an 11:59 pm deadline too
     $late = @(Get-JkPlanSchedule -Items @(& $mk 'eve' '2026-12-12T19:30' 600) -Now ([datetime]'2026-12-08T09:00') -Days 5 -BudgetMin 360)
     Assert-True ($late[4].Alloc['eve'] -ge 100) "an evening exam's day is a study day like the others: $($late[4].Alloc['eve'])"
+}
+Test 'jk focus add logs time worked without the timer: jk plan counts it, yesterday ends at 10 pm, no course says so, jk focus undo takes it back' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'focus-add'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    try {
+        $env:JK_NOW = '2026-11-13T15:00:00'; $env:JK_WIDTH = '100'
+        $d = Get-JkDueData; $a = Resolve-JkCourse $d 'cs341' -Create
+        $null = New-JkEvent -Data $d -Course $a.key -Date ([datetime]'2026-11-13') -Time '23:59' -Title 'Assignment 4' -Weight '10%'
+        Save-JkDueData $d
+        $say = { param([scriptblock]$Run) (@(& $Run 6>&1 | ForEach-Object { "$_" }) -join "`n") }
+        # nothing on the timer yet: jk plan says how to count time studied without it
+        $plan = & $say { Show-JkPlan }
+        Assert-True ($plan -match 'no timer\? jk plan did 1h cs341') "the hint: $plan"
+        $before = @(Get-JkPlanItems -Now (Get-JkNow))[0].Done
+        $out = & $say { Invoke-JkFocus add 1h30m cs341 a4 }
+        Assert-True ($out -match 'Logged 1h 30m on CS 341 a4' -and $out -match 'focused today 1h 30m') "the line: $out"
+        # the 1h 30m is part of today's plan, not taken off it: 2h 55m planned today (the 3-hour day,
+        # its last day), 1h 25m of it to go - not "covered" by a plan shrunk to the rest of the day
+        Assert-True ($out -match 'CS 341 in today''s plan: 1h 25m to go') "today's plan: $out"
+        $bar = @((& $say { Show-JkPlan }) -split "`n" | Where-Object { $_ -match '1h 30m of 2h 55m focused today' })
+        Assert-Eq $bar.Count 1 'the plan counts it as done today'
+        # the bar is about half full ([Math]::Min(1, 0.51) once rounded it to a full or an empty bar)
+        $full = ($bar[0].ToCharArray() | Where-Object { "$_" -eq $script:G.full }).Count
+        Assert-True ($full -ge 14 -and $full -le 16) "1h 30m of 2h 55m: $full of 30 blocks full"
+        $s = @((Get-JkFocusData).sessions)
+        Assert-Eq "$($s.Count) $($s[0].start) $($s[0].actual) $($s[0].added)" '1 2026-11-13T13:30:00 90 True' 'a session that ends now'
+        $after = @(Get-JkPlanItems -Now (Get-JkNow))[0].Done
+        Assert-Eq ($after - $before) 90 'jk plan counts it'
+        Assert-True ((& $say { Show-JkPlan }) -notmatch 'no timer\?') 'no hint once time is logged'
+        # jk plan did, "2 hours", "on", yesterday
+        $out = & $say { Invoke-JkPlan did 2 hours on cs341 yesterday }
+        $s = @((Get-JkFocusData).sessions)
+        Assert-Eq "$($s[1].label) $($s[1].start) $($s[1].actual)" 'cs341 2026-11-12T20:00:00 120' 'yesterday: ending at 10 pm the day before'
+        Assert-True ($out -match 'focused yesterday 2h 00m' -and $out -match 'toward CS 341') "yesterday's line: $out"
+        # a label with no course is logged, with word that jk plan cannot count it
+        $out = & $say { Invoke-JkFocus add 20m reading }
+        Assert-True ($out -match 'Logged 20m on reading' -and $out -match 'No course in the label.*jk focus add 20m cs350') "no course: $out"
+        # undo takes back the newest
+        $out = & $say { Invoke-JkFocus undo }
+        Assert-True ($out -match 'Taken back 20m on reading') "undo: $out"
+        Assert-Eq (@((Get-JkFocusData).sessions).Count) 2 'two left'
+        # too long, too short, nothing
+        foreach ($case in @(@(@('13h', 'x'), 'more than 12 hours'), @(@('30s', 'x'), 'a minute or more'), @(@(), 'usage: jk focus add'))) {
+            $e = ''; $argv = @($case[0])
+            try { Add-JkFocusLog @argv } catch { $e = "$_" }
+            Assert-True ($e -match $case[1]) "jk focus add $($argv -join ' '): $e"
+        }
+        Assert-Eq (@((Get-JkFocusData).sessions).Count) 2 'nothing logged by a refusal'
+    } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null }
+}
+Test 'jk plan counts part of a day as part of a day: an exam at 3 pm on 10-hour days leaves 2.5 days from two days before, not 2' {
+    # [Math]::Max(1, 2.5) is 2 in PowerShell: an integer first argument picks the integer overload
+    $it = [pscustomobject]@{ Key = 'f'; Course = 'x'; Title = 'f'; Due = [datetime]'2026-12-10T15:00'; Weight = 40; Kind = 'exam'; Id = 0; Effort = 600; Done = 0.0 }
+    $s = @(Get-JkPlanSchedule -Items @($it) -Now ([datetime]'2026-12-08T09:00') -Days 1 -BudgetMin 600)
+    Assert-Eq $s[0].Alloc['f'] 250 '600 minutes over 2.5 days, in 25-minute blocks'
 }
 Test 'jk plan: on a squeezed day, work whose last day it is (due tonight, or tomorrow morning) comes first, and finals weeks out wait' {
     $mk = { param($k, $due, $eff, $kind) [pscustomobject]@{ Key = $k; Course = $k; Title = $k; Due = [datetime]$due; Weight = 10; Kind = $kind; Id = 0; Effort = $eff; Done = 0.0 } }

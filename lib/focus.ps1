@@ -296,6 +296,75 @@ function Show-JkFocusLog {
     if ($streak -gt 1) { Say ''; Say ('  ' + (Paint 'orange' "$($script:G.star) $streak-day focus streak")) }
 }
 
+# Time worked without the timer (an afternoon in the library, a study group): logged as a session
+# that ends now, or at 10 pm the day before with "yesterday", so jk plan, jk next and the focus log
+# count it like a timed block.
+function Add-JkFocusLog {
+    $words = @($args | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    if (-not $words.Count) { throw 'usage: jk focus add <length> <label>  (jk focus add 1h30m cs350 a3, or ... yesterday)' }
+    $dur = Read-JkDurationWords $words
+    $mins = [Math]::Round($dur.Seconds / 60.0, 1)
+    if ($mins -lt 1) { throw 'jk focus add logs a minute or more' }
+    if ($mins -gt 720) { throw "$(Format-JkMinutes $mins) at once is more than 12 hours: log each sitting on its own" }
+    $lenText = ($words[0..($dur.Used - 1)] -join ' ')
+    $rest = @($words | Select-Object -Skip $dur.Used)
+    $now = Get-JkNow
+    $end = $now
+    if ($rest.Count -and $rest[-1] -match '^(?i)(yesterday|yday|yest)$') {
+        $end = $now.Date.AddDays(-1).AddHours(22)
+        $rest = @($rest | Select-Object -First ($rest.Count - 1))
+    }
+    if ($rest.Count -and $rest[0] -match '^(?i)on$') { $rest = @($rest | Select-Object -Skip 1) }
+    $lbl = ($rest -join ' ').Trim()
+    $start = $end.AddMinutes(-$mins)
+    $d = Get-JkFocusData
+    $d.sessions = @($d.sessions) + [pscustomobject]@{ label = $lbl; start = $start.ToString('s', $script:Inv); planned = $mins; actual = $mins; completed = $true; added = $true }
+    Save-JkFocusData $d
+    # the day's total, as the focus log counts it: by the day each session starts
+    $dayIso = $start.ToString('yyyy-MM-dd', $script:Inv)
+    $dayTotal = 0.0
+    foreach ($s in @($d.sessions)) { if (([string]$s.start).StartsWith($dayIso)) { $dayTotal += [double]$s.actual } }
+    $dayWord = $start.ToString('ddd MMM d', $script:Inv)
+    if ($start.Date -eq $now.Date) { $dayWord = 'today' } elseif ($start.Date -eq $now.Date.AddDays(-1)) { $dayWord = 'yesterday' }
+    $what = ''
+    if ($lbl) { $what = ' on ' + (Paint "bold #$(Get-JkLabelColor $lbl)" (Format-JkFocusLabel $lbl)) }
+    Say ''
+    Say ('  ' + (Paint 'bold green' "$($script:G.check) Logged") + " $(Format-JkMinutes $mins)$what" + (Paint 'gray' "  $($script:G.dot)  focused $dayWord $(Format-JkMinutes $dayTotal)"))
+    $c = $null
+    if ($lbl) { $c = Resolve-JkCourse (Get-JkDueData -Cached) (($lbl -split '\s+')[0]) }
+    if (-not $c) {
+        Say (Paint 'gray' "    No course in the label, so jk plan does not count it: begin it with one (jk focus add $lenText cs350 ...).")
+    } else {
+        # what is left of the course in today's plan
+        $line = "    jk plan counts it toward $($c.code)'s deadlines."
+        try {
+            if ($start.Date -eq $now.Date) {
+                $left = 0.0; $want = 0.0
+                foreach ($r in @(Get-JkPlanLeft (Get-JkPlanToday) (Get-JkTodayFocusByCourse $now))) {
+                    if ($r.Item.Course -eq [string]$c.key) { $left += $r.Left; $want += $r.Want }
+                }
+                if ($want -gt 0 -and $left -le 0) { $line = "    $($c.code) is covered for today in jk plan $($script:G.check)" }
+                elseif ($want -gt 0) { $line = "    $($c.code) in today's plan: $(Format-JkMinutes $left) to go  $($script:G.dot)  jk plan" }
+            }
+        } catch { }
+        Say (Paint 'gray' $line)
+    }
+    Say (Paint 'gray' '    jk focus undo takes it back')
+}
+
+# Takes back the newest logged session (jk focus add's or the timer's), saying what it was.
+function Undo-JkFocusLog {
+    $d = Get-JkFocusData
+    $all = @($d.sessions)
+    if (-not $all.Count) { Say (Paint 'gray' '  Nothing logged to take back.'); return }
+    $last = $all[-1]
+    $d.sessions = @($all | Select-Object -First ($all.Count - 1))
+    Save-JkFocusData $d
+    $lbl = Format-JkFocusLabel ([string]$last.label); if (-not $lbl) { $lbl = 'no label' }
+    $at = [datetime]::Parse([string]$last.start, $script:Inv)
+    Say ((Paint 'yellow' '  Taken back') + " $(Format-JkMinutes ([double]$last.actual)) on $lbl" + (Paint 'gray' "  $($script:G.dot)  from $($at.ToString('ddd MMM d', $script:Inv)) $(Format-JkTime $at.ToString('HH:mm'))"))
+}
+
 function Invoke-JkFocus {
     $a = @($args)
     if ($a.Count -eq 0) {
@@ -309,6 +378,8 @@ function Invoke-JkFocus {
         '^(status|st)$' { if (-not (Show-JkFocusStatus)) { Say (Paint 'gray' '  No focus session is running. Start one: jk focus 25 cs350') }; return }
         '^(stop|cancel|end|abort)$' { Stop-JkFocus; return }
         '^(log|stats|history)$' { Show-JkFocusLog @rest; return }
+        '^(add|did|done|record)$' { Add-JkFocusLog @rest; return }
+        '^(undo|unlog)$' { Undo-JkFocusLog; return }
         '^(help|-h|--help|\?)$' { Show-JkHelp 'focus'; return }
     }
     # jk focus 50 cs350 a2a   |   jk focus for half an hour   |   jk focus cs350 (default length)
