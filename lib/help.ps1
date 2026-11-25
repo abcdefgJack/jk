@@ -8,6 +8,10 @@ jk due cs350                   everything for one course (past ones dimmed, done
 jk due all | past | exams      whole term | what's behind you | every remaining exam
 jk exam cs370 [midterm]        one exam on a screen: when, worth, what you need on it, prep planned,
                                what lands the week before, its files in the course folder (jk find -o 1)
+jk exam cs370 papers           its past papers in the course folder, newest term first, each with its
+                               solutions when they are there (cs-370-1029-final + ...-final-sol); for a final the
+                               midterms too. jk find -o 2 opens one, jk exam cs370 sol 2 its solutions
+jk exam cs370 did 2 74         paper 2 done, at 74% (or 17/20, or no mark); jk exam cs370 undid 2 clears it
 jk due week                    two-week grid (Mon-Sun columns)
 jk due add cs350 "A4 Paging" dec 2 8pm -Weight 10      add (date: dec 2, Mon Nov 9, fri, next week, tomorrow, in 3 days, tonight, 8pm, 2026-12-02;
                                                         the time can come first: 8pm dec 2, 5pm fri)

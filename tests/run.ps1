@@ -2736,7 +2736,7 @@ Test 'jk <course>: one course on a screen; a word after it goes to that command'
         # "co" alone is the start of config, but co 250 is plainly a course
         Assert-True ((@(& { jk co 250 } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match '(?s)CO 250.*Assignment 6 \(Fri Oct 30 11:59 pm\)') 'jk co 250 is the course, not jk config'
         Assert-True ((@(& { jk cs350 exam } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'CS 350 MIDTERM') 'jk cs350 exam = jk exam cs350'
-        Assert-True ((@(& { jk cs350 dance } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'after a course: exam, grade') 'an unknown word says what works'
+        Assert-True ((@(& { jk cs350 dance } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'after a course: exam, papers, grade') 'an unknown word says what works'
         Assert-True ((@(& { jk blorp } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match "unknown command 'blorp'") 'not a course either'
         # a course is named whole: a typo that happens to sit inside one is not that course
         foreach ($typo in 'ea', 'alt', 's35') { Assert-True ((@(& { jk $typo } 6>&1 | ForEach-Object { "$_" }) -join "`n") -match 'unknown command') "jk $typo" }
@@ -3379,6 +3379,71 @@ Test 'jk focus add logs time worked without the timer: jk plan counts it, yester
         }
         Assert-Eq (@((Get-JkFocusData).sessions).Count) 2 'nothing logged by a refusal'
     } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null }
+}
+Test 'jk exam <course> papers: the past papers for its next exam, paired with their solutions, newest term first, and which are done' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
+    $env:JK_HOME = Join-Path $saved 'papers-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $top = Join-Path $env:JK_HOME 'courses'; $dir = Join-Path $top 'CS370'
+    foreach ($sub in 'past-exams', 'mock', 'slides') { New-Item -ItemType Directory -Force -Path (Join-Path $dir $sub) | Out-Null }
+    # three finals (one only as solutions, one with them), two midterms; slides, an assignment's
+    # last version and a Word copy are not papers
+    foreach ($n in 'past-exams\cs-370-1029-final.pdf', 'past-exams\cs-370-1029-final-sol.pdf', 'past-exams\cs-370-1069-final-sol.pdf', 'past-exams\cs-370-1009-final.pdf',
+        'past-exams\cs-370-1029-midterm.pdf', 'mock\CS370-mock-midterm.pdf', 'slides\final-review-slides.pdf', 'a1-final.pdf', 'past-exams\cs-370-1029-final.docx') { Set-Content -LiteralPath (Join-Path $dir $n) 'x' }
+    $savedC = Get-JkConfig 'tidy.courses'
+    try {
+        Set-JkConfig 'tidy.courses' $top
+        $env:JK_NOW = '2026-11-25T10:00:00'; $env:JK_WIDTH = '110'
+        $d = Get-JkDueData; $c = Resolve-JkCourse $d 'cs370' -Create
+        $null = New-JkEvent -Data $d -Course $c.key -Date ([datetime]'2026-12-10') -Time '16:00' -Title 'FINAL' -Weight '40%' -Kind 'exam'
+        Save-JkDueData $d
+        $say = { param([scriptblock]$Run) @(& $Run 6>&1 | ForEach-Object { "$_" }) }
+        $out = & $say { Invoke-JkExams cs370 papers }
+        $rows = @($out | Where-Object { $_ -match '^\s+\d+ ' })
+        Assert-Eq $rows.Count 5 "three finals and two midterms: $($out -join ' | ')"
+        Assert-True ($rows[0] -match '^\s+1 .*F2006 cs-370-1069-final-sol\.pdf\s+solutions only') "newest first: $($rows[0])"
+        Assert-True ($rows[1] -match 'F2002 cs-370-1029-final\.pdf\s+\+ solutions') "paired: $($rows[1])"
+        Assert-True ($rows[2] -match 'F2000 cs-370-1009-final\.pdf\s+no solutions') "no solutions: $($rows[2])"
+        Assert-True ($rows[3] -match 'F2002 cs-370-1029-midterm\.pdf' -and $rows[4] -match 'CS370-mock-midterm\.pdf') "the midterms after: $($rows[3]) / $($rows[4])"
+        Assert-True (($out -join "`n") -match 'Midterms\s+earlier material') 'the midterms are a section of their own'
+        Assert-True (($out -join "`n") -match 'next: jk find -o 2 opens the F2002 paper') "next skips the solutions-only paper: $($out -join ' | ')"
+        Assert-Eq ((@(Get-JkFindLast) | ForEach-Object { Split-Path $_ -Leaf }) -join ',') 'cs-370-1069-final-sol.pdf,cs-370-1029-final.pdf,cs-370-1009-final.pdf,cs-370-1029-midterm.pdf,CS370-mock-midterm.pdf' 'jk find -o opens them by number'
+        # done, with a mark; what to check it against and what is next
+        $txt = (& $say { Invoke-JkExams cs370 did 2 17/20 }) -join ' '
+        Assert-True ($txt -match 'Done F2002 cs-370-1029-final\.pdf .*85% .*1 of 5 done' -and $txt -match 'jk exam cs370 sol 2' -and $txt -match 'next: the F2000 paper') "did: $txt"
+        $txt = (& $say { Invoke-JkExams cs370 papers }) -join "`n"
+        Assert-True ($txt -match 'cs-370-1029-final\.pdf\s+done Nov 25\s+.\s+85%' -and $txt -match '1 of 5 done') "kept: $txt"
+        # jk exam's own screen, and the course page's word
+        $txt = (& $say { Show-JkExamBrief cs370 }) -join "`n"
+        Assert-True ($txt -match 'papers\s+3 finals and 2 midterms in the folder, 1 done') "the exam screen: $txt"
+        $txt = (& $say { Invoke-JkCourseAction (Resolve-JkCourse (Get-JkDueData) 'cs370') @('papers') }) -join "`n"
+        Assert-True ($txt -match 'PAST PAPERS' -and $txt -match '1 of 5 done') 'jk cs370 papers'
+        $txt = (& $say { Invoke-JkExams cs370 undid 2 }) -join ' '
+        Assert-True ($txt -match 'Not done F2002' -and @((Get-JkPaperData).done).Count -eq 0) "undid: $txt"
+        # refusals in jk's words
+        $cases = @(
+            @(@('cs370', 'did', '9'), 'which paper\? a number from jk exam cs370 papers \(1 to 5\)'),
+            @(@('cs370', 'did', '1', '140'), 'between 0 and 100'),
+            @(@('cs370', 'did', '1', 'abc'), 'a mark is 74, 74% or 17/20'),
+            @(@('cs370', 'sol', '3'), 'no solutions for cs-370-1009-final\.pdf'),
+            @(@('cs370', 'did'), 'usage: jk exam cs370 did <n> \[mark\]'))
+        foreach ($case in $cases) {
+            $e = ''; $argv = @($case[0])
+            try { Invoke-JkExams @argv 6>$null } catch { $e = "$_" }
+            Assert-True ($e -match $case[1]) "jk exam $($argv -join ' '): $e"
+        }
+        # names
+        Assert-Eq "$((Get-JkPaperTerm 'F19-midterm.pdf').Label) $((Get-JkPaperTerm 'cs-370-1011-final').Label) [$((Get-JkPaperTerm 'cs-251-1216-midterm').Label)]" 'F2019 W2001 []' 'terms'
+        Assert-Eq (Get-JkPaperStem 'CS245-Practice-Mid-Term-No-Solutions.pdf') (Get-JkPaperStem 'CS245-Practice-Mid-Term-Solutions.pdf') 'No-Solutions pairs with Solutions'
+        Assert-True (-not (Test-JkPaperIsSolution 'CS245-Practice-Mid-Term-No-Solutions.pdf') -and -not (Test-JkPaperIsSolution 'monkey-final.pdf') -and (Test-JkPaperIsSolution 'W19-midterm-sol.pdf')) 'which are solutions'
+        Assert-True (-not (Test-JkPaperName 'NOT-MIDTERM_02d-slides.pdf' 'midterm') -and (Test-JkPaperName 'mt_practice.pdf' 'midterm') -and (Test-JkPaperName 'CS245-Sample-Final-Exam.pdf' 'final')) 'which are papers'
+        # a folder with none says how they are found, and no "0 of 0"
+        $d = Get-JkDueData; $h = Resolve-JkCourse $d 'health105' -Create; New-Item -ItemType Directory -Force -Path (Join-Path $top 'HEALTH105') | Out-Null
+        $null = New-JkEvent -Data $d -Course $h.key -Date ([datetime]'2026-12-07') -Time '06:00' -Title 'Midterm 2' -Weight '17.5%' -Kind 'exam'
+        Save-JkDueData $d
+        $txt = (& $say { Invoke-JkExams health papers }) -join ' '
+        Assert-True ($txt -match 'no past midterms in the folder' -and $txt -notmatch '0 of 0') "none: $txt"
+    } finally { Set-JkConfig 'tidy.courses' $savedC; $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null }
 }
 Test 'jk plan counts part of a day as part of a day: an exam at 3 pm on 10-hour days leaves 2.5 days from two days before, not 2' {
     # [Math]::Max(1, 2.5) is 2 in PowerShell: an integer first argument picks the integer overload
