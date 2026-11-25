@@ -27,13 +27,14 @@ function Invoke-JkCourseAction($Course, [string[]]$Rest) {
     $argv = @(@($key) + $more)
     switch -Regex ($verb) {
         '^(exams?|midterms?|final)$' { Invoke-JkExams @argv; return }
+        '^(papers?|past)$' { $pv = @(@($key, 'papers') + $more); Invoke-JkExams @pv; return }
         '^(grades?|marks?|g)$' { Invoke-JkGrade @argv; return }
         '^(grep|inside|lookup|where)$' { Invoke-JkGrep @argv; return }
         '^(due|deadlines?|d)$' { Invoke-JkDue @argv; return }
         '^(files?)$' { if ($more.Count) { Show-JkDueFiles @argv } else { Show-JkCourseBrief $Course }; return }
         '^(go|cd|open|folder)$' { Invoke-JkGo $key; return }
     }
-    throw "after a course: exam, grade, grep <words>, due, files <deadline> or go (jk $key grep $($Rest -join ' '))"
+    throw "after a course: exam, papers, grade, grep <words>, due, files <deadline> or go (jk $key grep $($Rest -join ' '))"
 }
 
 function Show-JkCourseBrief($Course) {

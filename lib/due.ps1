@@ -538,15 +538,32 @@ function Get-JkExamEnd($e) {
 # jk exams: every remaining exam; jk exam cs370 [words]: one exam's brief.
 function Invoke-JkExams {
     $a = @($args | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    # jk exam cs370 papers | did 2 74 | undid 2 | sol 2: the words before name the exam
+    for ($i = 0; $i -lt $a.Count; $i++) {
+        $verb = $a[$i].ToLower()
+        if ($verb -notmatch '^(papers?|past|pp|did|done|undid|undone|undo|sols?|solutions?|answers?)$') { continue }
+        $data = Get-JkDueData
+        $x = Select-JkComingExam $data @($(if ($i) { $a[0..($i - 1)] }))
+        $rest = @($a | Select-Object -Skip ($i + 1))
+        switch -Regex ($verb) {
+            '^(papers?|past|pp)$' { Show-JkExamPapers $data $x }
+            '^(did|done)$' { Set-JkExamPaperDone $data $x $rest $true }
+            '^(undid|undone|undo)$' { Set-JkExamPaperDone $data $x $rest $false }
+            default { Open-JkExamPaperSolution $data $x $rest }
+        }
+        return
+    }
     if ($a.Count) { Show-JkExamBrief @a } else { Show-JkExams }
 }
 
 # Everything about one coming exam on a screen: when and where, what it is worth and what you need on
 # it, the prep jk plan expects and has scheduled before it, what else is due first, and the files in
 # the course folder named after it (numbered for jk find -o).
-function Show-JkExamBrief {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words)
-    $data = Get-JkDueData
+# The coming exam that a command's words name (a course, words of its title, or nothing: the next
+# one): E (its record, the closing half of an online window), Win, Title, Start, End. Throws what
+# to say when none matches.
+function Select-JkComingExam($Data, [string[]]$Words) {
+    $data = $Data
     $cmap = Get-JkCourseMap $data
     $now = Get-JkNow
     $w = @($Words | Where-Object { $_ })
@@ -585,6 +602,15 @@ function Show-JkExamBrief {
         }
         throw "no coming exam matches '$($Words -join ' ')' (jk exams lists them)"
     }
+    $x
+}
+
+function Show-JkExamBrief {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Words)
+    $data = Get-JkDueData
+    $cmap = Get-JkCourseMap $data
+    $now = Get-JkNow
+    $x = Select-JkComingExam $data $Words
     $e = $x.E
     $label = "$(Get-JkCourseLabel $e $cmap) $($x.Title)"
     $left = $x.Start - $now
@@ -684,6 +710,8 @@ function Show-JkExamBrief {
             & $wrapRow 'prep' ($txt + $sched) 'muted'
         }
     } catch { }
+    # the past papers in the folder for it
+    try { $pl = Get-JkExamPapersLine $data $x (Get-JkNormKey ([string]$c.code)); if ($pl) { & $wrapRow 'papers' $pl 'muted' } } catch { }
 
     # what else lands in the week before it (competing for the same study days)
     $from = $x.Start.AddDays(-7); if ($from -lt $now) { $from = $now }
