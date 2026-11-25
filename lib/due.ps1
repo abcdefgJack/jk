@@ -1677,7 +1677,11 @@ function Invoke-JkDueRemind {
         if ($plan -and $plan.Today.Alloc.Count) {
             $byCourse = @{}
             foreach ($it in $plan.Items) { if ($plan.Today.Alloc.ContainsKey($it.Key)) { $byCourse[$it.Course] = [double]$byCourse[$it.Course] + $plan.Today.Alloc[$it.Key] } }
-            $lines += 'Study today: ' + ((Get-JkPlanCourseOrder $plan $byCourse | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" }) -join ', ')
+            $order = @(Get-JkPlanCourseOrder $plan $byCourse)
+            $lines += 'Study today: ' + (($order | ForEach-Object { "$(Get-JkCourseLabel ([pscustomobject]@{ course = $_ }) $cmap) $(Format-JkMinutes $byCourse[$_])" }) -join ', ')
+            # studying for an exam: the past paper to sit next, when the course folder has them
+            $pp = $null; try { $pp = Get-JkPlanPaperHint $plan $data $order[0] } catch { }
+            if ($pp) { $lines += $pp }
         }
     } catch { }
     if ($soon.Count) {
