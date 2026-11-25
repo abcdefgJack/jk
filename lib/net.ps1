@@ -196,7 +196,7 @@ function Invoke-JkNetSpeed {
     $sub = "Cloudflare $($lat.Colo)".Trim()
     if ($wifi) { $sub += " $($script:G.dot) Wi-Fi '$($wifi.Ssid)'"; if ($null -ne $wifi.Signal) { $sub += " $($wifi.Signal)%" } }
     Write-JkHeader 'Network speed' (Format-JkTime ((Get-Date).ToString('HH:mm'))) -Sub $sub
-    $max = [Math]::Max(1, [Math]::Max([double]$down.Mbps, [double]$up.Mbps))
+    $max = [Math]::Max(1.0, [Math]::Max([double]$down.Mbps, [double]$up.Mbps))
     $row = { param($k, $v, $frac) Say ('  ' + (Paint 'bold white' (Fit $k 10)) + (Paint 'white' (Fit $v 12 -Right)) + '  ' + $(if ($null -ne $frac) { Get-JkBar $frac 28 'teal' } else { '' })) }
     & $row 'latency' "$([int]$lat.Ms) ms" $null
     & $row 'download' $(if ($down) { '{0:N1} Mbps' -f $down.Mbps } else { 'failed' }) $(if ($down) { $down.Mbps / $max } else { $null })
