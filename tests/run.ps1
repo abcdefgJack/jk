@@ -3420,6 +3420,18 @@ Test 'jk exam <course> papers: the past papers for its next exam, paired with th
         Assert-True ($txt -match 'PAST PAPERS' -and $txt -match '1 of 5 done') 'jk cs370 papers'
         $txt = (& $say { Invoke-JkExams cs370 undid 2 }) -join ' '
         Assert-True ($txt -match 'Not done F2002' -and @((Get-JkPaperData).done).Count -eq 0) "undid: $txt"
+        # jk plan start on the final names the next paper to sit, one jk find -o away; the timer is stubbed
+        $origFocus = ${function:Start-JkFocus}
+        function script:Start-JkFocus { param($Minutes, $Label) }
+        try {
+            $env:JK_NOW = '2026-12-05T10:00:00'
+            $txt = (& $say { Start-JkPlanBlock }) -join "`n"
+            Assert-True ($txt -match 'paper: F2002 cs-370-1029-final\.pdf .* jk find -o 1 .* jk exam cs370 did 2 when done') "plan start: $txt"
+            Assert-Eq (Split-Path @(Get-JkFindLast)[0] -Leaf) 'cs-370-1029-final.pdf' 'jk find -o 1 opens it'
+        } finally { Set-Item function:script:Start-JkFocus $origFocus; $env:JK_NOW = '2026-11-25T10:00:00' }
+        # a week with nothing on the timer: jk review says how studying still counts
+        $txt = (& $say { Show-JkReview }) -join "`n"
+        Assert-True ($txt -match '0m focused\s+\(studied without the timer\? jk plan did 2h cs350\)') "review: $txt"
         # refusals in jk's words
         $cases = @(
             @(@('cs370', 'did', '9'), 'which paper\? a number from jk exam cs370 papers \(1 to 5\)'),
