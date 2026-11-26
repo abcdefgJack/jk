@@ -61,6 +61,53 @@ The direction of the next day, on the second year:
 | up yesterday means up today | 48.2% |
 | after a move over 2 typical days, the other way | 55.0% of 289,652 days |
 
+## US stocks only (`us.py`)
+
+The same checks on the 9,742 US series (4,024,646 stock-days). The big names are 59 large
+companies such as AAPL, MSFT and NVDA; the index funds are SPY, QQQ, DIA, IWM, VOO and VTI.
+Stocks are split by their last price.
+
+| group | series | 1.28 held | 2.3 held | stocks in 75-85% | a week out | above average | up yesterday | turn after a big day |
+|---|---|---|---|---|---|---|---|---|
+| **all US** | 9,742 | **80.4%** | **95.1%** | 98.0% | 80.8% | 50.7% | 48.0% | 54.5% |
+| index funds | 6 | 79.9% | 95.2% | 100% | 82.4% | 51.4% | 48.9% | 51.5% |
+| big names | 59 | 81.0% | 94.9% | 100% | 80.7% | 50.2% | 49.8% | 50.7% |
+| stocks over $20 | 2,292 | 81.0% | 95.2% | 98.9% | 81.1% | 49.9% | 48.3% | 53.3% |
+| stocks $5-20 | 1,430 | 80.8% | 95.0% | 98.8% | 79.9% | 50.0% | 48.0% | 53.8% |
+| stocks under $5 | 1,361 | 81.2% | 94.7% | 99.2% | 80.3% | 51.9% | 47.2% | 56.0% |
+| other ETFs | 4,594 | 79.7% | 95.2% | 96.9% | 81.0% | 51.0% | 48.0% | 54.9% |
+
+- Every kind of US stock comes within a point of 80%, from SPY to stocks under $5.
+- On the big names and the index funds, the direction rules are right 49.8% to 51.5% of
+  days: no better than a coin.
+- **Month by month it moves.** The range held 73.8% to 86.6% of a month's stock-days:
+  - It held 85.8% in May 2025 and 86.6% in December 2025, calm months after rough ones.
+  - It held 74.4% in March 2026 and 73.8% in November 2026, when swings grew faster than
+    the last 20 days showed.
+
+  Over the two years it averages out to 80%.
+
+**The VIX did not fix those months (`vix.py`).** The VIX is the options market's own guess
+at the coming month's swings, so the test scaled every stock's spread by the VIX against
+SPY's own 20-day spread, raised to a power from 0.25 to 1. The multiple was fitted on the
+months before January 2026 and judged on the rest.
+
+| spread | held | worst month | best month | months' spread |
+|---|---|---|---|---|
+| 20 days alone | 77.7% | 72.2% | 83.7% | 3.5 points |
+| times VIX ^ 0.25 | 78.0% | 69.7% | 82.1% | 3.2 points |
+| times VIX ^ 1 | 80.3% | 63.7% | 86.7% | 6.5 points |
+| times 9-day VIX ^ 0.25 | 77.8% | 70.7% | 81.9% | 2.8 points |
+
+Leaning on the VIX made the worst month worse every time, so jk keeps the plain 20-day
+spread.
+
+```
+python -I us.py <data folder>
+curl -o vix.json "https://query1.finance.yahoo.com/v8/finance/spark?symbols=%5EVIX,SPY,%5EVIX9D&range=2y&interval=1d"
+python -I vix.py <data folder> vix.json
+```
+
 ## What that means for jk
 
 - **The 4-in-5 range: 1.28 typical days.** The bell curve's number is right on average.
