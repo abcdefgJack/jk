@@ -1,6 +1,6 @@
 # jk.psm1 - loads the toolkit and defines the `jk` entry point (plus `j`, a shortcut for `jk go`).
 
-foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'papers', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'grep', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'clock', 'course', 'next', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
+foreach ($lib in 'core', 'due', 'sync', 'classes', 'todo', 'focus', 'papers', 'remind', 'grade', 'tidy', 'cp', 'go', 'find', 'grep', 'clip', 'shots', 'pdf', 'sys', 'net', 'weather', 'stocks', 'clock', 'course', 'next', 'repos', 'speed', 'space', 'review', 'plan', 'jobs', 'dash', 'help', 'setup') {
     $f = Join-Path $PSScriptRoot "lib\$lib.ps1"
     if (Test-Path -LiteralPath $f) { . $f }
 }
@@ -35,6 +35,7 @@ $script:JkCommands = [ordered]@{
     'next'   = @{ Fn = 'Show-JkNext'; Aliases = @('now', 'what'); Desc = 'the one thing to do now, and what follows: an exam, a class, work due tonight, study' }
     'time'   = @{ Fn = 'Invoke-JkTime'; Aliases = @('clock', 'tz', 'world'); Desc = 'the time where your people are, 8pm beijing in your time and back, when you are both up to call' }
     'weather' = @{ Fn = 'Invoke-JkWeather'; Aliases = @('wx', 'forecast', 'rain'); Desc = 'the forecast read for you: rain or snow from when, how cold it feels, the days ahead, at your exam' }
+    'stocks' = @{ Fn = 'Invoke-JkStocks'; Aliases = @('stock', 'market', 'ticker', 'quote'); Desc = 'your watchlist at the US open: the day, the weeks, a likely range for the close and how often such ranges held' }
     'net'    = @{ Fn = 'Invoke-JkNet'; Aliases = @('wifi', 'internet', 'online'); Desc = 'is it the Wi-Fi or the internet? address, router, internet, DNS and web checked in order' }
     'port'   = @{ Fn = 'Invoke-JkPort'; Aliases = @('ports'); Desc = 'what is listening on which port; free a port with -Kill' }
     'space'  = @{ Fn = 'Invoke-JkSpace'; Aliases = @('disk', 'du'); Desc = 'what is filling the disk: caches, temp, Docker, node_modules (read-only report)' }
@@ -266,6 +267,7 @@ $script:JkActions = @{
     'port'   = @()
     'net'    = @('speed', 'help')
     'weather' = @('set', 'off', 'help')
+    'stocks' = @('add', 'rm', 'list', 'popup', 'help')
     'time'   = @('add', 'rm', 'off', 'help')
     'shots'  = @('find', 'file', 'old', 'forget', 'help')
     'pdf'    = @()

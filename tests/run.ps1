@@ -580,7 +580,7 @@ Test 'an unreadable reminder (at soon, id b) is set aside: the good one is still
     $origBg = ${function:Start-JkBackground}; $origNotify = ${function:Show-JkNotify}
     function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) $script:BgCalls += @($Script); [pscustomobject]@{ Id = 999999; StartTime = (Get-Date) } }
     function script:Show-JkNotify { 'stub' }
-    $tickFns = 'Restore-JkReminders', 'Sync-JkBackupMirror', 'Restore-JkFocusTimer', 'Register-JkTodayAlerts', 'Register-JkClassAlert', 'Update-JkDiskLog', 'Invoke-JkDueRemind', 'Limit-JkBackgroundLog'
+    $tickFns = 'Restore-JkReminders', 'Sync-JkBackupMirror', 'Restore-JkFocusTimer', 'Register-JkTodayAlerts', 'Register-JkClassAlert', 'Register-JkStocksAlert', 'Update-JkDiskLog', 'Invoke-JkDueRemind', 'Limit-JkBackgroundLog'
     $origTick = @{}; foreach ($f in $tickFns) { $origTick[$f] = (Get-Item "function:$f").ScriptBlock }
     try {
         $good = '{"id":1,"text":"call home","at":"2026-11-09T20:00:00","created":"2026-11-08T10:00:00","pid":999998,"spawned":"2026-11-08T10:00:00","key":"","dueId":0}'
@@ -2453,7 +2453,7 @@ Test 'every safe command and action runs on an empty install without a PowerShel
         'class', 'class week', 'class list', 'class next', 'class add', 'class rm', 'week', 'exams', 'plan', 'plan week', 'review',
         'todo', 'todo add', 'todo done', 'todo undo', 'todo rm', 'todo clear', 'todo edit', 'todo all', 'focus status', 'focus log', 'focus add', 'focus undo', 'plan did',
         'remind', 'remind list', 'remind cancel', 'remind status', 'grade', 'grade set', 'grade clear', 'grade add', 'grade target', 'grade pass',
-        'next', 'time', 'time add', 'time rm', 'time off', 'weather', 'weather set', 'weather off', 'brief', 'config', 'config path', 'backup', 'backup list', 'help'
+        'next', 'time', 'time add', 'time rm', 'time off', 'weather', 'weather set', 'weather off', 'stocks list', 'stocks rm', 'brief', 'config', 'config path', 'backup', 'backup list', 'help'
     )
     # these reach past the data folder: timers and popups, a browser or editor, the clipboard, the
     # network, real folders, the profile and the morning task, or they wait for someone at the keyboard
@@ -2463,7 +2463,7 @@ Test 'every safe command and action runs on an empty install without a PowerShel
         'grade fill', 'grade import', 'tidy', 'tidy scan', 'tidy apply', 'tidy undo', 'tidy dupes', 'tidy old',
         'cp', 'cp new', 'cp listen', 'cp test', 'cp run', 'cp add', 'cp stress', 'cp open', 'cp clean', 'go', 'mark', 'find', 'grep', 'grep all', 'recent', 'repos', 'sys', 'pdf',
         'clip', 'clip ocr', 'clip unwrap', 'clip count', 'clip plain', 'shots', 'shots find', 'shots file', 'shots old', 'shots forget',
-        'net', 'net speed', 'port', 'space', 'space clean', 'speed', 'speed fix', 'speed undo', 'config set', 'config reset', 'config edit',
+        'stocks', 'stocks add', 'stocks popup', 'net', 'net speed', 'port', 'space', 'space clean', 'speed', 'speed fix', 'speed undo', 'config set', 'config reset', 'config edit',
         'backup restore', 'backup mirror', 'update', 'doctor', 'setup', 'setup install', 'setup uninstall', 'setup status'
     )
     $all = @(foreach ($c in $script:JkCommands.Keys) { $c; foreach ($x in @($script:JkActions[$c]) | Where-Object { $_ -and $_ -ne 'help' }) { "$c $x" } })
@@ -3308,7 +3308,7 @@ Test 'jk plan week html: the week as a page, a box per study block, titles escap
         # the morning run makes it today's week, once it exists
         $env:JK_NOW = '2026-11-14T08:00:00'
         # every other step stubbed: a test never runs a real tick
-        $stubs = 'Restore-JkReminders', 'Sync-JkBackupMirror', 'Restore-JkFocusTimer', 'Register-JkTodayAlerts', 'Register-JkClassAlert', 'Update-JkDiskLog', 'Invoke-JkDueRemind', 'Limit-JkBackgroundLog', 'Start-JkBackground', 'Invoke-JkDueSync', 'Get-JkWeather'
+        $stubs = 'Restore-JkReminders', 'Sync-JkBackupMirror', 'Restore-JkFocusTimer', 'Register-JkTodayAlerts', 'Register-JkClassAlert', 'Register-JkStocksAlert', 'Update-JkDiskLog', 'Invoke-JkDueRemind', 'Limit-JkBackgroundLog', 'Start-JkBackground', 'Invoke-JkDueSync', 'Get-JkWeather'
         $orig = @{}; foreach ($fn in $stubs) { $orig[$fn] = (Get-Item "function:$fn").ScriptBlock; Set-Item "function:script:$fn" { } }
         try { Invoke-JkTick 6>&1 | Out-Null } finally { foreach ($fn in $stubs) { Set-Item "function:script:$fn" $orig[$fn] } }
         $h2 = [IO.File]::ReadAllText((Get-JkPath 'plan-week.html'))
@@ -3379,6 +3379,124 @@ Test 'jk focus add logs time worked without the timer: jk plan counts it, yester
         }
         Assert-Eq (@((Get-JkFocusData).sessions).Count) 2 'nothing logged by a refusal'
     } finally { $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $script:JkConfigCache = $null; $script:JkDueCache = $null }
+}
+Test 'jk stocks: the watchlist, a range for the close from the last 20 days, how often such ranges held and the trend called the next day, and a popup at the US open' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH; $savedCache = $env:JK_CACHE
+    $env:JK_HOME = Join-Path $saved 'stocks-home'; $env:JK_CACHE = Join-Path $saved 'stocks-cache'; $script:JkConfigCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME, $env:JK_CACHE | Out-Null
+    $origBg = ${function:Start-JkBackground}; $origNotify = ${function:Show-JkNotify}
+    try {
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        $script:Shown = @()
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines, $Accent, [int]$Seconds, [switch]$Sound, [switch]$Wait) $script:Shown += , ($Title + ' | ' + ($Lines -join ' | ')); 'stub' }
+        $ny = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+        $unix = { param([datetime]$nyTime) [DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc([datetime]::SpecifyKind($nyTime, 'Unspecified'), $ny)).ToUnixTimeSeconds() }
+        # 141 weekdays of closes up to $last, moving +1% and -1% in turn (so a typical day is 1.03%:
+        # every day lands in its range, and "above its average" always calls the next day wrong);
+        # Yahoo names the session of $session, and -Live adds today's bar at $price
+        $seed = {
+            param([string]$sym, [datetime]$last, [datetime]$session, [double]$price = 0, [string]$exch = 'NYSEArca', [string]$cur = 'USD', $liveDay = $null)
+            $days = @(); $d = $last
+            while ($days.Count -lt 141) { if ($d.DayOfWeek -notin 'Saturday', 'Sunday') { $days = @($d) + $days }; $d = $d.AddDays(-1) }
+            $closes = @(); $c = 100.0
+            for ($i = 0; $i -lt 141; $i++) { if ($i) { $c = $c * [Math]::Exp($(if ($i % 2) { 0.01 } else { -0.01 })) }; $closes += [Math]::Round($c, 4) }
+            $ts = @($days | ForEach-Object { & $unix $_.AddHours(9.5) })
+            if ($price) { $ts += & $unix $(if ($liveDay) { ([datetime]$liveDay).AddHours(11) } else { $session.AddHours(11) }); $closes += $price }
+            $p = $(if ($price) { $price } else { $closes[-1] })
+            $j = [ordered]@{ chart = [ordered]@{ result = @([ordered]@{
+                            meta = [ordered]@{ currency = $cur; symbol = $sym; fullExchangeName = $exch; longName = "$sym Fund"; regularMarketPrice = $p; regularMarketTime = $ts[-1]; fiftyTwoWeekHigh = 120.0; fiftyTwoWeekLow = 90.0
+                                currentTradingPeriod = [ordered]@{ regular = [ordered]@{ start = (& $unix $session.AddHours(9.5)); end = (& $unix $session.AddHours(16)) } } }
+                            timestamp = $ts; indicators = [ordered]@{ quote = @([ordered]@{ close = $closes }) } }); error = $null } }
+            Write-JkText (Get-JkStockCachePath $sym) ((Get-Date).ToUniversalTime().ToString('o') + "`n" + (ConvertTo-Json $j -Depth 10 -Compress))
+            $closes
+        }
+        $say = { param([scriptblock]$Run) @(& $Run 6>&1 | ForEach-Object { "$_" }) }
+        # New York's wall clock on this machine's (the check also runs in UTC and Pacific time)
+        $here = { param([string]$nyText) [TimeZoneInfo]::ConvertTime([datetime]::Parse($nyText, $script:Inv), $ny, [TimeZoneInfo]::Local) }
+        $hm = { param([string]$nyText) Format-JkTime (& $here $nyText).ToString('HH:mm') }
+        $env:JK_WIDTH = '120'
+        Assert-Eq ((Get-JkStockList) -join ',') 'SPY,QQQ' 'a watchlist to start from'
+        # Wednesday before the open: the range for the next close, the record
+        $wed = [datetime]'2026-11-25'
+        $cl = & $seed 'SPY' $wed.AddDays(-1) $wed
+        $null = & $seed 'QQQ' $wed.AddDays(-1) $wed
+        $env:JK_NOW = (& $here '2026-11-25T08:00:00').ToString('s')
+        $txt = (& $say { Invoke-JkStocks }) -join "`n"
+        $sig = [Math]::Sqrt(20.0 / 19) * 0.01
+        $lo = Format-JkPrice ($cl[-1] * [Math]::Exp(-$sig)); $hi = Format-JkPrice ($cl[-1] * [Math]::Exp($sig))
+        Assert-True ($txt -match "US market opens at $(& $hm '2026-11-25T09:30')") "before the open: $txt"
+        Assert-True ($txt -match "SPY\s+$([regex]::Escape((Format-JkPrice $cl[-1])))\s+$([regex]::Escape((Format-JkStockPct ($cl[-1] / $cl[-2] - 1) 2)))" -and $txt -match "next close likely $lo - $hi \(.1\.0%, 2 days in 3\)") "the row and its range ($lo - $hi): $txt"
+        Assert-True ($txt -match 'held on 100% of the last 120 days' -and $txt -match 'called the next day 0% of the time \(a coin: 50%; up days: 50%\): worse than a coin') "the record: $txt"
+        Assert-True ($txt -match 'From past prices only, not advice') 'says what it is'
+        # one on a screen: the ranges, the trend's record, the last ten days each inside its range
+        $txt = (& $say { Invoke-JkStocks spy }) -join "`n"
+        Assert-True ($txt -match 'SPY  SPY Fund' -and $txt -match 'ranges held\s+100% of the last 120 days' -and $txt -match 'called the next day 0% of 120 days') "jk stocks spy: $txt"
+        Assert-Eq ([regex]::Matches($txt, "$([char]0x2713)").Count) 10 'the last 10 days, each inside its range'
+        # 11 am, trading 5% up: outside the range so far; the popup at the open says the same
+        $null = & $seed 'SPY' $wed.AddDays(-1) $wed ([Math]::Round($cl[-1] * 1.05, 2))
+        $env:JK_NOW = (& $here '2026-11-25T11:00:00').ToString('s')
+        $txt = (& $say { Invoke-JkStocks }) -join "`n"
+        Assert-True ($txt -match "US market open until $(& $hm '2026-11-25T16:00')" -and $txt -match 'SPY\s+\S+\s+\+5\.00%' -and $txt -match 'above it so far') "while it trades: $txt"
+        $p = Get-JkStocksPopup -Tries 1
+        Assert-True ($p.Title -match '^Stocks at the open . Wed Nov 25' -and $p.Lines[0] -match "^SPY \S+ \+5\.00% . close likely $lo-$hi" -and ($p.Lines -join ' | ') -match 'Ranges held 100% of the last 120 days') "popup: $($p.Title) | $($p.Lines -join ' | ')"
+        # Yahoo still naming yesterday's session while today trades: today's price says it is on
+        $null = & $seed 'QQQ' $wed.AddDays(-1) $wed.AddDays(-1) 105 'NasdaqGS' 'USD' $wed
+        $q = Get-JkStock 'QQQ'
+        Assert-Eq "$(Get-JkStockState $q (& $here '2026-11-25T11:30:00')) $($q.Open.ToString('s'))" 'open 2026-11-25T09:30:00' 'a lagging session'
+        $null = & $seed 'QQQ' $wed.AddDays(-1) $wed
+        # the timer: 40 s into the US open on a weekday, once a day; none at the weekend, after the
+        # close, or when switched off; stocks.time moves it
+        $env:JK_NOW = (& $here '2026-11-25T07:45:00').ToString('s')
+        $r = Register-JkStocksAlert -Now ([datetime]::Parse($env:JK_NOW, $script:Inv))
+        $want = (& $here '2026-11-25T09:30:40').ToString('s')
+        Assert-Eq "$($r.at) $($r.key)" "$want stocks:2026-11-25" 'at the open'
+        Assert-True ($null -eq (Register-JkStocksAlert -Now (& $here '2026-11-25T08:10:00'))) 'once a day (the sign-in run sets no second)'
+        Assert-True ($null -eq (Register-JkStocksAlert -Now (& $here '2026-11-28T07:45:00'))) 'not on a Saturday'
+        Assert-True ($null -eq (Register-JkStocksAlert -Now (& $here '2026-11-27T18:00:00'))) 'not after the close'
+        $r2 = Register-JkStocksAlert -Now (& $here '2026-11-27T10:15:00')
+        Assert-Eq $r2.at (& $here '2026-11-27T10:16:00').ToString('s') 'woken after the open: a minute later'
+        Set-JkConfig 'stocks.time' '9:45'
+        Assert-Eq (Get-JkStocksAlertTime ([datetime]'2026-12-01')).ToString('s') '2026-12-01T09:45:00' 'stocks.time moves it'
+        $null = & $say { Invoke-JkStocks popup off }
+        Assert-True ($null -eq (Register-JkStocksAlert -Now (& $here '2026-12-01T07:45:00'))) 'off'
+        $null = & $say { Invoke-JkStocks popup on }
+        Assert-Eq (Get-JkConfig 'stocks.time') '' 'on: back to the open'
+        # it fires on its day with the prices; one left from another day stays quiet
+        $env:JK_NOW = (& $here '2026-11-25T09:30:40').ToString('s')
+        Complete-JkReminder -Id ([int]$r.id)
+        Assert-True ($script:Shown.Count -eq 1 -and $script:Shown[0] -match '^Stocks at the open . Wed Nov 25 \| SPY ') "fired: $($script:Shown -join ' // ')"
+        $env:JK_NOW = (& $here '2026-11-28T09:30:40').ToString('s')
+        Complete-JkReminder -Id ([int]$r2.id) -Missed
+        Assert-Eq $script:Shown.Count 1 'a missed one from another day says nothing'
+        # Thanksgiving: fresh prices and no session today - no popup, and the header says so;
+        # Toronto trades that day, so a list with SHOP.TO still gets one
+        $env:JK_NOW = (& $here '2026-11-26T10:00:00').ToString('s')
+        $null = & $seed 'SPY' $wed $wed; $null = & $seed 'QQQ' $wed $wed
+        Assert-True ($null -eq (Get-JkStocksPopup -Tries 1)) 'no popup on a market holiday'
+        Assert-True (((& $say { Invoke-JkStocks }) -join ' ') -match 'US market closed today') 'closed today'
+        $null = & $seed 'SHOP.TO' $wed ([datetime]'2026-11-26') 0 'Toronto' 'CAD'
+        Save-JkStockList @('SPY', 'SHOP.TO')
+        $p = Get-JkStocksPopup -Tries 1
+        Assert-True ($p -and ($p.Lines -join ' | ') -match 'SHOP\.TO ') "Toronto open: $($p.Title) | $($p.Lines -join ' | ')"
+        Assert-True (((& $say { Invoke-JkStocks shop.to }) -join ' ') -match "CAD . Toronto market open until $(& $hm '2026-11-26T16:00')") 'its own market'
+        # the list: add (checked when it can be), already there, not a symbol; rm
+        $txt = (& $say { Invoke-JkStocks add nvda spy }) -join ' '
+        Assert-True ($txt -match 'NVDA \(not checked: no live prices' -and $txt -match 'SPY is already on the list' -and $txt -match 'watching SPY, SHOP\.TO, NVDA') "add: $txt"
+        $e = ''; try { Invoke-JkStocks add 'two words!' 6>$null } catch { $e = "$_" }
+        Assert-True ($e -match 'is not a ticker symbol') "not a symbol: $e"
+        $txt = (& $say { Invoke-JkStocks rm shop.to }) -join ' '
+        Assert-True ($txt -match 'removed SHOP\.TO' -and $txt -match 'watching SPY, NVDA' -and -not (Test-Path (Get-JkStockCachePath 'SHOP.TO'))) "rm: $txt"
+        $e = ''; try { Invoke-JkStocks rm xyz 6>$null } catch { $e = "$_" }
+        Assert-True ($e -match 'XYZ is not on the list \(SPY, NVDA\)') "rm one not there: $e"
+        $e = ''; try { Invoke-JkStocks 'what?' 6>$null } catch { $e = "$_" }
+        Assert-True ($e -match "unknown 'stocks' action") "a word that is not a symbol: $e"
+        # numbers
+        Assert-Eq "$(Format-JkPrice 1234.5) $(Format-JkPrice 0.5) $(Format-JkStockPct 0.0123) $(Format-JkStockPct -0.05 2)" '1,234.50 0.5000 +1.2% -5.00%' 'prices and percents'
+        Assert-Eq (Get-JkSparkline @(1, 2, 3, 4, 5, 6, 7, 8) 8) (-join @(0x2581..0x2588 | ForEach-Object { [char]$_ })) 'the sparkline'
+    } finally {
+        Set-Item function:script:Start-JkBackground $origBg; Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $env:JK_CACHE = $savedCache; $script:JkConfigCache = $null
+    }
 }
 Test 'jk exam <course> papers: the past papers for its next exam, paired with their solutions, newest term first, and which are done' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH

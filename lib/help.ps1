@@ -252,6 +252,20 @@ Forecast by Open-Meteo (free, no account; only the place's coordinates are sent)
 the dashboard shows the kept one and fetches a fresh one in the background.
 Also: jk wx, jk forecast, jk rain.
 '@
+    'stocks' = @'
+jk stocks                      the watchlist: price, the day's move, 5 days, 1 month, 3 months, a year, and
+                               the likely range for the close (2 days in 3), with how often such ranges held
+jk stocks NVDA                 one on a screen: the year's high and low, a typical day's move, the ranges
+                               for the next close and a week out, the trend, the last 10 days against theirs
+jk stocks add NVDA SHOP.TO     watch more (any Yahoo symbol: ^GSPC, BTC-USD, SHOP.TO);  jk stocks rm QQQ
+jk stocks list                 the symbols on the list
+jk stocks popup                the weekday popup now; it comes by itself at the US open (9:30 New York)
+jk stocks popup 9:45 | off     another time, or none;  jk stocks popup on  back to the open
+The range is the last close moved by a typical day of the last 20, either way: no tips, no advice.
+How often the trend called the next day is shown next to a coin, so you can see how little it knows.
+Prices from Yahoo Finance's chart data (delayed, no account; only the symbols are sent), kept 5 minutes.
+Also: jk stock, jk market, jk quote.
+'@
     'net'    = @'
 jk net                         is it the Wi-Fi or the internet? checks in order: an address, the router,
                                the internet (1.1.1.1), DNS, and the page Windows fetches to decide it is
@@ -379,7 +393,7 @@ function Write-JkHelpBlock([string]$Text) {
 # checks), so a new command cannot go missing from it.
 $script:JkHelpGroups = [ordered]@{
     'School'  = @('class', 'due', 'week', 'exams', 'grep', 'plan', 'grade', 'todo', 'review', 'pdf', 'jobs')
-    'Time'    = @('next', 'focus', 'in', 'at', 'remind', 'time', 'weather')
+    'Time'    = @('next', 'focus', 'in', 'at', 'remind', 'time', 'weather', 'stocks')
     'Code'    = @('cp', 'repos', 'port')
     'Machine' = @('find', 'recent', 'go', 'mark', 'clip', 'shots', 'tidy', 'space', 'sys', 'net', 'speed')
     'jk'      = @('brief', 'config', 'backup', 'update', 'doctor', 'setup', 'help')
