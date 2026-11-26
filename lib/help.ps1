@@ -258,6 +258,8 @@ jk stocks                      the watchlist: price, the day's move, 5 days, 1 m
 jk stocks NVDA                 one on a screen: the year's high and low, a typical day's move, the ranges
                                for the next close and a week out, the trend, the last 10 days against theirs
 jk stocks add NVDA SHOP.TO     watch more (any Yahoo symbol: ^GSPC, BTC-USD, SHOP.TO);  jk stocks rm QQQ
+jk stocks add 600519.SS 0700.HK  Shanghai, Shenzhen (.SZ), Hong Kong, Tokyo (.T): days by their own date,
+                               A-share ranges stop at the day limit (10%; 20% for 300/688; 5% for ST)
 jk stocks list                 the symbols on the list
 jk stocks popup                the weekday popup now; it comes by itself at the US open (9:30 New York)
 jk stocks popup 9:45 | off     another time, or none;  jk stocks popup on  back to the open

@@ -24,6 +24,13 @@ function Get-JkNyZone {
 function ConvertTo-JkNyTime([datetime]$Local) { [TimeZoneInfo]::ConvertTime([datetime]::SpecifyKind($Local, 'Unspecified'), [TimeZoneInfo]::Local, (Get-JkNyZone)) }
 function ConvertFrom-JkNyTime([datetime]$Ny) { [TimeZoneInfo]::ConvertTime([datetime]::SpecifyKind($Ny, 'Unspecified'), (Get-JkNyZone), [TimeZoneInfo]::Local) }
 function ConvertFrom-JkUnixToNy($Unix) { [TimeZoneInfo]::ConvertTimeFromUtc([DateTimeOffset]::FromUnixTimeSeconds([long]$Unix).UtcDateTime, (Get-JkNyZone)) }
+# A New York time on the clock of $S's own exchange (Yahoo's gmtoffset: Shanghai is 13 hours on
+# in winter), so a day there is named by its own date; with no offset, New York's.
+function ConvertTo-JkMarketTime($S, [datetime]$Ny) {
+    if ($null -eq $S.Offset) { return $Ny }
+    $utc = [TimeZoneInfo]::ConvertTimeToUtc([datetime]::SpecifyKind($Ny, 'Unspecified'), (Get-JkNyZone))
+    [datetime]::SpecifyKind($utc.AddSeconds([double]$S.Offset), 'Unspecified')
+}
 
 # ---------------------------------------------------------------- the watchlist
 
@@ -67,8 +74,9 @@ function Invoke-JkStockGet([string]$Symbol, [int]$TimeoutSec = 10) {
     [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
 }
 
-# The reply read: daily closes by New York date (one a day, the last kept), the latest price and
-# the session Yahoo names (today's once it is near, else the last one).
+# The reply read: daily closes by the exchange's own date (one a day, the last kept), the latest
+# price and the session Yahoo names (today's once it is near, else the last one). Yahoo can leave
+# the last day's close empty once the session is over (Shanghai does): the latest price is it.
 function ConvertFrom-JkStockJson([string]$Text, [string]$Symbol) {
     $j = ConvertFrom-Json $Text
     if ($j.chart.error) { throw "Yahoo has no $Symbol ($(([string]$j.chart.error.description).ToLowerInvariant()))" }
@@ -77,11 +85,13 @@ function ConvertFrom-JkStockJson([string]$Text, [string]$Symbol) {
     $m = $res.meta
     $q = @($res.indicators.quote)[0]
     $ts = @($res.timestamp)
+    $off = $(if ($null -ne $m.gmtoffset) { [double]$m.gmtoffset } else { $null })
     $byDay = [ordered]@{}
     for ($i = 0; $i -lt $ts.Count; $i++) {
         $c = $q.close[$i]
+        if ($null -eq $c -and $i -eq $ts.Count - 1 -and $null -ne $m.regularMarketPrice -and [long]$m.regularMarketTime -ge [long]$ts[$i]) { $c = $m.regularMarketPrice }
         if ($null -eq $c) { continue }
-        $d = (ConvertFrom-JkUnixToNy $ts[$i]).Date
+        $d = $(if ($null -ne $off) { [DateTimeOffset]::FromUnixTimeSeconds([long]$ts[$i] + [long]$off).UtcDateTime.Date } else { (ConvertFrom-JkUnixToNy $ts[$i]).Date })
         $byDay[$d.ToString('yyyy-MM-dd', $script:Inv)] = [pscustomobject]@{ Date = $d; Close = [double]$c }
     }
     $bars = @($byDay.Values)
@@ -96,7 +106,7 @@ function ConvertFrom-JkStockJson([string]$Text, [string]$Symbol) {
         Open = $(if ($reg) { ConvertFrom-JkUnixToNy $reg.start } else { $null }); Close = $(if ($reg) { ConvertFrom-JkUnixToNy $reg.end } else { $null })
         High52 = $(if ($null -ne $m.fiftyTwoWeekHigh) { [double]$m.fiftyTwoWeekHigh } else { ($bars | Measure-Object Close -Maximum).Maximum })
         Low52 = $(if ($null -ne $m.fiftyTwoWeekLow) { [double]$m.fiftyTwoWeekLow } else { ($bars | Measure-Object Close -Minimum).Minimum })
-        Bars = $bars; Fetched = [datetime]::MinValue; Stale = $false
+        Bars = $bars; Fetched = [datetime]::MinValue; Stale = $false; Offset = $off
     }
 }
 
@@ -157,16 +167,31 @@ function Get-JkStdDev([double[]]$X) {
 function Get-JkStockState($S, [datetime]$Now) {
     if (-not $S.Open) { return 'idle' }
     $ny = ConvertTo-JkNyTime $Now
-    if ($S.Open.Date -ne $ny.Date) {
+    # "today" is the exchange's: Shanghai's Friday session opens on a Thursday evening in New York
+    $today = (ConvertTo-JkMarketTime $S $ny).Date
+    $open = ConvertTo-JkMarketTime $S $S.Open
+    if ($open.Date -ne $today) {
         # Yahoo can name yesterday's session for a while into the day: a price traded today after
         # the open says today's is on (hours as usual; a half day shows once Yahoo catches up)
-        if ($S.PriceAt -is [datetime] -and $S.PriceAt.Date -eq $ny.Date -and $S.PriceAt.TimeOfDay -ge $S.Open.TimeOfDay -and $S.Open.Date -lt $ny.Date) {
-            $S.Open = $ny.Date.Add($S.Open.TimeOfDay); $S.Close = $ny.Date.Add($S.Close.TimeOfDay)
+        $at = $(if ($S.PriceAt -is [datetime]) { ConvertTo-JkMarketTime $S $S.PriceAt } else { $null })
+        if ($at -and $at.Date -eq $today -and $at.TimeOfDay -ge $open.TimeOfDay -and $open.Date -lt $today) {
+            $days = ($today - $open.Date).Days
+            $S.Open = $S.Open.AddDays($days); $S.Close = $S.Close.AddDays($days)
         } else { return 'idle' }
     }
     if ($ny -lt $S.Open) { return 'pre' }
     if ($ny -lt $S.Close) { return 'open' }
     'after'
+}
+
+# How far a day may move on its exchange: Shanghai and Shenzhen stop a stock at 10% from the last
+# close, 20% on the ChiNext and STAR boards (300/301, 688/689), 5% for one marked ST. 0: no limit.
+function Get-JkStockLimit($S) {
+    $sym = [string]$S.Symbol
+    if ($sym -notmatch '^(\d{6})\.(SS|SZ)$') { return 0.0 }
+    if ($Matches[1] -match '^(300|301|688|689)') { return 0.20 }
+    if ([string]$S.Name -match '(^|[^A-Za-z])\*?ST([^A-Za-z]|$)') { return 0.05 }
+    0.10
 }
 
 # Everything the screens say about one symbol. Settled closes are the days before today's session
@@ -178,7 +203,7 @@ function Get-JkStockStats($S, [datetime]$Now, [int]$Window = 20, [int]$Back = 12
     $state = Get-JkStockState $S $Now
     $bars = @($S.Bars)
     $live = $state -in 'open', 'after'
-    $sessionDay = $(if ($live) { $S.Open.Date } else { $null })
+    $sessionDay = $(if ($live) { (ConvertTo-JkMarketTime $S $S.Open).Date } else { $null })
     $settled = @($bars | Where-Object { -not $live -or $_.Date -lt $sessionDay })
     $c = [double[]]@($settled | ForEach-Object { $_.Close })
     $n = $c.Count
@@ -215,11 +240,18 @@ function Get-JkStockStats($S, [datetime]$Now, [int]$Window = 20, [int]$Back = 12
     }
     $spread = $script:JkStockK * $sig; $spread2 = $script:JkStockK2 * $sig
     $lo = $ref * [Math]::Exp(-$spread); $hi = $ref * [Math]::Exp($spread)
+    $lo2 = $ref * [Math]::Exp(-$spread2); $hi2 = $ref * [Math]::Exp($spread2)
+    # no range past the day's limit: the exchange stops the price there
+    $limit = Get-JkStockLimit $S
+    if ($limit -gt 0) {
+        $floor = $ref * (1 - $limit); $cap = $ref * (1 + $limit)
+        $lo = [Math]::Max($lo, $floor); $hi = [Math]::Min($hi, $cap); $lo2 = [Math]::Max($lo2, $floor); $hi2 = [Math]::Min($hi2, $cap)
+    }
     [pscustomobject]@{
         Symbol = $S.Symbol; State = $state; Price = $price; Ref = $ref; RefDay = $(if ($n) { $settled[-1].Date } else { $null })
         Day = $day; D5 = & $chg 5; D21 = & $chg 21; D63 = & $chg 63; Year = $(if ($m -ge 2) { $all[$m - 1] / $all[0] - 1 } else { $null })
         Sigma = $sig; SigmaBefore = $sigBefore; Avg20 = $avg; Spread = $spread
-        Lo = $lo; Hi = $hi; Lo2 = $ref * [Math]::Exp(-$spread2); Hi2 = $ref * [Math]::Exp($spread2)
+        Lo = $lo; Hi = $hi; Lo2 = $lo2; Hi2 = $hi2; Limit = $limit
         Inside = $(if ($live -and $sig -gt 0) { $price -ge $lo -and $price -le $hi } else { $null })
         Trend = $(if ($avg -le 0) { 0 } elseif ($price -gt $avg) { 1 } elseif ($price -lt $avg) { -1 } else { 0 })
         Tried = $tried; Held = $held; Calls = $calls; Right = $right; Ups = $ups
@@ -258,6 +290,7 @@ function Get-JkMarketName($S) {
     $e = [string]$S.Exchange
     if (-not $e -or $e -match '^(?i:nyse|nasdaq|bats|cboe|snp|dji|nyq|nms|pcx|ase|opr)') { return 'US market' }
     if ($e -eq 'CCC') { return 'crypto' }
+    if ($e -match '^(?i:hkse|hkg)') { return 'Hong Kong market' }
     "$e market"
 }
 
@@ -271,10 +304,11 @@ function Get-JkMarketWords($S, [datetime]$Now) {
         'after' { return "$mk closed at $(& $loc $S.Close)" }
         'pre' { return "$mk opens at $(& $loc $S.Open)" }
     }
-    $ny = ConvertTo-JkNyTime $Now
-    if ($ny.DayOfWeek -in 'Saturday', 'Sunday') { return "$mk closed for the weekend" }
-    # past the open with fresh prices and still no session today: a holiday
-    if (-not $S.Stale -and $ny.TimeOfDay -ge [TimeSpan]'09:31:00') { return "$mk closed today" }
+    $mt = ConvertTo-JkMarketTime $S (ConvertTo-JkNyTime $Now)
+    if ($mt.DayOfWeek -in 'Saturday', 'Sunday') { return "$mk closed for the weekend" }
+    # past the open (on the exchange's clock) with fresh prices and still no session today: a holiday
+    $opensAt = $(if ($S.Open) { (ConvertTo-JkMarketTime $S $S.Open).TimeOfDay } else { [TimeSpan]'09:30:00' })
+    if (-not $S.Stale -and $mt.TimeOfDay -ge $opensAt.Add([TimeSpan]'00:01:00')) { return "$mk closed today" }
     "last close $($S.Bars[-1].Date.ToString('ddd MMM d', $script:Inv))"
 }
 
@@ -321,9 +355,22 @@ function Show-JkStocks {
         return
     }
     $got = @(Get-JkStocksFor $syms $MaxAgeMinutes)
-    $first = @($got | Where-Object { $_.Stock })[0]
+    # each market on the list once, in list order, while they fit: one says "US market open until
+    # 4:00 pm"; with more, "US open until 4:00 pm, Shanghai opens at 8:30 pm"
     $right = $now.ToString('ddd MMM d', $script:Inv)
-    if ($first) { $right += " $($script:G.dot) $(Get-JkMarketWords $first.Stock $now)" }
+    $words = @(); $seen = @{}
+    foreach ($g in @($got | Where-Object { $_.Stock })) {
+        $mk = Get-JkMarketName $g.Stock
+        if ($seen.ContainsKey($mk)) { continue }
+        $seen[$mk] = 1
+        $words += , (Get-JkMarketWords $g.Stock $now)
+    }
+    if ($words.Count -gt 1) { $words = @($words | ForEach-Object { $_ -replace '^(.+?) market ', '$1 ' }) }
+    foreach ($wd in $words) {
+        $more = " $($script:G.dot) $wd"
+        if ($right.Length -gt 10 -and $right.Length + $more.Length + 12 -gt (Get-JkWidth)) { break }
+        $right += $more
+    }
     Write-JkHeader 'Stocks' -Right $right
     $w = Get-JkWidth
     $stats = @()
@@ -406,6 +453,7 @@ function Show-JkStock([string]$Symbol) {
         $nextWord = $(if ($x.State -in 'open', 'after') { 'today' } else { 'next close' })
         & $row $nextWord ("$(Format-JkPrice $x.Lo) - $(Format-JkPrice $x.Hi)" + (Paint 'gray' ' (4 days in 5)    ') + "$(Format-JkPrice $x.Lo2) - $(Format-JkPrice $x.Hi2)" + (Paint 'gray' ' (19 in 20)'))
         $wk = $x.Spread * [Math]::Sqrt(5.0)
+        if ($x.Limit -gt 0) { & $row 'day limit' ("$script:JkPm$([int][Math]::Round(100 * $x.Limit))%" + (Paint 'gray' " $(Format-JkPrice ($x.Ref * (1 - $x.Limit))) - $(Format-JkPrice ($x.Ref * (1 + $x.Limit))), where the exchange stops it")) }
         & $row 'a week out' ("$(Format-JkPrice ($x.Ref * [Math]::Exp(-$wk))) - $(Format-JkPrice ($x.Ref * [Math]::Exp($wk)))" + (Paint 'gray' " $script:JkPm$((Format-JkStockPct $wk).TrimStart('+')), 4 in 5"))
     }
     if ($x.Avg20 -gt 0) {
@@ -416,7 +464,8 @@ function Show-JkStock([string]$Symbol) {
     if ($x.Tried) { & $row 'ranges held' ((Format-JkPctOf $x.Held $x.Tried) + (Paint 'gray' " of the last $($x.Tried) days (aim: 80%)")) }
     & $row '6 months' (Paint 'blue' (Get-JkSparkline $x.Closes ([Math]::Min(63, [Math]::Max(20, (Get-JkWidth) - 20)))))
     # the last ten settled days, each against the range the 20 days before it gave
-    $bars = @($s.Bars | Where-Object { $x.State -notin 'open', 'after' -or $_.Date -lt $s.Open.Date })
+    $sessionDay = (ConvertTo-JkMarketTime $s $s.Open).Date
+    $bars = @($s.Bars | Where-Object { $x.State -notin 'open', 'after' -or $_.Date -lt $sessionDay })
     $c = [double[]]@($bars | ForEach-Object { $_.Close })
     $n = $c.Count
     if ($n -ge 32) {
