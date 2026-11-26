@@ -3423,15 +3423,18 @@ Test 'jk stocks: the watchlist, a range for the close from the last 20 days, how
         $env:JK_NOW = (& $here '2026-11-25T08:00:00').ToString('s')
         $txt = (& $say { Invoke-JkStocks }) -join "`n"
         $sig = [Math]::Sqrt(20.0 / 19) * 0.01
-        $lo = Format-JkPrice ($cl[-1] * [Math]::Exp(-$sig)); $hi = Format-JkPrice ($cl[-1] * [Math]::Exp($sig))
+        # 4 days in 5: 1.28 typical days either way; 19 in 20: 2.3 (the fat tails of real stocks)
+        $lo = Format-JkPrice ($cl[-1] * [Math]::Exp(-1.2816 * $sig)); $hi = Format-JkPrice ($cl[-1] * [Math]::Exp(1.2816 * $sig))
+        $lo2 = Format-JkPrice ($cl[-1] * [Math]::Exp(-2.3 * $sig)); $hi2 = Format-JkPrice ($cl[-1] * [Math]::Exp(2.3 * $sig))
         Assert-True ($txt -match "US market opens at $(& $hm '2026-11-25T09:30')") "before the open: $txt"
-        Assert-True ($txt -match "SPY\s+$([regex]::Escape((Format-JkPrice $cl[-1])))\s+$([regex]::Escape((Format-JkStockPct ($cl[-1] / $cl[-2] - 1) 2)))" -and $txt -match "next close likely $lo - $hi \(.1\.0%, 2 days in 3\)") "the row and its range ($lo - $hi): $txt"
-        Assert-True ($txt -match 'held on 100% of the last 120 days' -and $txt -match 'called the next day 0% of the time \(a coin: 50%; up days: 50%\): worse than a coin') "the record: $txt"
+        Assert-True ($txt -match "SPY\s+$([regex]::Escape((Format-JkPrice $cl[-1])))\s+$([regex]::Escape((Format-JkStockPct ($cl[-1] / $cl[-2] - 1) 2)))" -and $txt -match "next close likely $lo - $hi \(.1\.3%, 4 days in 5\)") "the row and its range ($lo - $hi): $txt"
+        Assert-True ($txt -match 'held on 100% of the last 120 days \(aim: 80%, 4 in 5\)' -and $txt -match 'called the next day 0% of the time \(a coin: 50%; up days: 50%\): worse than a coin') "the record: $txt"
         Assert-True ($txt -match 'From past prices only, not advice') 'says what it is'
         # one on a screen: the ranges, the trend's record, the last ten days each inside its range
         $txt = (& $say { Invoke-JkStocks spy }) -join "`n"
         Assert-True ($txt -match 'SPY  SPY Fund' -and $txt -match 'ranges held\s+100% of the last 120 days' -and $txt -match 'called the next day 0% of 120 days') "jk stocks spy: $txt"
         Assert-Eq ([regex]::Matches($txt, "$([char]0x2713)").Count) 10 'the last 10 days, each inside its range'
+        Assert-True ($txt -match "next close\s+$lo - $hi \(4 days in 5\)\s+$lo2 - $hi2 \(19 in 20\)" -and $txt -match 'a week out\s+\S+ - \S+ .2\.9%, 4 in 5' -and $txt -match 'of the last 120 days \(aim: 80%\)') "the 4-in-5 and 19-in-20 ranges ($lo - $hi, $lo2 - $hi2): $txt"
         # 11 am, trading 5% up: outside the range so far; the popup at the open says the same
         $null = & $seed 'SPY' $wed.AddDays(-1) $wed ([Math]::Round($cl[-1] * 1.05, 2))
         $env:JK_NOW = (& $here '2026-11-25T11:00:00').ToString('s')

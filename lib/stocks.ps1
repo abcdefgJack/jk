@@ -6,6 +6,12 @@
 $script:JkStockRx = '^[A-Z0-9][A-Z0-9.\-=^]{0,14}$|^\^[A-Z0-9.]{1,12}$'
 $script:JkSpark = @(0x2581, 0x2582, 0x2583, 0x2584, 0x2585, 0x2586, 0x2587, 0x2588 | ForEach-Object { [string][char]$_ })
 $script:JkPm = [string][char]0x00B1
+# How wide the ranges are, in typical daily moves (the spread of the last 20). Checked on two years
+# of daily closes for every US-listed symbol and the Shanghai, Shenzhen, Hong Kong and Tokyo
+# boards (tools/stocks-study), each day against the 20 days before it: 1.28 holds 4 days in 5, as a bell
+# curve says; for 19 in 20 the fat tails need 2.3 where the bell curve says 1.96 (that held 92%).
+$script:JkStockK = 1.2816
+$script:JkStockK2 = 2.3
 
 # ---------------------------------------------------------------- New York time
 
@@ -198,7 +204,7 @@ function Get-JkStockStats($S, [datetime]$Now, [int]$Window = 20, [int]$Back = 12
         $st = Get-JkStdDev $prior
         if ($st -le 0) { continue }
         $tried++
-        if ([Math]::Abs($ret[$t - 1]) -le $st) { $held++ }
+        if ([Math]::Abs($ret[$t - 1]) -le $script:JkStockK * $st) { $held++ }
         if ($ret[$t - 1] -gt 0) { $ups++ }
         $sum = 0.0; for ($k = $t - $Window; $k -lt $t; $k++) { $sum += $c[$k] }
         $mean = $sum / $Window
@@ -207,12 +213,13 @@ function Get-JkStockStats($S, [datetime]$Now, [int]$Window = 20, [int]$Back = 12
             if (($c[$t - 1] -gt $mean) -eq ($ret[$t - 1] -gt 0)) { $right++ }
         }
     }
-    $lo = $ref * [Math]::Exp(-$sig); $hi = $ref * [Math]::Exp($sig)
+    $spread = $script:JkStockK * $sig; $spread2 = $script:JkStockK2 * $sig
+    $lo = $ref * [Math]::Exp(-$spread); $hi = $ref * [Math]::Exp($spread)
     [pscustomobject]@{
         Symbol = $S.Symbol; State = $state; Price = $price; Ref = $ref; RefDay = $(if ($n) { $settled[-1].Date } else { $null })
         Day = $day; D5 = & $chg 5; D21 = & $chg 21; D63 = & $chg 63; Year = $(if ($m -ge 2) { $all[$m - 1] / $all[0] - 1 } else { $null })
-        Sigma = $sig; SigmaBefore = $sigBefore; Avg20 = $avg
-        Lo = $lo; Hi = $hi; Lo2 = $ref * [Math]::Exp(-2 * $sig); Hi2 = $ref * [Math]::Exp(2 * $sig)
+        Sigma = $sig; SigmaBefore = $sigBefore; Avg20 = $avg; Spread = $spread
+        Lo = $lo; Hi = $hi; Lo2 = $ref * [Math]::Exp(-$spread2); Hi2 = $ref * [Math]::Exp($spread2)
         Inside = $(if ($live -and $sig -gt 0) { $price -ge $lo -and $price -le $hi } else { $null })
         Trend = $(if ($avg -le 0) { 0 } elseif ($price -gt $avg) { 1 } elseif ($price -lt $avg) { -1 } else { 0 })
         Tried = $tried; Held = $held; Calls = $calls; Right = $right; Ups = $ups
@@ -284,7 +291,7 @@ function Get-JkStockRecordLines($All) {
     $upPct = 100.0 * $ups / $tried
     $verdict = $(if ($calls -lt 20) { 'too few days to tell' } elseif ([Math]::Abs($callPct - 50) -lt 5) { 'a coin flip, so read it as noise' } elseif ($callPct -gt 50) { 'a little better than a coin, over few days' } else { 'worse than a coin' })
     @(
-        "Ranges like these held on $([int][Math]::Round($hitPct))% of the last $days days (aim: 68%, 2 in 3)",
+        "Ranges like these held on $([int][Math]::Round($hitPct))% of the last $days days (aim: 80%, 4 in 5)",
         "The trend called the next day $([int][Math]::Round($callPct))% of the time (a coin: 50%; up days: $([int][Math]::Round($upPct))%): $verdict"
     )
 }
@@ -354,19 +361,19 @@ function Get-JkStockRangeText($X, $S, [switch]$Plain) {
     $p = { param($style, $t) if ($Plain) { $t } else { Paint $style $t } }
     if ($X.Sigma -le 0) { return (& $p 'gray' 'too few days of prices for a range') }
     $rng = "$(Format-JkPrice $X.Lo) - $(Format-JkPrice $X.Hi)"
-    $pm = "$script:JkPm$(Format-JkStockPct $X.Sigma | ForEach-Object { $_.TrimStart('+') })"
+    $pm = "$script:JkPm$(Format-JkStockPct $X.Spread | ForEach-Object { $_.TrimStart('+') })"
     $trend = $(switch ($X.Trend) { 1 { "above its 20-day average $($script:G.up)" } -1 { "below its 20-day average $($script:G.down)" } default { 'at its 20-day average' } })
     switch ($X.State) {
         'open' {
             $where = $(if ($X.Inside) { & $p 'green' 'inside so far' } elseif ($X.Price -gt $X.Hi) { & $p 'yellow' 'above it so far' } else { & $p 'yellow' 'below it so far' })
-            return (& $p 'gray' "close likely $rng ($pm, 2 days in 3) ") + $where + (& $p 'gray' " $($script:G.dot) $trend")
+            return (& $p 'gray' "close likely $rng ($pm, 4 days in 5) ") + $where + (& $p 'gray' " $($script:G.dot) $trend")
         }
         'after' {
             $where = $(if ($X.Inside) { & $p 'green' "closed inside $($script:G.check)" } elseif ($X.Price -gt $X.Hi) { & $p 'yellow' 'closed above it' } else { & $p 'yellow' 'closed below it' })
             return (& $p 'gray' "the range was $rng ($pm) ") + $where + (& $p 'gray' " $($script:G.dot) $trend")
         }
     }
-    & $p 'gray' "next close likely $rng ($pm, 2 days in 3) $($script:G.dot) $trend"
+    & $p 'gray' "next close likely $rng ($pm, 4 days in 5) $($script:G.dot) $trend"
 }
 
 # One symbol on a screen: the moves, the year's high and low, how lively it has been, the ranges
@@ -397,16 +404,16 @@ function Show-JkStock([string]$Symbol) {
         }
         & $row 'a day' ("$script:JkPm$((Format-JkStockPct $x.Sigma 2).TrimStart('+'))" + (Paint 'gray' " a typical move (the last 20 days$lively)"))
         $nextWord = $(if ($x.State -in 'open', 'after') { 'today' } else { 'next close' })
-        & $row $nextWord ("$(Format-JkPrice $x.Lo) - $(Format-JkPrice $x.Hi)" + (Paint 'gray' ' (2 days in 3)    ') + "$(Format-JkPrice $x.Lo2) - $(Format-JkPrice $x.Hi2)" + (Paint 'gray' ' (19 in 20)'))
-        $wk = $x.Sigma * [Math]::Sqrt(5.0)
-        & $row 'a week out' ("$(Format-JkPrice ($x.Ref * [Math]::Exp(-$wk))) - $(Format-JkPrice ($x.Ref * [Math]::Exp($wk)))" + (Paint 'gray' " $script:JkPm$((Format-JkStockPct $wk).TrimStart('+')), 2 in 3"))
+        & $row $nextWord ("$(Format-JkPrice $x.Lo) - $(Format-JkPrice $x.Hi)" + (Paint 'gray' ' (4 days in 5)    ') + "$(Format-JkPrice $x.Lo2) - $(Format-JkPrice $x.Hi2)" + (Paint 'gray' ' (19 in 20)'))
+        $wk = $x.Spread * [Math]::Sqrt(5.0)
+        & $row 'a week out' ("$(Format-JkPrice ($x.Ref * [Math]::Exp(-$wk))) - $(Format-JkPrice ($x.Ref * [Math]::Exp($wk)))" + (Paint 'gray' " $script:JkPm$((Format-JkStockPct $wk).TrimStart('+')), 4 in 5"))
     }
     if ($x.Avg20 -gt 0) {
         $tw = $(switch ($x.Trend) { 1 { "above its 20-day average ($(Format-JkPrice $x.Avg20)) $($script:G.up)" } -1 { "below its 20-day average ($(Format-JkPrice $x.Avg20)) $($script:G.down)" } default { 'at its 20-day average' } })
         $rec = $(if ($x.Calls) { Paint 'gray' "  called the next day $(Format-JkPctOf $x.Right $x.Calls) of $($x.Calls) days" } else { '' })
         & $row 'trend' ($tw + $rec)
     }
-    if ($x.Tried) { & $row 'ranges held' ((Format-JkPctOf $x.Held $x.Tried) + (Paint 'gray' " of the last $($x.Tried) days (aim: 68%)")) }
+    if ($x.Tried) { & $row 'ranges held' ((Format-JkPctOf $x.Held $x.Tried) + (Paint 'gray' " of the last $($x.Tried) days (aim: 80%)")) }
     & $row '6 months' (Paint 'blue' (Get-JkSparkline $x.Closes ([Math]::Min(63, [Math]::Max(20, (Get-JkWidth) - 20)))))
     # the last ten settled days, each against the range the 20 days before it gave
     $bars = @($s.Bars | Where-Object { $x.State -notin 'open', 'after' -or $_.Date -lt $s.Open.Date })
@@ -418,7 +425,7 @@ function Show-JkStock([string]$Symbol) {
         for ($t = $n - 10; $t -lt $n; $t++) {
             $prior = [double[]]@(for ($k = $t - 20; $k -lt $t; $k++) { [Math]::Log($c[$k] / $c[$k - 1]) })
             $st = Get-JkStdDev $prior
-            $lo = $c[$t - 1] * [Math]::Exp(-$st); $hi = $c[$t - 1] * [Math]::Exp($st)
+            $lo = $c[$t - 1] * [Math]::Exp(-$script:JkStockK * $st); $hi = $c[$t - 1] * [Math]::Exp($script:JkStockK * $st)
             $ok = $c[$t] -ge $lo -and $c[$t] -le $hi
             $mark = $(if ($ok) { Paint 'green' $script:G.check } else { Paint 'yellow' $script:G.cross })
             $chg = $c[$t] / $c[$t - 1] - 1

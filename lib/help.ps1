@@ -254,15 +254,16 @@ Also: jk wx, jk forecast, jk rain.
 '@
     'stocks' = @'
 jk stocks                      the watchlist: price, the day's move, 5 days, 1 month, 3 months, a year, and
-                               the likely range for the close (2 days in 3), with how often such ranges held
+                               the likely range for the close (4 days in 5), with how often such ranges held
 jk stocks NVDA                 one on a screen: the year's high and low, a typical day's move, the ranges
                                for the next close and a week out, the trend, the last 10 days against theirs
 jk stocks add NVDA SHOP.TO     watch more (any Yahoo symbol: ^GSPC, BTC-USD, SHOP.TO);  jk stocks rm QQQ
 jk stocks list                 the symbols on the list
 jk stocks popup                the weekday popup now; it comes by itself at the US open (9:30 New York)
 jk stocks popup 9:45 | off     another time, or none;  jk stocks popup on  back to the open
-The range is the last close moved by a typical day of the last 20, either way: no tips, no advice.
-How often the trend called the next day is shown next to a coin, so you can see how little it knows.
+The range is the last close moved 1.28 typical days of the last 20 either way: no tips, no advice.
+Checked on two years of every US, Shanghai, Shenzhen, Hong Kong and Tokyo stock, it held 4 days in 5.
+Which way a day goes is a coin flip: the trend's record is shown next to one, so you can see that.
 Prices from Yahoo Finance's chart data (delayed, no account; only the symbols are sent), kept 5 minutes.
 Also: jk stock, jk market, jk quote.
 '@
