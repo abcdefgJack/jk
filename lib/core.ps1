@@ -326,6 +326,8 @@ $script:JkConfigDefaults = [ordered]@{
     'shots.path'    = ''          # screenshots folder for jk shots; empty = Pictures\Screenshots
     'time.zones'    = ''          # jk time add <city>; empty = from your installed languages, off = none
     'weather.place' = ''          # jk weather set <place>; empty = Waterloo, off = no weather on the dashboard
+    'stocks.watch'  = 'SPY;QQQ'   # jk stocks add/rm; none = no watchlist
+    'stocks.time'   = ''          # the weekday stock popup (HH:mm); empty = the US open, 9:30 New York; off = none
     'focus.minutes' = '25'
     'plan.hours'    = '3'         # daily study budget for jk plan
     'plan.examHours' = '6'        # the same during the study break and the exam period (no classes)

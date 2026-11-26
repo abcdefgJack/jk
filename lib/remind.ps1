@@ -162,6 +162,14 @@ function Complete-JkReminder {
         }
         $accent = Get-JkCourseColor $e.course (Get-JkCourseMap $data)
     }
+    elseif ($key.StartsWith('stocks:')) {
+        # the watchlist at the open: only on its own day, and quiet on a market holiday
+        if ($key -ne "stocks:$((Get-JkNow).ToString('yyyy-MM-dd', $script:Inv))") { return }
+        $p = Get-JkStocksPopup
+        if (-not $p) { return }
+        $null = Show-JkNotify -Title $p.Title -Lines $p.Lines -Accent $script:JkPalette.blue -Seconds 0 -Wait
+        return
+    }
     elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm')) $($at.ToString('ddd MMM d', $script:Inv))" }
     else { $lines += "Set $(Format-JkRelTime ([datetime]::Parse([string]$item.created, $script:Inv)))" }
     # reminders stay until dismissed; a class alert closes itself 10 minutes into the class, so a day
@@ -618,6 +626,7 @@ function Invoke-JkTick([switch]$CatchUp) {
     if (Get-JkConfig 'sync.url') { try { Invoke-JkDueSync -Quiet } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' sync: ' + $_.Exception.Message) } }
     try { $null = Register-JkTodayAlerts } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' alerts: ' + $_.Exception.Message) }
     try { $null = Register-JkClassAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' class alert: ' + $_.Exception.Message) }
+    try { $null = Register-JkStocksAlert } catch { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + ' stocks alert: ' + $_.Exception.Message) }
     # every step says when it fails: a quiet catch here hid two mornings without weather
     $note = { param($what, $why) Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date -Format s) + " ${what}: $why") }
     try { Update-JkDiskLog } catch { & $note 'disk log' $_.Exception.Message }
