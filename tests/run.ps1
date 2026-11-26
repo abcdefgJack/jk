@@ -3501,6 +3501,73 @@ Test 'jk stocks: the watchlist, a range for the close from the last 20 days, how
         $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $env:JK_CACHE = $savedCache; $script:JkConfigCache = $null
     }
 }
+
+Test 'jk stocks abroad: Shanghai days by their own date, the close Yahoo leaves empty, the 10% and 20% day limits, and each market in the header' {
+    $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH; $savedCache = $env:JK_CACHE
+    $env:JK_HOME = Join-Path $saved 'asia-home'; $env:JK_CACHE = Join-Path $saved 'asia-cache'; $script:JkConfigCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME, $env:JK_CACHE | Out-Null
+    try {
+        $ny = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+        $here = { param([string]$nyText) [TimeZoneInfo]::ConvertTime([datetime]::Parse($nyText, $script:Inv), $ny, [TimeZoneInfo]::Local) }
+        $hm = { param([string]$nyText) Format-JkTime (& $here $nyText).ToString('HH:mm') }
+        $say = { param([scriptblock]$Run) @(& $Run 6>&1 | ForEach-Object { "$_" }) }
+        # Beijing time is UTC+8: a day's bar is stamped 9:30 there (1:30 UTC), the session runs to
+        # 15:00 (7:00 UTC). 141 weekdays up to $last moving $step either way in turn; the last close
+        # is left empty, as Yahoo does once Shanghai has closed, with the price in the meta
+        $utc = { param([datetime]$cst, [double]$h) [DateTimeOffset]::new($cst.Date.AddHours($h), [TimeSpan]::Zero).ToUnixTimeSeconds() }
+        $seedCn = {
+            param([string]$sym, [string]$name, [string]$exch, [datetime]$last, [datetime]$session, [double]$step = 0.01, [double]$price = 0)
+            $days = @(); $d = $last
+            while ($days.Count -lt 141) { if ($d.DayOfWeek -notin 'Saturday', 'Sunday') { $days = @($d) + $days }; $d = $d.AddDays(-1) }
+            $closes = @(); $c = 100.0
+            for ($i = 0; $i -lt 141; $i++) { if ($i) { $c = $c * [Math]::Exp($(if ($i % 2) { $step } else { -$step })) }; $closes += [Math]::Round($c, 4) }
+            $p = $(if ($price) { $price } else { $closes[-1] })
+            $shown = @($closes[0..139]) + @($null)
+            $j = [ordered]@{ chart = [ordered]@{ result = @([ordered]@{
+                            meta = [ordered]@{ currency = 'CNY'; symbol = $sym; fullExchangeName = $exch; longName = $name; gmtoffset = 28800; regularMarketPrice = $p; regularMarketTime = (& $utc $last 7); fiftyTwoWeekHigh = 120.0; fiftyTwoWeekLow = 80.0
+                                currentTradingPeriod = [ordered]@{ regular = [ordered]@{ start = (& $utc $session 1.5); end = (& $utc $session 7) } } }
+                            timestamp = @($days | ForEach-Object { & $utc $_ 1.5 }); indicators = [ordered]@{ quote = @([ordered]@{ close = $shown }) } }); error = $null } }
+            Write-JkText (Get-JkStockCachePath $sym) ((Get-Date).ToUniversalTime().ToString('o') + "`n" + (ConvertTo-Json $j -Depth 10 -Compress))
+            $closes
+        }
+        $env:JK_WIDTH = '120'
+        $thu = [datetime]'2026-11-26'; $fri = [datetime]'2026-11-27'
+        # Thursday 2 pm in New York: Shanghai closed Thursday's session at 2 am and opens Friday's
+        # at 8:30 pm; Thursday's close (empty in the bars) is the price
+        $cl = & $seedCn '600519.SS' 'Kweichow Moutai Co., Ltd.' 'Shanghai' $thu $fri
+        $env:JK_NOW = (& $here '2026-11-26T14:00:00').ToString('s')
+        $txt = (& $say { Invoke-JkStocks 600519.ss }) -join "`n"
+        Assert-True ($txt -match "CNY . Shanghai market opens at $(& $hm '2026-11-26T20:30')") "the header: $txt"
+        Assert-True ($txt -match "price\s+$([regex]::Escape((Format-JkPrice $cl[-1]))) .+ on Thu Nov 26") "Thursday's close, by Shanghai's date: $txt"
+        $days = @([regex]::Matches($txt, '(?m)^   (\w{3}) Nov \d+ ') | ForEach-Object { $_.Groups[1].Value })
+        Assert-Eq ($days -join ',') 'Fri,Mon,Tue,Wed,Thu,Fri,Mon,Tue,Wed,Thu' 'the last ten days, weekdays in Shanghai'
+        Assert-True ($txt -match "day limit\s+.10% $([regex]::Escape((Format-JkPrice ($cl[-1] * 0.9)))) - $([regex]::Escape((Format-JkPrice ($cl[-1] * 1.1))))") "the 10% limit: $txt"
+        # after Shanghai's close, still Thursday there: closed at 2 am, not "closed today"
+        $null = & $seedCn '600519.SS' 'Kweichow Moutai Co., Ltd.' 'Shanghai' $thu $thu
+        $env:JK_NOW = (& $here '2026-11-26T03:00:00').ToString('s')
+        $txt = (& $say { Invoke-JkStocks 600519.ss }) -join "`n"
+        Assert-True ($txt -match "Shanghai market closed at $(& $hm '2026-11-26T02:00')") "after the close: $txt"
+        # Saturday in New York is Saturday and Sunday in Shanghai
+        $null = & $seedCn '600519.SS' 'Kweichow Moutai Co., Ltd.' 'Shanghai' $fri $fri
+        $env:JK_NOW = (& $here '2026-11-28T10:00:00').ToString('s')
+        Assert-True (((& $say { Invoke-JkStocks 600519.ss }) -join ' ') -match 'Shanghai market closed for the weekend') 'the weekend'
+        # a lively ChiNext stock: 10% days would give a range past its 20% limit for 19 in 20; the
+        # limit is where it stops; an ST name has 5%; no limit outside Shanghai and Shenzhen
+        $cl = & $seedCn '300750.SZ' 'Contemporary Amperex Technology Co., Limited' 'Shenzhen' $thu $fri 0.1
+        $s = Get-JkStock '300750.SZ'
+        $x = Get-JkStockStats $s ([datetime]$env:JK_NOW)
+        Assert-True ($x.Limit -eq 0.2 -and [Math]::Abs($x.Hi2 - $cl[-1] * 1.2) -lt 0.001 -and [Math]::Abs($x.Lo2 - $cl[-1] * 0.8) -lt 0.001 -and $x.Hi -lt $cl[-1] * 1.2) "capped at 20%: $($x.Lo2) - $($x.Hi2) ($($cl[-1]))"
+        Assert-Eq "$(Get-JkStockLimit ([pscustomobject]@{ Symbol = '600123.SS'; Name = '*ST Example Co' })) $(Get-JkStockLimit ([pscustomobject]@{ Symbol = '000001.SZ'; Name = 'Ping An Bank' })) $(Get-JkStockLimit ([pscustomobject]@{ Symbol = '0700.HK'; Name = 'Tencent' }))" '0.05 0.1 0' 'ST 5%, the main boards 10%, Hong Kong none'
+        # a list with New York and Shanghai: both markets in the header, in short
+        $null = & $seedCn '600519.SS' 'Kweichow Moutai Co., Ltd.' 'Shanghai' $thu $fri
+        $env:JK_NOW = (& $here '2026-11-26T14:00:00').ToString('s')
+        Save-JkStockList @('600519.SS', '300750.SZ')
+        $txt = (& $say { Invoke-JkStocks }) -join "`n"
+        Assert-True ($txt -match "Thu Nov 26 . Shanghai opens at $(& $hm '2026-11-26T20:30') . Shenzhen opens at") "each market in the header: $txt"
+    } finally {
+        $env:JK_HOME = $saved; $env:JK_NOW = $savedNow; $env:JK_WIDTH = $savedW; $env:JK_CACHE = $savedCache; $script:JkConfigCache = $null
+    }
+}
 Test 'jk exam <course> papers: the past papers for its next exam, paired with their solutions, newest term first, and which are done' {
     $saved = $env:JK_HOME; $savedNow = $env:JK_NOW; $savedW = $env:JK_WIDTH
     $env:JK_HOME = Join-Path $saved 'papers-home'; $script:JkConfigCache = $null; $script:JkDueCache = $null
