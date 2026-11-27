@@ -128,7 +128,7 @@ function Show-JkDashboard {
 
     Say ''
     $left = " $(Get-JkGreeting $now), $name."
-    $right = $now.ToString('dddd, MMMM d', [Globalization.CultureInfo]::InvariantCulture) + '  ' + (Format-JkTime $now.ToString('HH:mm'))
+    $right = $now.ToString('dddd, MMMM d', [Globalization.CultureInfo]::InvariantCulture) + '  ' + (Format-JkTime $now.ToString('HH:mm', $script:Inv))
     Say ((Paint 'bold white' $left) + (' ' * [Math]::Max(2, $w - $left.Length - $right.Length - 1)) + (Paint 'muted' $right))
     $termLine = Format-JkTermLine $info
     if ($termLine) { Say (' ' + (Paint 'gray' $termLine)) }
@@ -267,7 +267,7 @@ function Show-JkDashboard {
     if ($rem.Count) {
         $nr = $rem[0]
         $at = [datetime]::Parse([string]$nr.at, [Globalization.CultureInfo]::InvariantCulture)
-        $bits += (Paint 'amber' "$($script:G.circle) $($rem.Count) reminder$(if ($rem.Count -ne 1) {'s'})") + (Paint 'muted' " next $(Format-JkTime $at.ToString('HH:mm')): $($nr.text)")
+        $bits += (Paint 'amber' "$($script:G.circle) $($rem.Count) reminder$(if ($rem.Count -ne 1) {'s'})") + (Paint 'muted' " next $(Format-JkTime $at.ToString('HH:mm', $script:Inv)): $($nr.text)")
     }
     if ($bits.Count) { Say ''; Say ('  ' + ($bits -join (Paint 'gray' "   $($script:G.vline)  "))) }
 
@@ -437,7 +437,7 @@ function Get-JkBriefLine {
         if ($nc) {
             $label = (Format-JkClassLabel $nc.Class $cmap) -replace '\s(?=\d)', ''
             $room = ''; if ($nc.Class.room) { $room = ' ' + $nc.Class.room }
-            $lead = @((Paint "bold #$(Get-JkCourseColor $nc.Class.course $cmap)" $label) + ' ' + (Paint 'white' (Format-JkTime $nc.Start.ToString('HH:mm'))) + (Paint 'muted' $room))
+            $lead = @((Paint "bold #$(Get-JkCourseColor $nc.Class.course $cmap)" $label) + ' ' + (Paint 'white' (Format-JkTime $nc.Start.ToString('HH:mm', $script:Inv))) + (Paint 'muted' $room))
         }
     } catch { }
     $td = Get-JkTodoData

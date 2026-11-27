@@ -170,7 +170,7 @@ function Complete-JkReminder {
         $null = Show-JkNotify -Title $p.Title -Lines $p.Lines -Accent $script:JkPalette.blue -Seconds 0 -Wait
         return
     }
-    elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm')) $($at.ToString('ddd MMM d', $script:Inv))" }
+    elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm', $script:Inv)) $($at.ToString('ddd MMM d', $script:Inv))" }
     else { $lines += "Set $(Format-JkRelTime ([datetime]::Parse([string]$item.created, $script:Inv)))" }
     # reminders stay until dismissed; a class alert closes itself 10 minutes into the class, so a day
     # away from the PC does not leave a pile of stale "starts in 10m" cards
@@ -187,65 +187,67 @@ function Register-JkTodayAlerts {
     $before = Get-JkConfig 'alert.before'
     if (-not $before -or $before -match '^(0|off|none)$') { return 0 }
     $secs = ConvertTo-JkSeconds $before
-    $data = Get-JkDueData
-    $cmap = Get-JkCourseMap $data
-    $today = $Now.ToString('yyyy-MM-dd', $script:Inv)
-    $rd = Get-JkReminderData
-    $seen = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
-    $known = @($seen) + @($rd.items | ForEach-Object { [string](Get-JkProp $_ 'key') })
-    $added = @()
-    $n = 0
-    foreach ($e in @($data.events)) {
-        if ($e.done -or -not $e.time) { continue }
-        # anything timed (interviews and OAs carry no weight), except work marked 0% and the
-        # opening of a quiz window
-        if ($e.weight -and (Get-JkWeightValue $e.weight) -le 0) { continue }
-        if ([string]$e.title -match '(?i)\s+opens?$') { continue }
-        $due = Get-JkEventDue $e
-        if ($due.Date -ne $Now.Date -or $due -le $Now) { continue }
-        $at = $due.AddSeconds(-$secs)
-        if ($at -le $Now) {
-            # the morning run happens at the first unlock after 7:45 (jk-remind-unlock), and a laptop
-            # asleep until 6 pm is past the 5 pm warning for a 7 pm exam: warn now while there is time
-            if (($due - $Now).TotalMinutes -lt 10) { continue }
-            $at = $Now.AddMinutes(1)
+    # check-and-add as one step, as Register-JkClassAlert does: the unlock catch-up and the daily
+    # run can overlap, and each would otherwise set the same alert (two popups for one deadline)
+    $whole = Enter-JkReminderLock
+    try {
+        $data = Get-JkDueData
+        $cmap = Get-JkCourseMap $data
+        $today = $Now.ToString('yyyy-MM-dd', $script:Inv)
+        $rd = Get-JkReminderData
+        $seen = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
+        $known = @($seen) + @($rd.items | ForEach-Object { [string](Get-JkProp $_ 'key') })
+        $added = @()
+        $n = 0
+        foreach ($e in @($data.events)) {
+            if ($e.done -or -not $e.time) { continue }
+            # anything timed (interviews and OAs carry no weight), except work marked 0% and the
+            # opening of a quiz window
+            if ($e.weight -and (Get-JkWeightValue $e.weight) -le 0) { continue }
+            if ([string]$e.title -match '(?i)\s+opens?$') { continue }
+            $due = Get-JkEventDue $e
+            if ($due.Date -ne $Now.Date -or $due -le $Now) { continue }
+            $at = $due.AddSeconds(-$secs)
+            if ($at -le $Now) {
+                # the morning run happens at the first unlock after 7:45 (jk-remind-unlock), and a laptop
+                # asleep until 6 pm is past the 5 pm warning for a 7 pm exam: warn now while there is time
+                if (($due - $Now).TotalMinutes -lt 10) { continue }
+                $at = $Now.AddMinutes(1)
+            }
+            $key = "due:$($e.id):$($e.date)"
+            if ($known -contains $key) { continue }
+            $text = "$(Get-JkCourseLabel $e $cmap) $($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' }) at $(Format-JkTime $e.time)"
+            $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
+            $added += $key
+            $n++
         }
-        $key = "due:$($e.id):$($e.date)"
-        if ($known -contains $key) { continue }
-        $text = "$(Get-JkCourseLabel $e $cmap) $($e.title)$(if ($e.kind -eq 'exam') { ' (exam)' }) at $(Format-JkTime $e.time)"
-        $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
-        $added += $key
-        $n++
-    }
-    # an exam tomorrow before 11 am: a word at 9 pm tonight. The morning run waits for the first
-    # unlock after 7:45, which can be after an 8:30 quiz has begun
-    $eveAt = $Now.Date.AddHours(21)
-    foreach ($e in @($data.events)) {
-        if ($e.done -or -not $e.time -or $e.kind -ne 'exam') { continue }
-        if ([string]$e.title -match '(?i)\s+(opens?|closes?)$') { continue }
-        $due = Get-JkEventDue $e
-        if ($due.Date -ne $Now.Date.AddDays(1) -or $due.Hour -ge 11) { continue }
-        $at = $eveAt
-        if ($at -le $Now) { if ($Now.Hour -ge 23) { continue }; $at = $Now.AddMinutes(1) }
-        $key = "eve:$($e.id):$today"
-        if ($known -contains $key) { continue }
-        $text = "$(Get-JkCourseLabel $e $cmap) $($e.title) (exam) tomorrow at $(Format-JkTime $e.time)"
-        $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
-        $added += $key
-        $n++
-    }
-    $old = @(Get-JkProp $rd 'alerted' @())
-    if ($n -or $old.Count -ne $seen.Count) {
-        $lock = Enter-JkReminderLock
-        try {
+        # an exam tomorrow before 11 am: a word at 9 pm tonight. The morning run waits for the first
+        # unlock after 7:45, which can be after an 8:30 quiz has begun
+        $eveAt = $Now.Date.AddHours(21)
+        foreach ($e in @($data.events)) {
+            if ($e.done -or -not $e.time -or $e.kind -ne 'exam') { continue }
+            if ([string]$e.title -match '(?i)\s+(opens?|closes?)$') { continue }
+            $due = Get-JkEventDue $e
+            if ($due.Date -ne $Now.Date.AddDays(1) -or $due.Hour -ge 11) { continue }
+            $at = $eveAt
+            if ($at -le $Now) { if ($Now.Hour -ge 23) { continue }; $at = $Now.AddMinutes(1) }
+            $key = "eve:$($e.id):$today"
+            if ($known -contains $key) { continue }
+            $text = "$(Get-JkCourseLabel $e $cmap) $($e.title) (exam) tomorrow at $(Format-JkTime $e.time)"
+            $null = New-JkReminder -At $at -Text $text -Key $key -DueId ([int]$e.id)
+            $added += $key
+            $n++
+        }
+        $old = @(Get-JkProp $rd 'alerted' @())
+        if ($n -or $old.Count -ne $seen.Count) {
             $rd = Get-JkReminderData
-            # keep what others added meanwhile (a class alert), drop other days
+            # keep what was added meanwhile (the reminders just set), drop other days
             $current = @(@(Get-JkProp $rd 'alerted' @()) | Where-Object { ([string]$_).Contains($today) })
             Set-JkProp $rd 'alerted' @(@($current) + @($added) | Select-Object -Unique)
             Save-JkReminderData $rd
-        } finally { Exit-JkReminderLock $lock }
-    }
-    $n
+        }
+        $n
+    } finally { Exit-JkReminderLock $whole }
 }
 
 # Class alerts: a popup alert.class (default 10m) before each class today. Only one waits at a
@@ -274,7 +276,7 @@ function Register-JkClassAlert {
             }
             $key = "class:${today}:$($m.Start.ToString('HH:mm', $script:Inv)):$($m.Class.course):$($m.Class.kind)"
             if ($alerted -contains $key) { continue }
-            $text = "$(Format-JkClassLabel $m.Class $cmap) at $(Format-JkTime $m.Start.ToString('HH:mm'))"
+            $text = "$(Format-JkClassLabel $m.Class $cmap) at $(Format-JkTime $m.Start.ToString('HH:mm', $script:Inv))"
             $r = New-JkReminder -At $at -Text $text -Key $key
             $rd = Get-JkReminderData
             Set-JkProp $rd 'alerted' @($alerted + $key)
@@ -304,7 +306,7 @@ function Restore-JkReminders {
 
 function Write-JkReminderSet($Item) {
     $at = [datetime]::Parse([string]$Item.at, $script:Inv)
-    $when = Format-JkTime $at.ToString('HH:mm')
+    $when = Format-JkTime $at.ToString('HH:mm', $script:Inv)
     if ($at.Date -ne (Get-Date).Date) { $when = $at.ToString('ddd MMM d', $script:Inv) + ' ' + $when }
     Say ('  ' + (Paint 'bold amber' "$($script:G.circle) Reminder #$($Item.id)") + "  $($Item.text)" + (Paint 'gray' "  $($script:G.dot) $when (in $(Format-JkDuration ($at - (Get-Date))))"))
 }
@@ -389,7 +391,7 @@ function Show-JkReminders {
         $alive = Test-JkBackgroundAlive ([int]$i.pid) ([string]$i.spawned)
         $state = ''
         if (-not $alive) { $state = Paint 'red' '  (timer not running - jk remind tick re-arms it)' }
-        Say ('  ' + (Paint 'gray' ("#$($i.id)".PadLeft(4))) + '  ' + (Paint 'amber' (Fit ($at.ToString('ddd MMM d ', $script:Inv) + (Format-JkTime $at.ToString('HH:mm'))) 20)) + (Paint 'gray' (Fit ("in " + (Format-JkDuration ($at - (Get-Date)))) 12)) + [string]$i.text + $state)
+        Say ('  ' + (Paint 'gray' ("#$($i.id)".PadLeft(4))) + '  ' + (Paint 'amber' (Fit ($at.ToString('ddd MMM d ', $script:Inv) + (Format-JkTime $at.ToString('HH:mm', $script:Inv))) 20)) + (Paint 'gray' (Fit ("in " + (Format-JkDuration ($at - (Get-Date)))) 12)) + [string]$i.text + $state)
     }
     Say ''
     $info = Get-JkTaskInfo

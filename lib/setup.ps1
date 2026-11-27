@@ -285,8 +285,8 @@ function Invoke-JkBackup {
             throw "that day has no $want.json"
         }
     }
-    $stamp = (Get-Date).ToString('HHmmss')
-    $aside = Join-Path $root ((Get-Date).ToString('yyyy-MM-dd') + "-before-restore-$stamp")
+    $stamp = (Get-Date).ToString('HHmmss', $script:Inv)
+    $aside = Join-Path $root ((Get-Date).ToString('yyyy-MM-dd', $script:Inv) + "-before-restore-$stamp")
     New-Item -ItemType Directory -Path $aside -Force | Out-Null
     foreach ($f in $pick) {
         $cur = Get-JkPath $f.Name
