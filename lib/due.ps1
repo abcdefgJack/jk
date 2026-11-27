@@ -621,7 +621,7 @@ function Show-JkExamBrief {
     $wrapRow = { param($k, $text, $style) Write-JkTip ('  ' + (Paint 'bold white' (Fit $k 9))) 11 $text $style -Indent 11 }
 
     $when = $x.Start.ToString('ddd MMM d', $script:Inv)
-    if ($x.Win) { $when = "opens $when $(Format-JkTime $x.Start.ToString('HH:mm'))  $($script:G.dot)  closes $($x.End.ToString('ddd MMM d', $script:Inv)) $(Format-JkTime $x.End.ToString('HH:mm'))" }
+    if ($x.Win) { $when = "opens $when $(Format-JkTime $x.Start.ToString('HH:mm', $script:Inv))  $($script:G.dot)  closes $($x.End.ToString('ddd MMM d', $script:Inv)) $(Format-JkTime $x.End.ToString('HH:mm', $script:Inv))" }
     elseif ($e.time) {
         $when += ', ' + (Format-JkTime $e.time)
         $endT = [string](Get-JkProp $e 'end' ''); if ($endT) { $when += " $($script:G.dash) $(Format-JkTime $endT)" }
@@ -727,7 +727,7 @@ function Show-JkExamBrief {
                 if ($dd.Date -eq $now.Date) { $day = 'today' } elseif ($dd.Date -eq $now.Date.AddDays(1)) { $day = 'tomorrow' }
                 # further off, a bare "Mon" reads as the coming Monday: say which
                 elseif (($dd.Date - $now.Date).TotalDays -ge 7) { $day = $dd.ToString('ddd MMM d', $script:Inv) }
-                "$(Get-JkCourseLabel $_ $cmap) $t ($verb$day $(Format-JkTime $dd.ToString('HH:mm')))"
+                "$(Get-JkCourseLabel $_ $cmap) $t ($verb$day $(Format-JkTime $dd.ToString('HH:mm', $script:Inv)))"
             }) -join "  $($script:G.dot)  "
         & $wrapRow 'before' $txt 'muted'
     }
@@ -1329,7 +1329,10 @@ function Format-JkIcsLine([string]$Line) {
     $sb = New-Object Text.StringBuilder
     $cur = ''
     $limit = 75
-    foreach ($ch in $Line.ToCharArray()) {
+    # by whole characters: an emoji is two UTF-16 halves, and a fold between them broke it in two
+    for ($i = 0; $i -lt $Line.Length; $i++) {
+        $ch = [string]$Line[$i]
+        if ([char]::IsHighSurrogate($Line[$i]) -and $i + 1 -lt $Line.Length -and [char]::IsLowSurrogate($Line[$i + 1])) { $i++; $ch += $Line[$i] }
         if ($enc.GetByteCount($cur + $ch) -gt $limit) {
             [void]$sb.Append($cur).Append("`r`n ")
             $cur = ''
@@ -1405,7 +1408,7 @@ function Export-JkDueIcs {
             $ex = @()
             $d = $first
             while ($d -le $r[1]) {
-                if ($skip.ContainsKey($d.ToString('yyyy-MM-dd')) -and @($c.days) -contains $script:DayNames[[int]$d.DayOfWeek]) {
+                if ($skip.ContainsKey($d.ToString('yyyy-MM-dd', $script:Inv)) -and @($c.days) -contains $script:DayNames[[int]$d.DayOfWeek]) {
                     $ex += $d.AddHours([int]$s[0]).AddMinutes([int]$s[1]).ToString('yyyyMMddTHHmmss', $script:Inv)
                 }
                 $d = $d.AddDays(1)
@@ -1617,7 +1620,7 @@ function Invoke-JkDueRemind {
     # a class that holds an exam is that exam, said below with its room
     $classes = @($classes | Where-Object { $m = $_; -not @($data.events | Where-Object { -not $_.done -and $_.kind -eq 'exam' -and $_.course -eq $m.Class.course -and ($c = Get-JkExamClass $_) -and $c.Start -eq $m.Start }).Count })
     if ($classes.Count) {
-        $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm')) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
+        $lines += 'Classes today: ' + (($classes | ForEach-Object { "$(Format-JkTime $_.Start.ToString('HH:mm', $script:Inv)) $(Format-JkClassLabel $_.Class $cmap)$(if ($_.Class.room) { " ($($_.Class.room))" })" }) -join ', ')
     }
     foreach ($e in (@($soon | Select-Object -First 6) + $examsAhead)) {
         $due = Get-JkEventDue $e
@@ -1744,8 +1747,10 @@ function Invoke-JkDueRemind {
     }
     $cal = Get-JkPath 'calendar.html'
     if (-not (Test-Path -LiteralPath $cal)) { Export-JkDueHtml -NoOpen -Quiet }
-    $mode = Show-JkNotify -Title $title -Lines $lines -Accent $accent -Open $cal -OpenLabel 'Open calendar' -Seconds 20 -Sound -Wait:$Quiet
+    # claimed before it shows: the popup waits while it is up, and a second morning run meanwhile
+    # (the unlock catch-up and the missed daily run land minutes apart) must find it said
     Set-JkState 'lastRemind' ($now.ToString('s', $script:Inv))
+    $mode = Show-JkNotify -Title $title -Lines $lines -Accent $accent -Open $cal -OpenLabel 'Open calendar' -Seconds 20 -Sound -Wait:$Quiet
     if ($movedNotes.Count) { Set-JkState 'syncMoved' @() }
     if (-not $Quiet) { Say ((Paint 'green' "  reminder shown ($mode)") + "  $title") }
 }

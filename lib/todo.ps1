@@ -37,7 +37,7 @@ function Format-JkTodoLine($Item, [int]$Width, [datetime]$Now = (Get-JkNow)) {
     $due = Get-JkTodoDue $Item
     if ($due) {
         $dueTxt = $due.ToString('ddd MMM d', [Globalization.CultureInfo]::InvariantCulture)
-        if ($due.TimeOfDay.TotalMinutes -gt 0) { $dueTxt += ' ' + (Format-JkTime $due.ToString('HH:mm')) }
+        if ($due.TimeOfDay.TotalMinutes -gt 0) { $dueTxt += ' ' + (Format-JkTime $due.ToString('HH:mm', $script:Inv)) }
         $rel = Format-JkRelDay $due $Now
         $dueTxt += "  $rel"
         if (-not $Item.done) {

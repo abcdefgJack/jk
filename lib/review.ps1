@@ -77,7 +77,7 @@ function Show-JkReview {
             $sign = Get-JkHandedInSign $data $e
             if ($sign) {
                 $likely += $e.id
-                $when = "$($sign.Modified.ToString('ddd', $script:Inv)) $(Format-JkTime $sign.Modified.ToString('HH:mm'))"
+                $when = "$($sign.Modified.ToString('ddd', $script:Inv)) $(Format-JkTime $sign.Modified.ToString('HH:mm', $script:Inv))"
                 Say ('           ' + (Paint 'gray' (Fit "$($sign.Name) changed $when, before it was due" ([Math]::Max(20, $w - 12)))))
             }
         }
@@ -107,7 +107,7 @@ function Show-JkReview {
     if ($ahead.Count -eq 0) { Say (Paint 'green' '  Nothing due. A good week to get ahead.'); return }
     # an online exam's "opens" and "closes" rows are one exam
     $exams = (Measure-JkDue $ahead).Exams
-    $byDay = $ahead | Group-Object { (Get-JkEventDue $_).Date.ToString('yyyy-MM-dd') } | Sort-Object Count -Descending
+    $byDay = $ahead | Group-Object { (Get-JkEventDue $_).Date.ToString('yyyy-MM-dd', $script:Inv) } | Sort-Object Count -Descending
     $busiest = $byDay | Select-Object -First 1
     $busyTxt = ''
     if ($busiest.Count -gt 1) { $busyTxt = "  $($script:G.dot)  busiest: " + ([datetime]::ParseExact($busiest.Name, 'yyyy-MM-dd', $script:Inv)).ToString('ddd MMM d', $script:Inv) + " ($($busiest.Count) items)" }

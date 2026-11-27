@@ -5,18 +5,22 @@
 # throwaway place too, and the last test fails if the real ones changed during the run.
 #   -Culture de-DE   run with another culture's formats (decimal comma, day-first dates) for this
 #                    process only; Windows' regional settings are left alone
+#   -TimeSeparator . with -Culture: that culture with another time separator (Finnish formats write
+#                    14.30). th-TH with a dot is one run that catches both kinds of unpinned date
+#                    format: its years count from 543 BC (2026 is 2569), and HH:mm comes out 14.30
 #   -TimeZone UTC    run as if this machine were in another time zone ('Pacific Standard Time'), for
 #                    this process only; the system's zone is left alone
 # tests\check.ps1 runs all of these side by side.
 
-param([string]$Culture, [string]$TimeZone)
+param([string]$Culture, [string]$TimeZone, [string]$TimeSeparator)
 
 $ErrorActionPreference = 'Stop'
 if ($Culture) {
     $ci = [Globalization.CultureInfo]::GetCultureInfo($Culture)
+    if ($TimeSeparator) { $ci = New-Object Globalization.CultureInfo $Culture; $ci.DateTimeFormat.TimeSeparator = $TimeSeparator }
     [Threading.Thread]::CurrentThread.CurrentCulture = $ci
     [Globalization.CultureInfo]::DefaultThreadCurrentCulture = $ci
-    Write-Host "culture: $($ci.Name)  (1234.5 -> $((1234.5).ToString('N1')))"
+    Write-Host "culture: $($ci.Name)  (1234.5 -> $((1234.5).ToString('N1')), $([datetime]'2026-10-22T14:30').ToString('yyyy-MM-dd HH:mm'))"
 }
 if ($TimeZone) {
     # .NET Framework keeps the local zone, and this year's offset and DST rule, in a private cache
@@ -31,7 +35,7 @@ if ($TimeZone) {
     foreach ($r in $tz.GetAdjustmentRules()) { if ($r.DateStart.Year -le $year -and $r.DateEnd.Year -ge $year) { $rule = $r } }
     $ctor = [TimeZoneInfo].GetNestedType('OffsetAndRule', [Reflection.BindingFlags]'NonPublic').GetConstructors($bf + [Reflection.BindingFlags]'Public')[0]
     $cd.GetType().GetField('m_oneYearLocalFromUtc', $bf).SetValue($cd, $ctor.Invoke([object[]]@([int]$year, $tz.BaseUtcOffset, $rule)))
-    Write-Host "time zone: $([TimeZoneInfo]::Local.Id)  (now $((Get-Date).ToString('HH:mm zzz')))"
+    Write-Host "time zone: $([TimeZoneInfo]::Local.Id)  (now $((Get-Date).ToString('HH:mm zzz', $script:Inv)))"
 }
 $root = Split-Path -Parent $PSScriptRoot
 # The real install as it stands, read directly (jk's own functions are redirected below). A test
@@ -138,7 +142,7 @@ Test 'relative and named dates (pinned to Thu Oct 22 2026)' {
         'dec 2' = '2026-12-02'; '12/2' = '2026-12-02'; '2026-12-04' = '2026-12-04'; '12/04/2026' = '2026-12-04'
         'jan 5' = '2027-01-05'; 'sep 1' = '2026-09-01'; 'aug 1' = '2027-08-01'; '28' = '2026-10-28'; '5' = '2026-11-05'
     }
-    foreach ($k in $cases.Keys) { Assert-Eq ((ConvertTo-JkDate $k).ToString('yyyy-MM-dd')) $cases[$k] "for '$k'" }
+    foreach ($k in $cases.Keys) { Assert-Eq ((ConvertTo-JkDate $k).ToString('yyyy-MM-dd', $script:Inv)) $cases[$k] "for '$k'" }
     Assert-Throws { ConvertTo-JkDate 'someday' }
     Assert-Throws { ConvertTo-JkDate 'oct' }
 }
@@ -151,13 +155,13 @@ Test 'times' {
     Assert-Eq (Format-JkTime '00:30') '12:30 am'
 }
 Test 'date + time phrases' {
-    $w = ConvertFrom-JkWhen 'nov 25 8pm'; Assert-Eq $w.Date.ToString('MM-dd') '11-25'; Assert-Eq $w.Time '20:00'
-    $w = ConvertFrom-JkWhen 'fri at 11:59 pm'; Assert-Eq $w.Date.ToString('MM-dd') '10-23'; Assert-Eq $w.Time '23:59'
+    $w = ConvertFrom-JkWhen 'nov 25 8pm'; Assert-Eq $w.Date.ToString('MM-dd', $script:Inv) '11-25'; Assert-Eq $w.Time '20:00'
+    $w = ConvertFrom-JkWhen 'fri at 11:59 pm'; Assert-Eq $w.Date.ToString('MM-dd', $script:Inv) '10-23'; Assert-Eq $w.Time '23:59'
     $w = ConvertFrom-JkWhen 'tomorrow'; Assert-Eq $w.Time ''
-    $w = ConvertFrom-JkWhen '2026-12-04 9am'; Assert-Eq $w.Date.ToString('yyyy-MM-dd') '2026-12-04'; Assert-Eq $w.Time '09:00'
+    $w = ConvertFrom-JkWhen '2026-12-04 9am'; Assert-Eq $w.Date.ToString('yyyy-MM-dd', $script:Inv) '2026-12-04'; Assert-Eq $w.Time '09:00'
     Assert-Throws { ConvertFrom-JkWhen 'whenever' }
     # everyday phrasings (the pinned clock is Thu Oct 22, 2 pm)
-    $f = { param($s) $r = ConvertFrom-JkWhen $s; "$($r.Date.ToString('MM-dd')) $($r.Time)".Trim() }
+    $f = { param($s) $r = ConvertFrom-JkWhen $s; "$($r.Date.ToString('MM-dd', $script:Inv)) $($r.Time)".Trim() }
     Assert-Eq (& $f 'in 3 days') '10-25'
     Assert-Eq (& $f 'in 3 days 5pm') '10-25 17:00' 'the time after "in N days" is kept'
     Assert-Eq (& $f 'in 2 weeks 9am') '11-05 09:00'
@@ -174,7 +178,7 @@ Test 'a date as jk prints it reads back, and a date that does not exist is repor
         'fri 23rd' = '2026-10-23'; 'Fri Dec 4 2026' = '2026-12-04'; 'this fri' = '2026-10-23'; 'this thu' = '2026-10-22'; 'next week' = '2026-10-29'
         '26th of oct' = '2026-10-26'; 'sept 30' = '2026-09-30'; 'thurs' = '2026-10-22'; 'tues' = '2026-10-27'
     }
-    foreach ($k in $cases.Keys) { Assert-Eq ((ConvertTo-JkDate $k).ToString('yyyy-MM-dd')) $cases[$k] "for '$k'" }
+    foreach ($k in $cases.Keys) { Assert-Eq ((ConvertTo-JkDate $k).ToString('yyyy-MM-dd', $script:Inv)) $cases[$k] "for '$k'" }
     $why = { param($s) try { $null = ConvertTo-JkDate $s; '' } catch { $_.Exception.Message } }
     Assert-True ((& $why 'tue oct 26') -like 'no such date: Oct 26 2026 is a Monday, not a Tuesday') (& $why 'tue oct 26')
     foreach ($typo in 'nov 31', '31 nov', 'feb 30', '2/30', '2026-02-30', '2/30/2026', 'feb 29') {
@@ -186,8 +190,8 @@ Test 'a date as jk prints it reads back, and a date that does not exist is repor
         Assert-True ($m -and $m -notlike 'no such date*') "'$word': $m"
     }
     # Feb 29 means the coming February or nothing
-    Assert-Eq ((ConvertTo-JkDate 'feb 29' -Now ([datetime]'2027-11-05')).ToString('yyyy-MM-dd')) '2028-02-29'
-    Assert-Eq ((ConvertTo-JkDate 'feb 29' -Now ([datetime]'2028-01-10')).ToString('yyyy-MM-dd')) '2028-02-29'
+    Assert-Eq ((ConvertTo-JkDate 'feb 29' -Now ([datetime]'2027-11-05')).ToString('yyyy-MM-dd', $script:Inv)) '2028-02-29'
+    Assert-Eq ((ConvertTo-JkDate 'feb 29' -Now ([datetime]'2028-01-10')).ToString('yyyy-MM-dd', $script:Inv)) '2028-02-29'
     Assert-Throws { ConvertTo-JkDate 'feb 29' -Now ([datetime]'2028-06-01') } 'the next February has no 29th'
     # times that contradict themselves
     Assert-Eq (ConvertTo-JkTime '0:30 am') '00:30'
@@ -195,7 +199,7 @@ Test 'a date as jk prints it reads back, and a date that does not exist is repor
     foreach ($bad in '0pm', '15:00 am') { Assert-Throws { ConvertTo-JkTime $bad } "'$bad'" }
     $r = ConvertTo-JkTimeRange '14:00-15:20pm'; Assert-Eq "$($r.Start) $($r.End)" '14:00 15:20' 'a 24-hour start before a pm end'
     # with a time
-    $f = { param($s) $w = ConvertFrom-JkWhen $s; "$($w.Date.ToString('MM-dd')) $($w.Time)".Trim() }
+    $f = { param($s) $w = ConvertFrom-JkWhen $s; "$($w.Date.ToString('MM-dd', $script:Inv)) $($w.Time)".Trim() }
     Assert-Eq (& $f 'mon oct 26 6pm') '10-26 18:00'
     Assert-Eq (& $f 'nov 9 @ 5pm') '11-09 17:00'
     Assert-Eq (& $f 'fri 5') '10-23 17:00' 'a bare hour after a date is not 5 in the morning'
@@ -207,7 +211,7 @@ Test 'a date as jk prints it reads back, and a date that does not exist is repor
     Assert-Eq (& $f 'tonight 20:00') '10-22 20:00'
     Assert-Throws { ConvertFrom-JkWhen 'tue oct 26 6pm' } 'a wrong weekday is not read around'
     # jk at takes as many words as a date and time can have, and leaves the rest as the message
-    $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') (Get-JkNow); "$($x.At.ToString('MM-dd HH:mm'))/$($x.K)" }
+    $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') (Get-JkNow); "$($x.At.ToString('MM-dd HH:mm', $script:Inv))/$($x.K)" }
     Assert-Eq (& $at 'nov 9 5 pm submit') '11-09 17:00/4' 'not 5 am with "pm submit" as the message'
     Assert-Eq (& $at 'mon oct 26 5pm call') '10-26 17:00/4'
     Assert-Eq (& $at 'mon oct 26 5 pm') '10-26 17:00/5'
@@ -1204,7 +1208,7 @@ Test 'an exam is "in 30m", then "now" until it ends, then gone (end time known, 
         Assert-True ((& $dash) -notmatch 'CS 350 Midterm') 'and from the callout'
         # no end time: two hours
         $e = [pscustomobject]@{ date = '2026-11-02'; time = '19:00'; end = '' }
-        Assert-Eq (Get-JkExamEnd $e).ToString('HH:mm') '21:00'
+        Assert-Eq (Get-JkExamEnd $e).ToString('HH:mm', $script:Inv) '21:00'
     } finally { $env:JK_NOW = $savedNow }
 }
 Test 'the shell-start brief: today''s items carry their time; a week out is a date, not today''s weekday' {
@@ -1365,7 +1369,7 @@ Test 'ICS export: valid structure, 75-octet folding, escaping' {
 }
 
 Test 'jk at: bare hours mean the next such hour, day + time phrases' {
-    $at = { param($words, $now) (Resolve-JkAtTime $words ([datetime]$now)).At.ToString('MM-dd HH:mm') }
+    $at = { param($words, $now) (Resolve-JkAtTime $words ([datetime]$now)).At.ToString('MM-dd HH:mm', $script:Inv) }
     Assert-Eq (& $at @('5', 'leave') '2026-10-22 14:00') '10-22 17:00' 'afternoon: 5 means 5 pm'
     Assert-Eq (& $at @('5', 'leave') '2026-10-22 03:00') '10-22 05:00' 'before dawn: 5 means 5 am'
     Assert-Eq (& $at @('9', 'class') '2026-10-22 22:00') '10-23 09:00' 'late evening: tomorrow 9 am'
@@ -1574,6 +1578,84 @@ Test 'same-day alerts: once per item, skip 0% and window openings, 2h ahead, can
         $env:JK_HOME = $saved
         $script:JkConfigCache = $null
     }
+}
+Test 'two morning runs at once: one popup, and the deadline alerts are checked and set under the lock' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'twice-home'
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $origBg = ${function:Start-JkBackground}; $origNotify = ${function:Show-JkNotify}; $script:OrigLabel = ${function:Get-JkCourseLabel}
+    try {
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        $d = Get-JkDueData
+        $c = Resolve-JkCourse $d 'cs350' -Create
+        $null = New-JkEvent $d -Course $c.key -Date ([datetime]'2026-10-22') -Time '20:00' -Title 'A3' -Weight '5%'
+        Save-JkDueData $d
+        # the unlock catch-up and the missed daily run land minutes apart (Nov 12: 8:48 and 8:52),
+        # and the first popup waits while it is up: the second run starts while it shows
+        $script:Shown = 0
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines) $script:Shown++; if ($script:Shown -eq 1) { Invoke-JkDueRemind -Quiet }; 'stub' }
+        Invoke-JkDueRemind -Quiet
+        Assert-Eq $script:Shown 1 'a second run while the popup is up shows no second popup'
+        # whether another process could get the reminder lock while the alerts are being decided
+        $script:LockFree = $null
+        function script:Get-JkCourseLabel($e, $cmap) {
+            if ($null -eq $script:LockFree) {
+                $ps = [powershell]::Create()
+                $null = $ps.AddScript({ $m = New-Object Threading.Mutex($false, 'Local\jk-reminders'); $got = $m.WaitOne(0); if ($got) { $m.ReleaseMutex() }; $m.Dispose(); $got })
+                $h = $ps.BeginInvoke(); $r = $ps.EndInvoke($h); $ps.Dispose()
+                $script:LockFree = [bool]$r[0]
+            }
+            & $script:OrigLabel $e $cmap
+        }
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-22T09:00')) 1 'the 8 pm A3'
+        Assert-Eq $script:LockFree $false 'the other morning run waits until the check and the add are done'
+        Assert-Eq (Register-JkTodayAlerts -Now ([datetime]'2026-10-22T09:05')) 0 'and then finds it set'
+        Assert-Eq @((Get-JkReminderData).items).Count 1 'one alert'
+    } finally {
+        Set-Item function:script:Start-JkBackground $origBg; Set-Item function:script:Show-JkNotify $origNotify; Set-Item function:script:Get-JkCourseLabel $script:OrigLabel
+        $env:JK_HOME = $saved
+    }
+}
+Test 'regional formats: a Buddhist-calendar year keeps last week''s backups, and a dot between hours and minutes keeps the minutes' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'culture-home'
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $ci = [Threading.Thread]::CurrentThread.CurrentCulture
+    try {
+        Write-JkText (Get-JkPath 'todo.json') '{"items":[]}'
+        $day = { param($n) (Get-Date).AddDays($n).ToString('yyyy-MM-dd', $script:Inv) }
+        $bk = Join-Path $env:JK_HOME 'backups'
+        New-Item -ItemType Directory -Force -Path (Join-Path $bk (& $day -7)), (Join-Path $bk (& $day -40)) | Out-Null
+        # Thai regional formats count years from 543 BC: 2026 is 2569. The cut-off for old folders
+        # was written that way, and every folder name sorted before it
+        & { [Threading.Thread]::CurrentThread.CurrentCulture = 'th-TH'; Backup-JkFile 'todo.json' }
+        [Threading.Thread]::CurrentThread.CurrentCulture = $ci
+        Assert-True (Test-Path -LiteralPath (Join-Path $bk (& $day -7))) 'last week''s backups are kept'
+        Assert-True (Test-Path -LiteralPath (Join-Path $bk "$(& $day 0)\todo.json")) 'today''s snapshot is taken'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $bk (& $day -40)))) 'a folder 40 days old still goes'
+        # Finnish formats write 14.30, and the minutes were lost on the way to "2:00 pm"
+        $item = [pscustomobject]@{ id = 7; text = 'call home'; at = '2026-10-22T14:30:00' }
+        $said = & { [Threading.Thread]::CurrentThread.CurrentCulture = 'fi-FI'; @(Write-JkReminderSet $item 6>&1 | ForEach-Object { "$_" }) -join ' ' }
+        [Threading.Thread]::CurrentThread.CurrentCulture = $ci
+        Assert-True ($said -match '2:30 pm') "the reminder's time: $said"
+        $span = & { [Threading.Thread]::CurrentThread.CurrentCulture = 'fi-FI'; Format-JkTimeSpan ([datetime]'2026-10-22T08:30') ([datetime]'2026-10-22T09:50') }
+        [Threading.Thread]::CurrentThread.CurrentCulture = $ci
+        Assert-Eq $span '8:30-9:50 am' "a class's hours"
+    } finally {
+        [Threading.Thread]::CurrentThread.CurrentCulture = $ci
+        $env:JK_HOME = $saved
+    }
+}
+Test 'odd inputs: a number too big says so, and a long calendar line folds between characters, not inside an emoji' {
+    Assert-Eq (Format-JkErrorText 'Cannot convert value "5999999999940" to type "System.Int32". Error: "Value was either too large or too small for an Int32."') 'that number is out of range' 'jk in 99999999999'
+    $face = [char]::ConvertFromUtf32(0x1F600)
+    $line = 'SUMMARY:' + ('x' * 64) + ($face * 6)
+    $folded = Format-JkIcsLine $line
+    foreach ($part in ($folded -split "`r`n ")) {
+        Assert-True (-not [char]::IsHighSurrogate($part[$part.Length - 1])) 'no line ends in half an emoji'
+        Assert-True ([Text.Encoding]::UTF8.GetByteCount($part) -le 75) "75 bytes at most: $([Text.Encoding]::UTF8.GetByteCount($part))"
+    }
+    Assert-Eq ($folded -replace "`r`n ", '') $line 'unfolds to the same text'
 }
 Test 'morning task: the daily trigger keeps local time across daylight saving changes' {
     $t = New-JkDailyTrigger ([datetime]::ParseExact('07:45', 'HH:mm', [Globalization.CultureInfo]::InvariantCulture))
@@ -2682,7 +2764,7 @@ Test 'the time before the day: jk due add A5 5pm fri and jk todo call mom 5pm fr
     $env:JK_HOME = Join-Path $saved 'timefirst-home'; $script:JkConfigCache = $null
     try {
         # the pinned clock is Thu Oct 22, 2 pm
-        $f = { param($s) try { $r = ConvertFrom-JkWhen $s; "$($r.Date.ToString('MM-dd')) $($r.Time)".Trim() } catch { "ERR $($_.Exception.Message)" } }
+        $f = { param($s) try { $r = ConvertFrom-JkWhen $s; "$($r.Date.ToString('MM-dd', $script:Inv)) $($r.Time)".Trim() } catch { "ERR $($_.Exception.Message)" } }
         Assert-Eq "$(& $f '5pm fri')|$(& $f '11:59 pm dec 2')|$(& $f 'noon tomorrow')|$(& $f '8pm tonight')|$(& $f '9am 12/2')" '10-23 17:00|12-02 23:59|10-23 12:00|10-22 20:00|12-02 09:00' 'time, then day'
         Assert-True ((& $f '5pm nov 31') -like 'ERR no such date*') "a typo in the day is named: $(& $f '5pm nov 31')"
         Assert-True ((& $f '5pm 3d') -like 'ERR *' -and (& $f '3 fri') -like 'ERR *') 'not a day after a time: 3d; not a time before a day: a bare 3'
@@ -2712,7 +2794,7 @@ Test 'the time before the day: jk due add A5 5pm fri and jk todo call mom 5pm fr
         $null = Add-JkTodo call mom by tom 6>&1
         Assert-Eq (& $todo) 'call mom|2026-10-23T00:00:00' 'by tom'
         # jk at reads as before
-        $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') (Get-JkNow); "$($x.At.ToString('MM-dd HH:mm'))/$($x.K)" }
+        $at = { param([string]$s) $x = Resolve-JkAtTime ($s -split ' ') (Get-JkNow); "$($x.At.ToString('MM-dd HH:mm', $script:Inv))/$($x.K)" }
         Assert-Eq "$(& $at '8pm tomorrow call')|$(& $at '7pm tom')|$(& $at '5pm 3d printer')" '10-23 20:00/2|10-22 19:00/1|10-22 17:00/1'
     } finally {
         $env:JK_HOME = $saved; $script:JkConfigCache = $null
@@ -2932,7 +3014,7 @@ Test 'jk weather: rain or snow from when, what to take, the exam, kept for an ho
         # another zone reads on its own clock
         $far = ConvertFrom-JkWeatherJson ($script:WxFixture.Substring(0, $script:WxFixture.Length - 1) + ',"utc_offset_seconds":' + [int]([TimeZoneInfo]::Local.GetUtcOffset([datetime]'2026-11-03').TotalSeconds + 10800) + '}') $script:JkWeatherHome ([DateTime]::UtcNow)
         Assert-Eq $far.Offset.TotalSeconds ([TimeZoneInfo]::Local.GetUtcOffset([datetime]'2026-11-03').TotalSeconds + 10800) 'offset kept'
-        Assert-Eq (ConvertTo-JkWeatherClock $far ([datetime]'2026-11-03T08:00')).ToString('HH:mm') '11:00' 'three hours ahead'
+        Assert-Eq (ConvertTo-JkWeatherClock $far ([datetime]'2026-11-03T08:00')).ToString('HH:mm', $script:Inv) '11:00' 'three hours ahead'
 
         # places: london, on (the comma lost to PowerShell) is the Ontario one; numbers stay invariant
         $p = Resolve-JkWeatherPlace 'london on'
@@ -3413,7 +3495,7 @@ Test 'jk stocks: the watchlist, a range for the close from the last 20 days, how
         $say = { param([scriptblock]$Run) @(& $Run 6>&1 | ForEach-Object { "$_" }) }
         # New York's wall clock on this machine's (the check also runs in UTC and Pacific time)
         $here = { param([string]$nyText) [TimeZoneInfo]::ConvertTime([datetime]::Parse($nyText, $script:Inv), $ny, [TimeZoneInfo]::Local) }
-        $hm = { param([string]$nyText) Format-JkTime (& $here $nyText).ToString('HH:mm') }
+        $hm = { param([string]$nyText) Format-JkTime (& $here $nyText).ToString('HH:mm', $script:Inv) }
         $env:JK_WIDTH = '120'
         Assert-Eq ((Get-JkStockList) -join ',') 'SPY,QQQ' 'a watchlist to start from'
         # Wednesday before the open: the range for the next close, the record
@@ -3509,7 +3591,7 @@ Test 'jk stocks abroad: Shanghai days by their own date, the close Yahoo leaves 
     try {
         $ny = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
         $here = { param([string]$nyText) [TimeZoneInfo]::ConvertTime([datetime]::Parse($nyText, $script:Inv), $ny, [TimeZoneInfo]::Local) }
-        $hm = { param([string]$nyText) Format-JkTime (& $here $nyText).ToString('HH:mm') }
+        $hm = { param([string]$nyText) Format-JkTime (& $here $nyText).ToString('HH:mm', $script:Inv) }
         $say = { param([scriptblock]$Run) @(& $Run 6>&1 | ForEach-Object { "$_" }) }
         # Beijing time is UTC+8: a day's bar is stamped 9:30 there (1:30 UTC), the session runs to
         # 15:00 (7:00 UTC). 141 weekdays up to $last moving $step either way in turn; the last close
@@ -3786,7 +3868,7 @@ Test 'backup mirror: daily snapshot outside the data folder, restore after losin
         Assert-Throws { Invoke-JkBackup mirror (Join-Path $env:JK_HOME 'inside') } 'a mirror inside the data folder is refused'
         $m = Join-Path $base 'mirror'
         Invoke-JkBackup mirror $m
-        $day = (Get-Date).ToString('yyyy-MM-dd')
+        $day = (Get-Date).ToString('yyyy-MM-dd', $script:Inv)
         Assert-True (Test-Path -LiteralPath (Join-Path $m "$day\deadlines.json")) "today's snapshot"
         New-Item -ItemType Directory -Path (Join-Path $m '2000-01-01') | Out-Null
         $null = Sync-JkBackupMirror
@@ -3887,8 +3969,8 @@ Test 'first LEARN sync links to items typed in by hand instead of duplicating th
         $f = Join-Path $env:JK_HOME 'learn.ics'
         $ev = { param($uid, $utc, $sum, $loc) @('BEGIN:VEVENT', "UID:$uid", "DTSTART:$utc", "DTEND:$utc", "SUMMARY:$sum", "LOCATION:$loc", 'END:VEVENT') }
         # 8 pm EDT Oct 28 = 00:00 UTC Oct 29; 11:59 pm EDT Oct 27 = 03:59 UTC Oct 28
-        $a2a = (Get-JkEventDue @($before | Where-Object { $_.title -eq 'A2A Synchronization' })[0]).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
-        $mid = (Get-JkEventDue @($before | Where-Object { $_.title -eq 'Midterm closes' })[0]).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'")
+        $a2a = (Get-JkEventDue @($before | Where-Object { $_.title -eq 'A2A Synchronization' })[0]).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'", $script:Inv)
+        $mid = (Get-JkEventDue @($before | Where-Object { $_.title -eq 'Midterm closes' })[0]).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'", $script:Inv)
         [IO.File]::WriteAllLines($f, @('BEGIN:VCALENDAR', 'VERSION:2.0') +
             (& $ev 'l-1' $a2a 'A2A Synchronization Dropbox - Due' 'CS 350 - Operating Systems (Fall 2026)') +
             (& $ev 'l-2' $mid 'Midterm - Availability Ends' 'HEALTH 105 - Mental Health Literacy (Fall 2026)') +
@@ -3902,7 +3984,7 @@ Test 'first LEARN sync links to items typed in by hand instead of duplicating th
         Assert-Eq "$($fp.title)|$($fp.kind)|$($fp.note)" 'Final Project|due|' 'a final project is not an exam; no course-name note'
         # LEARN moves A2A a day: a sync by hand lists it, the morning task's quiet sync keeps it
         # for the morning popup, which says it once
-        $moveTo = { param([int]$Days) [IO.File]::WriteAllLines($f, @('BEGIN:VCALENDAR', 'VERSION:2.0') + (& $ev 'l-1' ([datetime]::ParseExact($a2a, "yyyyMMdd'T'HHmmss'Z'", $null, 'AdjustToUniversal').AddDays($Days).ToString("yyyyMMdd'T'HHmmss'Z'")) 'A2A Synchronization Dropbox - Due' 'CS 350 - Operating Systems (Fall 2026)') + @('END:VCALENDAR')) }
+        $moveTo = { param([int]$Days) [IO.File]::WriteAllLines($f, @('BEGIN:VCALENDAR', 'VERSION:2.0') + (& $ev 'l-1' ([datetime]::ParseExact($a2a, "yyyyMMdd'T'HHmmss'Z'", $script:Inv, 'AdjustToUniversal').AddDays($Days).ToString("yyyyMMdd'T'HHmmss'Z'", $script:Inv)) 'A2A Synchronization Dropbox - Due' 'CS 350 - Operating Systems (Fall 2026)') + @('END:VCALENDAR')) }
         & $moveTo 1
         $out = (Invoke-JkDueSync $f 6>&1 | ForEach-Object { "$_" }) -join "`n"
         Assert-True ($out -match 'moved #\d+ CS 350 A2A Synchronization\s+Wed Oct 28 8:00 pm \S Thu Oct 29 8:00 pm') "sync by hand: $out"
@@ -3940,7 +4022,7 @@ Test 'term phases: no section nudge after classes; next-term pointer; bigger exa
         Assert-True ($after -match 'jk due sync\s+\+\s+jk class import\s+\S.* is over' -and $after -notmatch 'add your class sections') 'after the term: next-term pointer, command first'
         # a week past the exams the next term is under way: named by season, old term no longer described
         $stored = (Get-JkDueData).term
-        $env:JK_NOW = ([datetime]::ParseExact([string]$stored.examsEnd, 'yyyy-MM-dd', $null)).AddDays(7).ToString('s')
+        $env:JK_NOW = ([datetime]::ParseExact([string]$stored.examsEnd, 'yyyy-MM-dd', $script:Inv)).AddDays(7).ToString('s')
         Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) 'Winter 2027' "the last of December is past $($stored.name), though the month is still its season"
         $env:JK_NOW = '2027-01-06T09:00:00'
         Assert-Eq (Format-JkTermLine (Get-JkTermInfo (Get-JkDueData) (Get-JkNow))) 'Winter 2027'
@@ -4286,9 +4368,9 @@ Test 'meetings skip breaks and holidays; next class' {
     Assert-Eq @(Get-JkClassesOn ([datetime]'2026-10-13')).Count 0 'reading week'
     Assert-Eq @(Get-JkClassesOn ([datetime]'2026-12-15')).Count 0 'after classes end'
     $n = Get-JkNextClass ([datetime]'2026-10-22T09:00')
-    Assert-Eq $n.Start.ToString('MM-dd HH:mm') '10-22 08:30' 'in progress counts as next'
+    Assert-Eq $n.Start.ToString('MM-dd HH:mm', $script:Inv) '10-22 08:30' 'in progress counts as next'
     $n = Get-JkNextClass ([datetime]'2026-10-22T10:00')
-    Assert-Eq $n.Start.ToString('MM-dd HH:mm') '10-26 16:00'
+    Assert-Eq $n.Start.ToString('MM-dd HH:mm', $script:Inv) '10-26 16:00'
     Show-JkClasses; Show-JkTimetable; Show-JkClassList
 }
 
@@ -4345,7 +4427,7 @@ Test 'plan items: weights to effort, exam windows once, focus subtracts' {
     $items = @(Get-JkPlanItems -Now ([datetime]'2026-10-22T14:00'))
     $mid = @($items | Where-Object { $_.Course -eq 'health' -and $_.Title -eq 'Midterm' })
     Assert-Eq $mid.Count 1 'opens/closes pair is one item'
-    Assert-Eq $mid[0].Due.ToString('MM-dd HH:mm') '10-26 06:00' 'prepare for the opening'
+    Assert-Eq $mid[0].Due.ToString('MM-dd HH:mm', $script:Inv) '10-26 06:00' 'prepare for the opening'
     Assert-Eq $mid[0].Effort (30 * 15) 'exam: 30% x 15 min'
     $a2a = @($items | Where-Object { $_.Title -eq 'A2A Synchronization' })[0]
     Assert-Eq $a2a.Effort (8 * 30) 'assignment: 8% x 30 min'
@@ -4363,7 +4445,7 @@ Test 'plan schedule: nothing after due, soon items get a block, budget respected
     $sched = @(Get-JkPlanSchedule -Items $items -Now $now -Days 7 -BudgetMin 180)
     foreach ($s in $sched) {
         $sum = 0; foreach ($v in $s.Alloc.Values) { $sum += $v }
-        Assert-True ($sum -le 180 + 25 * $items.Count) "day $($s.Day.ToString('MM-dd')) way over budget: $sum"
+        Assert-True ($sum -le 180 + 25 * $items.Count) "day $($s.Day.ToString('MM-dd', $script:Inv)) way over budget: $sum"
         foreach ($k in $s.Alloc.Keys) {
             $it = @($items | Where-Object { $_.Key -eq $k })[0]
             Assert-True ($s.Day -le $it.Due.Date) "$($it.Title) scheduled after its due date"
@@ -4400,9 +4482,9 @@ Test 'ics parsing: folding, alarms, time zones, all-day, recurrence' {
     $evs = @(ConvertFrom-JkIcs $feedText)
     Assert-Eq $evs.Count 6
     Assert-Eq $evs[0].Description 'CS 350 - Operating Systems (Fall 2026), see LEARN' 'alarm text kept out, \, unescaped'
-    Assert-Eq ($evs[1].Start.When.ToString('yyyy-MM-dd HH:mm')) ((Get-TorontoAsLocal '2026-11-30 19:00').ToString('yyyy-MM-dd HH:mm')) 'TZID America/Toronto converted to local'
+    Assert-Eq ($evs[1].Start.When.ToString('yyyy-MM-dd HH:mm', $script:Inv)) ((Get-TorontoAsLocal '2026-11-30 19:00').ToString('yyyy-MM-dd HH:mm', $script:Inv)) 'TZID America/Toronto converted to local'
     $z = [datetime]::SpecifyKind([datetime]'2026-12-02 01:00', 'Utc').ToLocalTime()
-    Assert-Eq ($evs[0].Start.When.ToString('yyyy-MM-dd HH:mm')) ($z.ToString('yyyy-MM-dd HH:mm')) 'UTC converted to local'
+    Assert-Eq ($evs[0].Start.When.ToString('yyyy-MM-dd HH:mm', $script:Inv)) ($z.ToString('yyyy-MM-dd HH:mm', $script:Inv)) 'UTC converted to local'
     Assert-True $evs[2].Start.AllDay
     Assert-True $evs[2].Summary.EndsWith('folds onto a second line') 'folded line joined'
     Assert-True $evs[4].Recurring
@@ -4423,7 +4505,7 @@ Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dat
         Assert-Eq $a4.title 'Assignment 4'
         $m3 = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0]
         $m3when = Get-TorontoAsLocal '2026-11-30 19:00'
-        Assert-Eq "$($m3.course) $($m3.title) $($m3.kind) $($m3.date) $($m3.time)" "cs341 Midterm 3 exam $($m3when.ToString('yyyy-MM-dd')) $($m3when.ToString('HH:mm'))"
+        Assert-Eq "$($m3.course) $($m3.title) $($m3.kind) $($m3.date) $($m3.time)" "cs341 Midterm 3 exam $($m3when.ToString('yyyy-MM-dd', $script:Inv)) $($m3when.ToString('HH:mm', $script:Inv))"
         $p = @($d.events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
         Assert-Eq "$($p.course) $($p.time)" 'stat231 ' 'new course created; all-day has no time'
         Set-JkDueDone $a4.id
@@ -4432,7 +4514,7 @@ Test 'sync: course detection, cleanup, skip rules, idempotent re-sync, moved dat
         [IO.File]::WriteAllText($f, $feedText.Replace('20261130T190000', '20261201T190000'))
         Invoke-JkDueSync $f
         $d2 = Get-JkDueData
-        Assert-Eq @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0].date ((Get-TorontoAsLocal '2026-12-01 19:00').ToString('yyyy-MM-dd')) 'moved date updated in place'
+        Assert-Eq @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1002' })[0].date ((Get-TorontoAsLocal '2026-12-01 19:00').ToString('yyyy-MM-dd', $script:Inv)) 'moved date updated in place'
         Assert-True @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1001' })[0].done 'done mark survives a sync'
         # your own edits survive re-syncs until the feed changes that item
         $proj = @($d2.events | Where-Object { [string]$_.uid -eq 'd2l-1003' })[0]
@@ -4698,7 +4780,7 @@ Test 'add, due parsing, done, clear renumbers' {
     $t = Get-JkTodoData
     Assert-Eq @($t.items).Count 3
     Assert-Eq (@($t.items)[1].text) 'buy ink' 'trailing time moved to -Due'
-    Assert-Eq (Get-JkTodoDue @($t.items)[1]).ToString('MM-dd HH:mm') '10-23 18:00'
+    Assert-Eq (Get-JkTodoDue @($t.items)[1]).ToString('MM-dd HH:mm', $script:Inv) '10-23 18:00'
     Set-JkTodoDone 1
     Clear-JkTodo
     $t = Get-JkTodoData
@@ -4725,7 +4807,7 @@ Test 'a date at the end of a to-do is its due date; plain words and quoted text 
     }
     foreach ($k in $cases.Keys) {
         $r = Split-JkTrailingWhen @($k -split ' ')
-        $due = ''; if ($r[0]) { $due = ([datetime](ConvertTo-JkTodoDue $r[0])).ToString('MM-dd HH:mm') }
+        $due = ''; if ($r[0]) { $due = ([datetime](ConvertTo-JkTodoDue $r[0])).ToString('MM-dd HH:mm', $script:Inv) }
         Assert-Eq "$(@($r[1]) -join ' ')|$due" $cases[$k] "for '$k'"
     }
     Assert-Eq (Split-JkTrailingWhen @('meet on sun'))[0] '' 'one quoted word is left as typed'
@@ -4736,11 +4818,11 @@ Test 'a date at the end of a to-do is its due date; plain words and quoted text 
         $null = @(& { jk todo 'book flight home' -Due dec 18; jk todo finish essay tonight } 6>&1)
         $items = @((Get-JkTodoData).items | Sort-Object id)
         Assert-Eq "$($items[0].id) $($items[0].text)" '1 book flight home' '-Due dec 18 keeps the text whole'
-        Assert-Eq (Get-JkTodoDue $items[0]).ToString('MM-dd') '12-18' 'the day number goes back to -Due'
+        Assert-Eq (Get-JkTodoDue $items[0]).ToString('MM-dd', $script:Inv) '12-18' 'the day number goes back to -Due'
         Assert-Eq "$($items[1].text) $([bool]$items[1].done)" 'finish essay False' '"finish <words>" adds a to-do'
         $null = @(& { jk todo edit 1 -Due tomorrow 6pm } 6>&1)
         $one = @((Get-JkTodoData).items | Where-Object { $_.id -eq 1 })[0]
-        Assert-Eq "$($one.text) $((Get-JkTodoDue $one).ToString('MM-dd HH:mm'))" 'book flight home 10-23 18:00' 'edit -Due tomorrow 6pm leaves the text alone'
+        Assert-Eq "$($one.text) $((Get-JkTodoDue $one).ToString('MM-dd HH:mm', $script:Inv))" 'book flight home 10-23 18:00' 'edit -Due tomorrow 6pm leaves the text alone'
         $null = @(& { jk todo finish 2; jk todo rm essay } 6>&1)
         Assert-Eq @((Get-JkTodoData).items).Count 1 'finish <n> checks it off; rm finds a finished one by text'
     } finally { if ($null -ne $saved) { [IO.File]::WriteAllText($file, $saved) } else { Remove-Item $file -ErrorAction SilentlyContinue } }
@@ -5193,7 +5275,7 @@ Test 'jk shots: per month and newest; file sorts older ones into month folders; 
     Assert-True ($out -match 'jk shots old: 1 older than a year') 'old tip'
     Assert-Eq (Split-Path @(Get-JkFindLast)[0] -Leaf) 'Screenshot new.png' 'newest first, numbered for jk find -o'
     $null = @(Invoke-JkShotsFile -Path $dir 6>&1)
-    $month = $now.AddMonths(-2).AddDays(-1).ToString('yyyy-MM')
+    $month = $now.AddMonths(-2).AddDays(-1).ToString('yyyy-MM', $script:Inv)
     Assert-True (Test-Path (Join-Path $dir "$month\Screenshot a.png")) 'filed by month'
     Assert-True (Test-Path (Join-Path $dir 'Screenshot new.png')) "this month's stay loose"
     Assert-True (Test-Path (Join-Path $dir 'notes.txt')) 'other files untouched'
@@ -5605,7 +5687,7 @@ Test 'daily backup before the first change, restore round-trip' {
     $env:JK_HOME = Join-Path $saved 'backup-home'
     try {
         Add-JkTodo first item
-        $day = (Get-Date).ToString('yyyy-MM-dd')
+        $day = (Get-Date).ToString('yyyy-MM-dd', $script:Inv)
         Assert-True (-not (Test-Path (Join-Path $env:JK_HOME "backups\$day\todo.json"))) 'nothing to back up before the file existed'
         Add-JkTodo second item
         $snap = Join-Path $env:JK_HOME "backups\$day\todo.json"

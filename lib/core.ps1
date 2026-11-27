@@ -187,7 +187,7 @@ function Read-JkJson {
         try { return , (ConvertFrom-Json -InputObject $text) }
         catch { $err = (([string]$_.Exception.Message) -split "`r?`n")[0] }
     }
-    $bak = $p + '.corrupt-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $bak = $p + '.corrupt-' + ((Get-Date).ToString('yyyyMMdd-HHmmss', $script:Inv))
     Copy-Item -LiteralPath $p -Destination $bak -Force
     $good = $null
     if ($script:JkBackupFiles -contains $Name) { $good = Find-JkGoodBackup $Name }
@@ -250,7 +250,7 @@ function Backup-JkFile([string]$Name) {
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             # a new day's folder is also the moment to drop folders older than 30 days
-            $cut = (Get-Date).AddDays(-30).ToString('yyyy-MM-dd')
+            $cut = (Get-Date).AddDays(-30).ToString('yyyy-MM-dd', $script:Inv)
             Get-ChildItem -LiteralPath (Join-Path (Get-JkHome) 'backups') -Directory -ErrorAction SilentlyContinue |
                 Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}$' -and $_.Name -lt $cut } |
                 ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }

@@ -178,7 +178,7 @@ function Start-JkFocus {
     $what = ''
     if ($lbl) { $what = " on " + (Paint "bold #$(Get-JkLabelColor $lbl)" (Format-JkFocusLabel $lbl)) }
     Say ''
-    Say ('  ' + (Paint 'bold green' "$($script:G.circle) Focus") + " for $(Format-JkMinutes ($secs / 60))$what" + (Paint 'gray' "  $($script:G.dot) ends $(Format-JkTime $end.ToString('HH:mm'))"))
+    Say ('  ' + (Paint 'bold green' "$($script:G.circle) Focus") + " for $(Format-JkMinutes ($secs / 60))$what" + (Paint 'gray' "  $($script:G.dot) ends $(Format-JkTime $end.ToString('HH:mm', $script:Inv))"))
     Say (Paint 'gray' "    A popup will tell you when time is up.  jk focus  (status)  $($script:G.dot)  jk focus stop")
 }
 
@@ -266,12 +266,12 @@ function Show-JkFocusLog {
     if (-not $total) { $total = 0 }
     Write-JkHeader 'Focus log' "last $Days days $($script:G.dot) $(Format-JkMinutes $total) $($script:G.dot) $(Format-JkCount $sessions.Count 'session')"
     $perDay = @{}
-    foreach ($s in $sessions) { $k = ([datetime]::Parse([string]$s.start, $script:Inv)).Date.ToString('yyyy-MM-dd'); $perDay[$k] = [double]$perDay[$k] + [double]$s.actual }
+    foreach ($s in $sessions) { $k = ([datetime]::Parse([string]$s.start, $script:Inv)).Date.ToString('yyyy-MM-dd', $script:Inv); $perDay[$k] = [double]$perDay[$k] + [double]$s.actual }
     $max = 60.0
     foreach ($v in $perDay.Values) { if ($v -gt $max) { $max = $v } }
     for ($i = 0; $i -lt $Days; $i++) {
         $day = $since.AddDays($i)
-        $v = [double]$perDay[$day.ToString('yyyy-MM-dd')]
+        $v = [double]$perDay[$day.ToString('yyyy-MM-dd', $script:Inv)]
         $lbl = $day.ToString('ddd MMM d', $script:Inv)
         $st = 'muted'; if ($day -eq $today) { $st = 'bold white' }
         Say ('  ' + (Paint $st (Fit $lbl 11)) + ' ' + (Get-JkBar ($v / $max) 36 'green') + '  ' + (Paint 'white' (Format-JkMinutes $v)))
@@ -288,10 +288,10 @@ function Show-JkFocusLog {
     }
     # days with any session, parsed once
     $activeDays = @{}
-    foreach ($s in @($d.sessions)) { $activeDays[([datetime]::Parse([string]$s.start, $script:Inv)).ToString('yyyy-MM-dd')] = $true }
+    foreach ($s in @($d.sessions)) { $activeDays[([datetime]::Parse([string]$s.start, $script:Inv)).ToString('yyyy-MM-dd', $script:Inv)] = $true }
     $streak = 0
     for ($i = 0; $i -lt 365; $i++) {
-        if ($activeDays.ContainsKey($today.AddDays(-$i).ToString('yyyy-MM-dd'))) { $streak++ } elseif ($i -gt 0) { break }
+        if ($activeDays.ContainsKey($today.AddDays(-$i).ToString('yyyy-MM-dd', $script:Inv))) { $streak++ } elseif ($i -gt 0) { break }
     }
     if ($streak -gt 1) { Say ''; Say ('  ' + (Paint 'orange' "$($script:G.star) $streak-day focus streak")) }
 }
@@ -362,7 +362,7 @@ function Undo-JkFocusLog {
     Save-JkFocusData $d
     $lbl = Format-JkFocusLabel ([string]$last.label); if (-not $lbl) { $lbl = 'no label' }
     $at = [datetime]::Parse([string]$last.start, $script:Inv)
-    Say ((Paint 'yellow' '  Taken back') + " $(Format-JkMinutes ([double]$last.actual)) on $lbl" + (Paint 'gray' "  $($script:G.dot)  from $($at.ToString('ddd MMM d', $script:Inv)) $(Format-JkTime $at.ToString('HH:mm'))"))
+    Say ((Paint 'yellow' '  Taken back') + " $(Format-JkMinutes ([double]$last.actual)) on $lbl" + (Paint 'gray' "  $($script:G.dot)  from $($at.ToString('ddd MMM d', $script:Inv)) $(Format-JkTime $at.ToString('HH:mm', $script:Inv))"))
 }
 
 function Invoke-JkFocus {

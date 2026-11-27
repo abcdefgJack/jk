@@ -142,6 +142,8 @@ function Format-JkErrorText([string]$Message, [string]$Command = '') {
     $short = { param([string]$v) if ($v.Length -gt 30) { $v.Substring(0, 30) + $script:G.ell } else { $v } }
     $help = $(if ($Command) { " (jk help $Command)" } else { '' })
     $number = 'to type "System\.(?:Int32|Int64|Double)"'
+    # a number, only too big ("jk in 99999999999" works it out in seconds first): not "expected a number"
+    if ($Message -match 'Value was either too large or too small for an? \w+') { return 'that number is out of range' }
     if ($Message -match "(?s)^Cannot process argument transformation on parameter '(\w+)'\. Cannot convert value `"(.*)`" $number") { return "expected a number for $($Matches[1].ToLower()), not '$(& $short $Matches[2])'" }
     if ($Message -match "(?s)^Cannot convert value `"(.*)`" $number") { return "expected a number, not '$(& $short $Matches[1])'" }
     if ($Message -match "(?s)^A positional parameter cannot be found that accepts argument '(.*)'\.") { return "unexpected word '$(& $short $Matches[1])'$help" }

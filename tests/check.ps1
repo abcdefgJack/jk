@@ -1,6 +1,7 @@
 # Everything CI used to check, on this machine (there is no GitHub Actions budget): the suite as
-# is, in UTC, in Pacific time and with German regional formats, plus the install round trip in a
-# sandbox, side by side. Takes about as long as one run. Exit code 1 when any of them fails.
+# is, in UTC, in Pacific time, with German regional formats and with Thai ones (another calendar, a
+# dot in times), plus the install round trip in a sandbox, side by side. Takes about as long as one
+# run. Exit code 1 when any of them fails.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tests\check.ps1
 
 $suite = Join-Path $PSScriptRoot 'run.ps1'
@@ -10,6 +11,7 @@ $variants = [ordered]@{
     'UTC'            = @($suite, '-TimeZone', 'UTC')
     'Pacific time'   = @($suite, '-TimeZone', 'Pacific Standard Time')
     'German formats' = @($suite, '-Culture', 'de-DE')
+    'Thai formats'   = @($suite, '-Culture', 'th-TH', '-TimeSeparator', '.')
     'install'        = @($smoke)
 }
 $sw = [Diagnostics.Stopwatch]::StartNew()

@@ -92,7 +92,7 @@ function Get-JkTermSkipDays {
     foreach ($b in @(Get-JkProp $t 'breaks' @())) {
         $d = [datetime]::ParseExact([string]$b.from, 'yyyy-MM-dd', $script:Inv)
         $to = [datetime]::ParseExact([string]$b.to, 'yyyy-MM-dd', $script:Inv)
-        while ($d -le $to) { $skip[$d.ToString('yyyy-MM-dd')] = [string](Get-JkProp $b 'name' 'Break'); $d = $d.AddDays(1) }
+        while ($d -le $to) { $skip[$d.ToString('yyyy-MM-dd', $script:Inv)] = [string](Get-JkProp $b 'name' 'Break'); $d = $d.AddDays(1) }
     }
     foreach ($m in @(Get-JkProp $t 'marks' @())) { if ([string]$m.name -match $script:HolidayRx) { $skip[[string]$m.date] = [string]$m.name } }
     $skip
@@ -136,7 +136,7 @@ function Get-JkExamPlace($Event) {
 # Every meeting on one date, as objects with Start/End datetimes, sorted by time.
 function Get-JkClassesOn([datetime]$Date, $Data = (Get-JkClassData), $Skip = (Get-JkTermSkipDays)) {
     $day = $Date.Date
-    $key = $day.ToString('yyyy-MM-dd')
+    $key = $day.ToString('yyyy-MM-dd', $script:Inv)
     if ($Skip.ContainsKey($key)) { return @() }
     $dow = $script:DayNames[[int]$day.DayOfWeek]
     $out = foreach ($c in @($Data.items)) {
@@ -169,20 +169,20 @@ function Format-JkClassLabel($Class, $cmap) {
 
 # 8:30-9:50 am / 11:30 am-12:20 pm
 function Format-JkTimeSpan([datetime]$Start, [datetime]$End) {
-    $a = Format-JkTime $Start.ToString('HH:mm'); $b = Format-JkTime $End.ToString('HH:mm')
+    $a = Format-JkTime $Start.ToString('HH:mm', $script:Inv); $b = Format-JkTime $End.ToString('HH:mm', $script:Inv)
     if ($a.Substring($a.Length - 2) -eq $b.Substring($b.Length - 2)) { $a = $a.Substring(0, $a.Length - 3) }
     "$a-$b"
 }
 
 # "now, ends 9:50 am" / "in 25m" / "tomorrow 8:30 am" for a meeting relative to now
 function Get-JkClassWhen($Meeting, [datetime]$Now) {
-    if ($Meeting.Start -le $Now -and $Meeting.End -gt $Now) { return @("now $($script:G.dot) ends $(Format-JkTime $Meeting.End.ToString('HH:mm'))", 'bold green') }
+    if ($Meeting.Start -le $Now -and $Meeting.End -gt $Now) { return @("now $($script:G.dot) ends $(Format-JkTime $Meeting.End.ToString('HH:mm', $script:Inv))", 'bold green') }
     $span = $Meeting.Start - $Now
     if ($Meeting.Start.Date -eq $Now.Date) {
         $st = 'white'; if ($span.TotalMinutes -le 15) { $st = 'bold orange' } elseif ($span.TotalMinutes -le 60) { $st = 'yellow' }
         return @("in $(Format-JkDuration $span)", $st)
     }
-    $at = Format-JkTime $Meeting.Start.ToString('HH:mm')
+    $at = Format-JkTime $Meeting.Start.ToString('HH:mm', $script:Inv)
     if (($Meeting.Start.Date - $Now.Date).TotalDays -eq 1) { return @("tomorrow $at", 'muted') }
     @("$($Meeting.Start.ToString('ddd', $script:Inv)) $at ($(Format-JkRelDay $Meeting.Start $Now))", 'muted')
 }
@@ -201,14 +201,14 @@ function Show-JkClasses {
         Say ('  ' + (Paint 'cyan' 'jk class add cs350 tue,thu 4pm-5:20pm "MC 1056"') + (Paint 'gray' '   one meeting by hand'))
         return
     }
-    $todayKey = $now.Date.ToString('yyyy-MM-dd')
+    $todayKey = $now.Date.ToString('yyyy-MM-dd', $script:Inv)
     $today = @(Get-JkClassesOn $now.Date $data $skip)
     if ($skip.ContainsKey($todayKey)) { Say ('  ' + (Paint 'green' "No classes today $($script:G.dash) $($skip[$todayKey]).")) }
     elseif ($today.Count -eq 0) { Say (Paint 'green' '  No classes today.') }
     foreach ($m in $today) {
         $when = Get-JkClassWhen $m $now
         $color = Get-JkCourseColor $m.Class.course $cmap
-        $time = (Format-JkTime $m.Start.ToString('HH:mm')) + ' ' + $script:G.dash + ' ' + (Format-JkTime $m.End.ToString('HH:mm'))
+        $time = (Format-JkTime $m.Start.ToString('HH:mm', $script:Inv)) + ' ' + $script:G.dash + ' ' + (Format-JkTime $m.End.ToString('HH:mm', $script:Inv))
         $line = '  ' + (Paint 'muted' (Fit $time 22)) + (Paint "bold #$color" (Fit (Format-JkClassLabel $m.Class $cmap) 16)) + (Paint 'white' (Fit ([string]$m.Class.room) 14))
         if ($m.End -le $now) { $line = Paint 'gray' ($line -replace "$([char]27)\[[0-9;]*m", '') ; $line += Paint 'gray' 'done' }
         else { $line += Paint $when[1] $when[0] }
@@ -280,7 +280,7 @@ function Show-JkTimetable {
         Say ''
     }
     for ($i = 0; $i -lt $days; $i++) {
-        $k = $monday.AddDays($i).ToString('yyyy-MM-dd')
+        $k = $monday.AddDays($i).ToString('yyyy-MM-dd', $script:Inv)
         if ($skip.ContainsKey($k)) { Say (Paint 'gray' "  $($monday.AddDays($i).ToString('ddd', $script:Inv)): $($skip[$k]) (no classes)") }
     }
 }

@@ -490,7 +490,7 @@ function New-JkCpProblem {
     $fresh = -not (Test-Path -LiteralPath $src)
     if ($fresh) {
         $text = [IO.File]::ReadAllText((Join-Path $tplDir $tplName))
-        $text = $text.Replace('{{NAME}}', ($Name -replace '[^A-Za-z0-9_]', '')).Replace('{{DATE}}', (Get-Date -Format 'yyyy-MM-dd'))
+        $text = $text.Replace('{{NAME}}', ($Name -replace '[^A-Za-z0-9_]', '')).Replace('{{DATE}}', ((Get-Date).ToString('yyyy-MM-dd', $script:Inv)))
         Write-JkText $src $text
         foreach ($f in '1.in', '1.out') { $p = Join-Path $dir $f; if (-not (Test-Path -LiteralPath $p)) { Write-JkText $p '' } }
     }

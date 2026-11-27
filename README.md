@@ -172,11 +172,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1      # one run
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\check.ps1    # before merging
 ```
 
-The tests use a throwaway data folder and a pinned clock. `tests\check.ps1` runs them four ways at once (as
-is, in UTC, in Pacific time, and with German regional formats: decimal comma, day-first dates) so nothing
+The tests use a throwaway data folder and a pinned clock. `tests\check.ps1` runs them five ways at once (as
+is, in UTC, in Pacific time, with German regional formats: decimal comma, day-first dates, and with Thai
+ones: Buddhist-era years, 2569 for 2026, and a dot between hours and minutes) so nothing
 quietly depends on the machine's time zone or locale, and alongside them `tests\smoke.ps1`: install, a new
-shell that finds jk through its link and runs real commands, uninstall. `run.ps1 -TimeZone <id>` and
-`-Culture <name>` change only the test process, never Windows' settings; `smoke.ps1` sets `JK_SANDBOX`, which
+shell that finds jk through its link and runs real commands, uninstall. `run.ps1 -TimeZone <id>`,
+`-Culture <name>` and `-TimeSeparator <char>` change only the test process, never Windows' settings; `smoke.ps1` sets `JK_SANDBOX`, which
 sends the module link, profile hook and data to a temp folder and skips Task Scheduler (`-Real`, CI only,
 does the real install). The GitHub Actions workflow is disabled: there is no Actions budget for this private
 repo. Source files must stay pure ASCII,
