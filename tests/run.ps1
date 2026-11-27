@@ -1646,6 +1646,97 @@ Test 'regional formats: a Buddhist-calendar year keeps last week''s backups, and
         $env:JK_HOME = $saved
     }
 }
+Test 'typed as LEARN writes it: cs 350 is one course, a mark jk cannot read says so, and -Date takes Mon Nov 30' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'typed-home'
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $script:JkDueCache = $null
+    try {
+        $d = Get-JkDueData
+        $c = Resolve-JkCourse $d 'cs350' -Create
+        $null = Resolve-JkCourse $d 'cs341' -Create
+        $mid = New-JkEvent $d -Course $c.key -Date ([datetime]'2026-11-05') -Time '19:00' -Title 'Midterm' -Weight '25%' -Kind 'exam'
+        Save-JkDueData $d
+        $said = { param($sb) @(& $sb 6>&1 | ForEach-Object { "$_" }) -join ' ' }
+        # the pair is one course: no course "cs" titled "350 A5"
+        $null = & $said { jk due add cs 350 A5 dec 2 8pm }
+        $d = Get-JkDueData
+        Assert-Eq (@($d.courses | ForEach-Object { $_.key }) -join ',') 'cs350,cs341' 'no new course'
+        $a5 = @($d.events | Where-Object { $_.title -eq 'A5' })[0]
+        Assert-Eq "$($a5.course)|$($a5.date)|$($a5.time)" 'cs350|2026-12-02|20:00' 'A5 is a CS 350 deadline'
+        # a course jk has not seen yet: still one word after "add", made as CS 245
+        $null = & $said { jk due add cs 245 A1 dec 3 }
+        $new = @((Get-JkDueData).courses | Where-Object { $_.key -eq 'cs245' })[0]
+        Assert-Eq "$($new.code)" 'CS 245' 'a new course from the pair'
+        Assert-True ((& $said { jk exam cs 350 }) -match 'Midterm') 'jk exam cs 350'
+        $null = & $said { jk grade target cs 350 85 }
+        Assert-Eq (@((Get-JkGradeData).targets | Where-Object { $_.course -eq 'cs350' })[0].target) 85 'jk grade target cs 350 85'
+        # text that only mentions a course stays as typed
+        $null = & $said { jk todo study cs 350 paging }
+        Assert-Eq @((Get-JkTodoData).items)[-1].text 'study cs 350 paging' 'a to-do keeps its words'
+        # a mark at the end that jk cannot read: the mark is named, not the first title word
+        $bad = & $said { jk grade cs350 midterm abc }
+        Assert-True ($bad -match "can't read the score 'abc'|a mark goes last") "an unreadable mark: $bad"
+        $bad = & $said { jk grade cs350 midterm 1e9 }
+        Assert-True ($bad -match "can't read the score '1e9'") "1e9: $bad"
+        $none = & $said { jk grade cs350 midterm }
+        Assert-True ($none -match 'a mark goes last') "no mark: $none"
+        # the date as jk prints it
+        $id = [int]$mid.id
+        $null = & $said { jk due edit $id -Date mon nov 30 -Time noon }
+        $e = @((Get-JkDueData).events | Where-Object { [int]$_.id -eq $id })[0]
+        Assert-Eq "$($e.date) $($e.time)" '2026-11-30 12:00' '-Date mon nov 30'
+        $wrong = & $said { jk due edit $id -Date tue nov 30 }
+        Assert-True ($wrong -match 'is a Monday, not a Tuesday') "a wrong weekday is named: $wrong"
+    } finally {
+        $env:JK_HOME = $saved
+        $script:JkDueCache = $null
+    }
+}
+Test 'damaged records stop no screen: a huge id, term dates and breaks that do not read, a pass rule, a bookmark, a reminder process' {
+    $saved = $env:JK_HOME
+    $env:JK_HOME = Join-Path $saved 'damaged-home'
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME | Out-Null
+    $script:JkDueCache = $null
+    try {
+        $said = { param([string[]]$Argv) @(& { jk @Argv } 6>&1 | ForEach-Object { "$_" }) -join "`n" }
+        $screens = @(@(), @('due'), @('week'), @('review'), @('exams'), @('grade'), @('class'), @('plan'), @('go'), @('remind'))
+        $check = {
+            param([string]$What)
+            foreach ($s in $screens) {
+                $out = & $said $s
+                Assert-True ($out -notmatch '(?m)^\s*jk: ') "$What, jk $($s -join ' '): $(($out -split "`n" | Where-Object { $_ -match 'jk: ' }) -join ' / ')"
+            }
+        }
+        $events = '[{"id":1,"course":"cs350","date":"2026-10-28","time":"20:00","end":"","title":"A2","note":"","weight":"5%","kind":"due","done":false,"doneAt":null},' +
+            '{"id":"999999999999999999999999999999","course":"cs350","date":"2026-11-05","time":"19:00","end":"","title":"Midterm","note":"","weight":"25%","kind":"exam","done":false,"doneAt":null}]'
+        $dl = { param($term) Write-JkText (Get-JkPath 'deadlines.json') ('{"version":1,"term":' + $term + ',"courses":[{"key":"cs350","code":"CS 350","name":"","color":"F87171","final":""}],"events":' + $events + ',"nextId":3}'); $script:JkDueCache = $null }
+        Write-JkText (Get-JkPath 'grades.json') '{"scores":[],"extras":[],"targets":[{"course":"cs350","target":[1,2]}],"nextExtra":1,"pass":[{"course":"cs350","kind":"exam","min":"half"}]}'
+        Write-JkText (Get-JkPath 'bookmarks.json') '{"marks":[{"alias":"x"}],"visits":[{"count":"many"},{"path":"","count":1}]}'
+        Write-JkText (Get-JkPath 'reminders.json') '{"nextId":4,"items":[{"id":3,"text":"call home","at":"2026-10-23T18:00:00","created":"2026-10-22T09:00:00","pid":[],"spawned":"","key":"","dueId":0}]}'
+        Write-JkText (Get-JkPath 'sections.json') '{"items":[{"course":"cs350","kind":"LEC","section":"001","days":["Tue","Thu"],"start":"10:00","end":"11:20","room":"MC 4040"}]}'
+        & $dl '{"name":"Fall 2026","start":"2026-09-08","classesEnd":"Dec 8","examsStart":"2026-12-10","examsEnd":"2026-12-23","breaks":""}'
+        & $check 'a term end and breaks that do not read'
+        & $dl '{"name":"Fall 2026","start":12345,"breaks":[{"from":"Oct 10","to":"2026-10-18","name":"Reading week"}]}'
+        & $check 'a term start that is a number'
+        & $dl '"garbage"'
+        & $check 'a term that is a word'
+        # set aside, not lost: the next save writes them back as they were
+        $g = Get-JkGradeData
+        Assert-Eq @($g.pass).Count 0 'the unreadable pass rule is not used'
+        Save-JkGradeData $g
+        $raw = [IO.File]::ReadAllText((Get-JkPath 'grades.json'))
+        Assert-True ($raw -match '"half"' -and $raw -match '"target"') "kept in grades.json: $raw"
+        Assert-True ($raw -notmatch 'unreadable') 'and saved without the set-aside fields'
+        $r = Get-JkReminderData
+        Assert-Eq @($r.items).Count 0 'the reminder with a list for a process is set aside'
+        Save-JkReminderData $r
+        Assert-True ([IO.File]::ReadAllText((Get-JkPath 'reminders.json')) -match 'call home') 'and kept'
+    } finally {
+        $env:JK_HOME = $saved
+        $script:JkDueCache = $null
+    }
+}
 Test 'odd inputs: a number too big says so, and a long calendar line folds between characters, not inside an emoji' {
     Assert-Eq (Format-JkErrorText 'Cannot convert value "5999999999940" to type "System.Int32". Error: "Value was either too large or too small for an Int32."') 'that number is out of range' 'jk in 99999999999'
     $face = [char]::ConvertFromUtf32(0x1F600)
@@ -5726,9 +5817,12 @@ Test 'every view works on a brand-new, empty data folder' {
         Export-JkDueIcs -Out (Join-Path $env:JK_HOME 'e.ics'); Export-JkDueHtml -NoOpen -Out (Join-Path $env:JK_HOME 'e.html')
     } finally { $env:JK_HOME = $saved; $script:JkConfigCache = $null }
 }
-Test 'help renders for every topic' {
+Test 'help renders for every topic, and jk help <command> works for every command' {
     Show-JkHelp
     foreach ($k in $script:JkHelpTopics.Keys) { Show-JkHelp $k }
+    # by command, not by topic: jk help brief said "no help for 'brief'"
+    $none = @(foreach ($k in $script:JkCommands.Keys) { try { $null = Show-JkHelp $k 6>&1 } catch { $k } })
+    Assert-Eq ($none -join ',') '' 'commands without help'
 }
 Test 'narrow windows: lines are cut instead of wrapping; help rewraps without losing words' {
     $esc = [char]27

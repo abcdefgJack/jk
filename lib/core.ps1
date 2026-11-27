@@ -90,22 +90,30 @@ function Get-JkState([string]$Name, $Default = $null) { Get-JkProp (Read-JkJson 
 # written back unchanged when it is saved: one bad row never takes the screens down, and is never
 # lost (jk doctor names it). $List is the property holding the records; $Test says whether one is
 # readable, and may tidy it ("7pm" -> "19:00").
-function Split-JkUnreadable($Data, [string]$List, [scriptblock]$Test) {
+function Split-JkUnreadable($Data, [string]$List, [scriptblock]$Test, [string]$Aside = 'unreadable') {
     $good = New-Object System.Collections.Generic.List[object]; $bad = New-Object System.Collections.Generic.List[object]
     foreach ($r in @($Data.$List)) {
         $ok = $false; try { $ok = [bool](& $Test $r) } catch { }
         if ($ok) { $good.Add($r) } else { $bad.Add($r) }
     }
-    if ($bad.Count) { $Data.$List = $good.ToArray(); Set-JkProp $Data 'unreadable' $bad.ToArray() }
+    if ($bad.Count) { $Data.$List = $good.ToArray(); Set-JkProp $Data $Aside $bad.ToArray() }
 }
 
-# Runs $Save with the set-aside records back in $List, and takes them out again after.
-function Save-JkWithUnreadable($Data, [string]$List, [scriptblock]$Save) {
-    $bad = @(Get-JkProp $Data 'unreadable' @())
+# Runs $Save with the set-aside records back in $List, and takes them out again after. A file with
+# two lists that can hold such records keeps each list's in its own $Aside.
+function Save-JkWithUnreadable($Data, [string]$List, [scriptblock]$Save, [string]$Aside = 'unreadable') {
+    $bad = @(Get-JkProp $Data $Aside @())
     if (-not $bad.Count) { & $Save; return }
     $good = @($Data.$List)
-    $Data.$List = @($good + $bad); $Data.PSObject.Properties.Remove('unreadable')
-    try { & $Save } finally { $Data.$List = $good; Set-JkProp $Data 'unreadable' $bad }
+    $Data.$List = @($good + $bad); $Data.PSObject.Properties.Remove($Aside)
+    try { & $Save } finally { $Data.$List = $good; Set-JkProp $Data $Aside $bad }
+}
+
+# An id every screen can count with: digits that fit an Int32. "999...9" passed ^\d+$ and then broke
+# [int] on the dashboard, jk exams and jk grade alike.
+function Test-JkIdText($Value) {
+    $n = 0
+    ($Value -is [string] -or $Value -is [ValueType]) -and [string]$Value -match '^\d+$' -and [int]::TryParse([string]$Value, [ref]$n)
 }
 
 # A time as HH:mm, or $null when it is not one jk can read ("7pm" -> "19:00").
@@ -113,6 +121,16 @@ function Get-JkReadableTime([string]$Value) {
     if ($Value -match '^([01]?\d|2[0-3]):[0-5]\d$') { return $Value }
     $fixed = $null; try { $fixed = [string](ConvertTo-JkTime $Value) } catch { }
     if ($fixed -match '^([01]?\d|2[0-3]):[0-5]\d$') { return $fixed }
+    $null
+}
+
+# A stored yyyy-MM-dd as a date, or $null when it is not one: for dates no screen should stop over
+# (a term's start or a break typed by hand as "Sep 8" took the dashboard, jk due and jk week down)
+function ConvertFrom-JkDateText($Value) {
+    if (-not ($Value -is [string] -or $Value -is [datetime])) { return $null }
+    if ($Value -is [datetime]) { return $Value.Date }
+    $d = [datetime]::MinValue
+    if ([datetime]::TryParseExact($Value, 'yyyy-MM-dd', $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$d)) { return $d }
     $null
 }
 
@@ -797,6 +815,18 @@ function Join-JkLooseDate([string]$Value, [System.Collections.Generic.List[strin
         $Value = "$Value $($Extra[0])"
         $Extra.RemoveAt(0)
         try { $null = ConvertTo-JkDate $Value; $ok = $true } catch { }
+    }
+    # the longest date the words make: "-Date mon nov 30", as jk prints it, stopped at "mon" and
+    # left "nov 30" over as unexpected words ("mon nov" alone is no date, so look up to 3 words on)
+    while ($ok -and $Extra.Count -gt 0) {
+        $took = 0
+        for ($k = [Math]::Min(3, $Extra.Count); $k -ge 1; $k--) {
+            $longer = "$Value $(@($Extra | Select-Object -First $k) -join ' ')"
+            # "tue nov 30" on a Monday is a typo to report, not "tue" with words left over
+            try { $null = ConvertTo-JkDate $longer; $Value = $longer; $took = $k; break } catch { if (Test-JkNoSuchDate $_) { throw } }
+        }
+        if (-not $took) { break }
+        $Extra.RemoveRange(0, $took)
     }
     $Value
 }

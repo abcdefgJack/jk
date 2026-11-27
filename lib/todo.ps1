@@ -8,7 +8,7 @@ function Get-JkTodoData {
     # a to-do whose due no screen can read ("soon", "2026-13-01") is kept aside, not shown (core.ps1)
     Split-JkUnreadable $d 'items' {
         param($t)
-        if ([string]$t.id -notmatch '^\d+$') { return $false }
+        if (-not (Test-JkIdText $t.id)) { return $false }
         $due = [string](Get-JkProp $t 'due' '')
         $x = [datetime]::MinValue
         -not $due -or [datetime]::TryParse($due, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$x)

@@ -15,12 +15,21 @@ function Get-JkGradeData {
         $n = 0.0
         [string]$s.id -and [double]::TryParse([string]$s.score, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)
     }
+    # the same for a pass rule or a target whose percent is not a number ("min": "half", a list):
+    # it stopped jk grade and jk plan. Each list keeps its own set-aside records
+    $isPct = { param($v) $n = 0.0; ($v -is [string] -or $v -is [ValueType]) -and [double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n) -and $n -ge 0 -and $n -le 100 }
+    Split-JkUnreadable $d 'pass' { param($r) [string]$r.course -and (& $isPct $r.min) } -Aside 'unreadablePass'
+    Split-JkUnreadable $d 'targets' { param($r) [string]$r.course -and (& $isPct $r.target) } -Aside 'unreadableTargets'
     $d
 }
 
 function Save-JkGradeData($Data) {
     foreach ($p in 'scores', 'extras', 'targets', 'pass') { if ($null -ne (Get-JkProp $Data $p)) { $Data.$p = @($Data.$p) } }
-    Save-JkWithUnreadable $Data 'scores' { Save-JkJson 'grades.json' $Data }
+    Save-JkWithUnreadable $Data 'targets' {
+        Save-JkWithUnreadable $Data 'pass' {
+            Save-JkWithUnreadable $Data 'scores' { Save-JkJson 'grades.json' $Data }
+        } -Aside 'unreadablePass'
+    } -Aside 'unreadableTargets'
 }
 
 function ConvertTo-JkPercent([string]$Text) {
@@ -745,5 +754,11 @@ function Invoke-JkGrade {
     if ($a.Count -ge 3 -and ([string]$a[1]) -match '^(?i)(if|whatif|what-if)$') { Show-JkGradeWhatIf ([string]$a[0]) @($a | Select-Object -Skip 2); return }
     # "jk grade cs370 a1 9/10": a mark at the end means set
     if ($a.Count -ge 2 -and ($a -join ' ') -match $script:JkScoreTailRx) { Set-JkGrade @a; return }
+    # words after the course but no mark jk can read at the end: say that, not "unexpected word 'a1'"
+    if ($a.Count -ge 2 -and @($a | Where-Object { "$_" -match '^-' }).Count -eq 0) {
+        $last = [string]$a[-1]
+        if ($last -match '\d') { $null = ConvertTo-JkPercent $last; Set-JkGrade @a; return }
+        throw "a mark goes last: jk grade $($a -join ' ') 85   (or 17/20, 85%)"
+    }
     Show-JkGrade @a
 }

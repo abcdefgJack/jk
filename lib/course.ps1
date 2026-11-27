@@ -12,6 +12,28 @@ function Resolve-JkCourseWords([string[]]$Words) {
     Resolve-JkNamedCourse (Get-JkDueData -Cached) $w -Alone
 }
 
+# "cs 350", as LEARN and the outlines write it, is one course word for the commands that take a
+# course first. jk due add cs 350 A5 dec 2 made a course "cs" titled "350 A5", and jk exam cs 350,
+# jk grade target cs 350 85 and jk class add cs 350 ... did not know the course. A pair at the
+# first or second word is joined when it names a course you have; after "add" it is always one
+# (a new term's first deadline or class names a course jk has not seen yet).
+function Join-JkCourseWords([object[]]$Words) {
+    $w = @($Words)
+    for ($i = 0; $i -le [Math]::Min(1, $w.Count - 2); $i++) {
+        # a bare 350 arrives as a number, not text
+        $a = [string]$w[$i]; $b = [string]$w[$i + 1]
+        if ($a -notmatch '^[A-Za-z]{2,8}$' -or $b -notmatch '^\d{2,3}[A-Za-z]?$') { continue }
+        $n = Get-JkNormKey "$a$b"
+        $c = @(@((Get-JkDueData -Cached).courses) | Where-Object { (Get-JkNormKey ([string]$_.key)) -eq $n -or (Get-JkNormKey ([string]$_.code)) -eq $n })[0]
+        $joined = $null
+        if ($c) { $joined = Get-JkNormKey ([string]$c.code); if (-not $joined) { $joined = [string]$c.key } }
+        elseif ($i -eq 1 -and [string]$w[0] -match '^(?i)(add|new|\+)$') { $joined = $n }
+        if (-not $joined) { continue }
+        return @(@($w | Select-Object -First $i) + @($joined) + @($w | Select-Object -Skip ($i + 2)))
+    }
+    $w
+}
+
 # "today 7:00 pm", "tomorrow 11:59 pm", "Mon Nov 9 6:00 pm"
 function Format-JkWhenShort([datetime]$When, [datetime]$Now) {
     $day = $When.ToString('ddd MMM d', $script:Inv)
