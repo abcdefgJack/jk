@@ -227,6 +227,12 @@ jk next                        the one thing to do now, and the next two: an exa
                                then the study jk plan has for today; each with the command that does it
 Also: jk now, jk what.
 '@
+    'brief'  = @'
+jk brief                       the line a new PowerShell window opens with: the next class today, then
+                               up to three deadlines (due today or tomorrow first, then an exam this week)
+jk brief -Force                show it even with the banner off (jk config set banner off keeps new
+                               windows quiet; jk config set banner on brings it back)
+'@
     'time'   = @'
 jk time                        the time in each of your places, how far ahead or behind, awake or asleep,
                                when you are both up for a call (8 am-11 pm here, 9 am-10 pm there), and
@@ -408,6 +414,8 @@ function Show-JkHelp {
         $name = Resolve-JkCommand $Topic
         if (-not $name) { $name = $Topic.ToLower() }
         $text = $script:JkHelpTopics[$name]
+        # "jk help help" is the overview itself
+        if (-not $text -and $name -eq 'help') { Show-JkHelp; return }
         if (-not $text) { throw "no help for '$Topic'" }
         Write-JkHeader "jk $name" ($script:JkCommands[$name].Desc)
         Write-JkHelpBlock $text

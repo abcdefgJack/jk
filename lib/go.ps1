@@ -8,6 +8,9 @@ function Get-JkGoData {
     $d = Read-JkJson 'bookmarks.json' $null
     if (-not $d) { $d = [pscustomobject]@{ marks = @(); visits = @() } }
     foreach ($p in 'marks', 'visits') { if ($null -eq (Get-JkProp $d $p)) { Set-JkProp $d $p @() } }
+    # a bookmark or visit with no path is no place to go: one without stopped jk go and j altogether
+    foreach ($p in 'marks', 'visits') { $d.$p = @(@($d.$p) | Where-Object { $null -ne $_ -and (Get-JkProp $_ 'path') -is [string] -and (Get-JkProp $_ 'path') }) }
+    foreach ($v in @($d.visits)) { $n = 0; if (-not [int]::TryParse([string](Get-JkProp $v 'count' ''), [ref]$n)) { Set-JkProp $v 'count' 1 } }
     $d
 }
 

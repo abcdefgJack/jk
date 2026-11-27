@@ -189,6 +189,8 @@ function Invoke-JkCommand {
     if ($a.Count -gt 1) { $rest = @($a[1..($a.Count - 1)]) }
     $fn = $script:JkCommands[$name].Fn
     try {
+        # "cs 350" is one course word where a course comes first
+        if ($name -in 'due', 'exams', 'grade', 'class' -and $rest.Count -ge 2) { $rest = @(Join-JkCourseWords $rest) }
         & $fn @rest
     } catch {
         if ($env:JK_DEBUG) { throw }

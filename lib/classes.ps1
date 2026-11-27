@@ -18,7 +18,7 @@ function Get-JkClassData {
     # jk reads anyway ("9am") is put as "09:00"
     Split-JkUnreadable $d 'items' {
         param($c)
-        if ([string]$c.id -notmatch '^\d+$') { return $false }
+        if (-not (Test-JkIdText $c.id)) { return $false }
         foreach ($k in 'start', 'end') {
             $v = [string](Get-JkProp $c $k '')
             if (-not $v) { if ($k -eq 'start') { return $false } else { continue } }
@@ -90,8 +90,10 @@ function Get-JkTermSkipDays {
     $t = Get-JkProp $data 'term'
     if (-not $t) { return $skip }
     foreach ($b in @(Get-JkProp $t 'breaks' @())) {
-        $d = [datetime]::ParseExact([string]$b.from, 'yyyy-MM-dd', $script:Inv)
-        $to = [datetime]::ParseExact([string]$b.to, 'yyyy-MM-dd', $script:Inv)
+        # a break without two readable dates skips nothing, and stops no screen
+        if ($null -eq $b) { continue }
+        $d = ConvertFrom-JkDateText (Get-JkProp $b 'from'); $to = ConvertFrom-JkDateText (Get-JkProp $b 'to')
+        if (-not $d -or -not $to) { continue }
         while ($d -le $to) { $skip[$d.ToString('yyyy-MM-dd', $script:Inv)] = [string](Get-JkProp $b 'name' 'Break'); $d = $d.AddDays(1) }
     }
     foreach ($m in @(Get-JkProp $t 'marks' @())) { if ([string]$m.name -match $script:HolidayRx) { $skip[[string]$m.date] = [string]$m.name } }
@@ -103,11 +105,12 @@ function Get-JkClassRange($Class) {
     $t = Get-JkProp $data 'term'
     $from = [string](Get-JkProp $Class 'from')
     $to = [string](Get-JkProp $Class 'to')
-    if (-not $from -and $t) { $from = [string]$t.start }
+    if (-not $from -and $t) { $from = [string](Get-JkProp $t 'start') }
     if (-not $to -and $t) { $to = [string](Get-JkProp $t 'classesEnd') }
+    # the class's own dates are checked when it is loaded; the term's may not read, and then bind nothing
     $f = [datetime]::MinValue; $e = [datetime]::MaxValue
-    if ($from) { $f = [datetime]::ParseExact($from, 'yyyy-MM-dd', $script:Inv) }
-    if ($to) { $e = [datetime]::ParseExact($to, 'yyyy-MM-dd', $script:Inv) }
+    if ($from) { $x = ConvertFrom-JkDateText $from; if ($x) { $f = $x } }
+    if ($to) { $x = ConvertFrom-JkDateText $to; if ($x) { $e = $x } }
     , @($f, $e)
 }
 

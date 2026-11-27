@@ -489,8 +489,9 @@ function Invoke-JkDoctor {
         & $bad 'unreadable deadline' "$what$(if ($unread.Count -gt 1) { ", +$($unread.Count - 1) more" }) - fix in deadlines.json (kept, not shown)"
     }
     # the same for to-dos, classes and focus sessions
-    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }), @('reminder', 'reminders.json', { Get-JkReminderData }), @('mark', 'grades.json', { Get-JkGradeData }))) {
-        $un = @(); try { $un = @(Get-JkProp (& $src[2]) 'unreadable' @()) } catch { }
+    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }), @('reminder', 'reminders.json', { Get-JkReminderData }), @('mark', 'grades.json', { Get-JkGradeData }), @('pass rule', 'grades.json', { Get-JkGradeData }, 'unreadablePass'), @('grade target', 'grades.json', { Get-JkGradeData }, 'unreadableTargets'))) {
+        $aside = $(if ($src.Count -gt 3) { $src[3] } else { 'unreadable' })
+        $un = @(); try { $un = @(Get-JkProp (& $src[2]) $aside @()) } catch { }
         if ($un.Count) {
             # cut a long record to fit the line, but do not pad a short one
             $j = [string]($un[0] | ConvertTo-Json -Compress -Depth 3); if ($j.Length -gt 46) { $j = Fit $j 46 }

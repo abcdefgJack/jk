@@ -51,7 +51,7 @@ function Save-JkDueData($Data) {
 # that are HH:mm. A time written another way that jk reads anyway ("7pm") is put as "19:00".
 function Repair-JkEvent($e) {
     if (-not (Test-JkDateText ([string]$e.date))) { return $false }
-    if ([string]$e.id -notmatch '^\d+$') { return $false }
+    if (-not (Test-JkIdText $e.id)) { return $false }
     foreach ($k in 'time', 'end') {
         $v = [string](Get-JkProp $e $k '')
         if (-not $v) { continue }
@@ -241,15 +241,19 @@ function Select-JkOneEvent($Hits, [string]$Exact, [string]$Label) {
 function Get-JkTermInfo {
     param($Data, [datetime]$Now = (Get-JkNow))
     $t = Get-JkProp $Data 'term'
-    if (-not $t -or -not $t.start) { return $null }
-    $p = { param($s) if ($s) { [datetime]::ParseExact([string]$s, 'yyyy-MM-dd', $script:Inv) } else { $null } }
+    if (-not $t -or -not (Get-JkProp $t 'start')) { return $null }
+    # a date that does not read is as good as not there; without a start there is no term to describe
+    $p = { param($s) ConvertFrom-JkDateText $s }
     $start = & $p $t.start
+    if (-not $start) { return $null }
     $end = & $p (Get-JkProp $t 'classesEnd')
     $exStart = & $p (Get-JkProp $t 'examsStart')
     $exEnd = & $p (Get-JkProp $t 'examsEnd')
     $monday = { param($d) $d.Date.AddDays(-(([int]$d.DayOfWeek + 6) % 7)) }
     $breakMondays = @()
-    foreach ($b in @(Get-JkProp $t 'breaks' @())) {
+    # a break without two readable dates is left out ("breaks": "" read as one empty break)
+    $breaks = @(@(Get-JkProp $t 'breaks' @()) | Where-Object { $null -ne $_ -and (& $p (Get-JkProp $_ 'from')) -and (& $p (Get-JkProp $_ 'to')) })
+    foreach ($b in $breaks) {
         $bf = & $p $b.from; $bt = & $p $b.to
         $m = & $monday $bf
         if ($m -lt $bf) { $m = $m.AddDays(7) }
@@ -279,7 +283,7 @@ function Get-JkTermInfo {
     }
     $inBreak = $breakMondays -contains (& $monday $today)
     $breakName = ''
-    foreach ($b in @(Get-JkProp $t 'breaks' @())) {
+    foreach ($b in $breaks) {
         if ($today -ge (& $p $b.from) -and $today -le (& $p $b.to)) { $inBreak = $true; $breakName = [string](Get-JkProp $b 'name' 'Break') }
     }
     $total = $null

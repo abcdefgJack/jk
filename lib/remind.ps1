@@ -15,9 +15,12 @@ function Get-JkReminderData {
     Split-JkUnreadable $d 'items' {
         param($r)
         $x = [datetime]::MinValue; $n = 0
-        if ([string]$r.id -notmatch '^\d+$') { return $false }
+        if (-not (Test-JkIdText $r.id)) { return $false }
         if (-not [datetime]::TryParse([string]$r.at, $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$x)) { return $false }
-        $p = [string](Get-JkProp $r 'pid' '')
+        # a list or an object is no process id, even an empty one (it reads as "")
+        $raw = Get-JkProp $r 'pid' ''
+        if (-not ($raw -is [string] -or $raw -is [ValueType])) { return $false }
+        $p = [string]$raw
         -not $p -or [int]::TryParse($p, [ref]$n)
     }
     $d
