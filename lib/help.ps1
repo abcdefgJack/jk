@@ -194,7 +194,8 @@ jk pdf p1.jpg p2.png a3.pdf -Out hw3.pdf      images and PDFs together, in that 
 jk pdf *.jpg -Small            shrink the photos (about 1700 px, JPEG 72) for upload size limits
 jk pdf *.jpg -A4               A4 pages instead of Letter
 Never overwrites a file (hw3 (2).pdf) unless -Force. Images need nothing extra; merging PDFs uses
-pypdf (Python) or pdfunite when either is installed.
+pypdf (Python) or pdfunite when either is installed. iPhone HEIC photos are not read: set the camera
+to Most Compatible (JPEG), or save copies as .jpg.
 '@
     'shots'  = @'
 jk shots                       the Screenshots folder (Win+PrtScn, Snipping Tool): count per month for a year,

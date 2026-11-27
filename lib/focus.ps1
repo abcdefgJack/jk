@@ -99,13 +99,49 @@ function Get-JkFocusData {
         param($s)
         $x = [datetime]::MinValue; $n = 0.0
         if (-not [datetime]::TryParse([string]$s.start, $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$x)) { return $false }
-        foreach ($k in 'actual', 'minutes') { $v = Get-JkProp $s $k $null; if ($null -ne $v -and -not [double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, $script:Inv, [ref]$n)) { return $false } }
+        # read from the record itself: Get-JkProp hands an empty list back as nothing, and [] then
+        # passed as "no minutes" and broke every sum; a minute count past a year overflowed one
+        foreach ($k in 'actual', 'minutes') {
+            $p = $s.PSObject.Properties[$k]
+            if (-not $p -or $null -eq $p.Value) { continue }
+            $v = $p.Value
+            if (-not ($v -is [string] -or $v -is [ValueType]) -or -not [double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, $script:Inv, [ref]$n)) { return $false }
+            if (-not ($n -ge 0 -and $n -le 525600)) { return $false }
+        }
         $true
+    }
+    # a running session no screen can read stopped every jk focus, stop included, and the morning
+    # tick logged it on every run: it is set aside, and goes back where it was when the file is saved
+    $a = $d.active
+    if ($null -ne $a -and -not (Test-JkFocusActive $a)) {
+        Set-JkProp $d 'unreadableActive' @(@(Get-JkProp $d 'unreadableActive' @()) + @(, $a))
+        $d.active = $null
     }
     $d
 }
 
-function Save-JkFocusData($Data) { $Data.sessions = @($Data.sessions); Save-JkWithUnreadable $Data 'sessions' { Save-JkJson 'focus.json' $Data } }
+# Saves with a set-aside running session back as the running one, unless a new session has taken
+# its place: then it stays beside it in unreadableActive (jk doctor names it), never dropped.
+function Save-JkFocusActiveAside($Data, [scriptblock]$Save) {
+    $bad = @(Get-JkProp $Data 'unreadableActive' @())
+    if (-not $bad.Count -or $null -ne $Data.active) { & $Save; return }
+    $Data.active = $bad[-1]
+    if ($bad.Count -gt 1) { $Data.unreadableActive = @($bad | Select-Object -First ($bad.Count - 1)) } else { $Data.PSObject.Properties.Remove('unreadableActive') }
+    try { & $Save } finally { $Data.active = $null; Set-JkProp $Data 'unreadableActive' $bad }
+}
+
+function Test-JkFocusActive($A) {
+    if ($A -isnot [pscustomobject]) { return $false }
+    $x = [datetime]::MinValue; $n = 0.0
+    if (-not [datetime]::TryParse([string](Get-JkProp $A 'start' ''), $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$x)) { return $false }
+    $secs = Get-JkProp $A 'seconds' $null
+    if (-not ($secs -is [string] -or $secs -is [ValueType]) -or -not [double]::TryParse([string]$secs, [Globalization.NumberStyles]::Float, $script:Inv, [ref]$n)) { return $false }
+    if (-not ($n -gt 0 -and $n -le [int]::MaxValue)) { return $false }
+    $p = Get-JkProp $A 'pid' $null
+    ($null -eq $p -or [string]$p -eq '' -or (Test-JkIdText $p))
+}
+
+function Save-JkFocusData($Data) { $Data.sessions = @($Data.sessions); Save-JkFocusActiveAside $Data { Save-JkWithUnreadable $Data 'sessions' { Save-JkJson 'focus.json' $Data } } }
 
 function Get-JkFocusMinutes([datetime]$Since, $Data = (Get-JkFocusData)) {
     $sum = 0.0
@@ -202,7 +238,10 @@ function Complete-JkFocusSession {
 
 function Stop-JkFocus {
     $d = Get-JkFocusData
-    if (-not $d.active) { Say (Paint 'gray' '  No focus session is running.'); return }
+    if (-not $d.active) {
+        if (@(Get-JkProp $d 'unreadableActive' @()).Count) { Say (Paint 'gray' '  No focus session jk can read is running: the one in focus.json is damaged (jk doctor names it).'); return }
+        Say (Paint 'gray' '  No focus session is running.'); return
+    }
     $a = $d.active
     if (Test-JkBackgroundAlive ([int]$a.pid) ([string]$a.spawned)) { Stop-JkProcessTree ([int]$a.pid) }
     $elapsed = ((Get-Date) - [datetime]::Parse([string]$a.start, $script:Inv)).TotalMinutes

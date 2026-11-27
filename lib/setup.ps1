@@ -489,7 +489,7 @@ function Invoke-JkDoctor {
         & $bad 'unreadable deadline' "$what$(if ($unread.Count -gt 1) { ", +$($unread.Count - 1) more" }) - fix in deadlines.json (kept, not shown)"
     }
     # the same for to-dos, classes and focus sessions
-    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }), @('reminder', 'reminders.json', { Get-JkReminderData }), @('mark', 'grades.json', { Get-JkGradeData }), @('pass rule', 'grades.json', { Get-JkGradeData }, 'unreadablePass'), @('grade target', 'grades.json', { Get-JkGradeData }, 'unreadableTargets'))) {
+    foreach ($src in @(@('to-do', 'todo.json', { Get-JkTodoData }), @('class', 'classes.json', { Get-JkClassData }), @('focus log', 'focus.json', { Get-JkFocusData }), @('focus timer', 'focus.json', { Get-JkFocusData }, 'unreadableActive'), @('reminder', 'reminders.json', { Get-JkReminderData }), @('mark', 'grades.json', { Get-JkGradeData }), @('pass rule', 'grades.json', { Get-JkGradeData }, 'unreadablePass'), @('grade target', 'grades.json', { Get-JkGradeData }, 'unreadableTargets'), @('grade extra', 'grades.json', { Get-JkGradeData }, 'unreadableExtras'))) {
         $aside = $(if ($src.Count -gt 3) { $src[3] } else { 'unreadable' })
         $un = @(); try { $un = @(Get-JkProp (& $src[2]) $aside @()) } catch { }
         if ($un.Count) {
@@ -524,19 +524,22 @@ function Invoke-JkDoctor {
         }
         else { & $meh 'job tracker' 'none found (optional) - jk config set jobs.file <path>' }
     } catch { & $bad 'job tracker' $_.Exception.Message }
-    # windowless timers and the morning task log failures here instead of showing them
+    # windowless timers and the morning task log failures here instead of showing them. A stamp cut
+    # short (two processes writing at once) reads as MinValue: it stopped jk doctor, the one screen
+    # meant for when something is wrong
     $log = Get-JkPath 'background.log'
     $recent = @(); $lines = @()
     if (Test-Path -LiteralPath $log) {
         $since = (Get-Date).AddDays(-7)
         $lines = @(Get-Content -LiteralPath $log)
         # each morning run's own summary line is a record, not an error
-        $recent = @($lines | Where-Object { $_ -notmatch '^\S+ tick: ' -and $_ -match '^(\d{4}-\d{2}-\d{2}T[\d:]+)' -and [datetime]::Parse($Matches[1], $script:Inv) -ge $since })
+        $recent = @($lines | Where-Object { $_ -notmatch '^\S+ tick: ' -and $_ -match '^(\d{4}-\d{2}-\d{2}T[\d:]+)' -and (ConvertFrom-JkLogStamp $Matches[1]) -ge $since })
     }
     # the last morning run: when, and whether it got a forecast
     $tick = @($lines | Where-Object { $_ -match '^(\S+) tick: ' })
     if ($tick.Count -and $tick[-1] -match '^(\S+) tick: .*weather (\w+)') {
-        $when = Format-JkRelTime ([datetime]::Parse($Matches[1], $script:Inv)); $wx = $Matches[2]
+        $at = ConvertFrom-JkLogStamp $Matches[1]; $wx = $Matches[2]
+        $when = $(if ($at -gt [datetime]::MinValue) { Format-JkRelTime $at } else { 'at a time the log does not say' })
         if ($wx -in 'fresh', 'skipped') { & $ok 'last morning run' "$when $($script:G.dot) forecast $wx" }
         else { & $meh 'last morning run' "$when $($script:G.dot) no fresh forecast ($wx): jk weather says why" }
     }

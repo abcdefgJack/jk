@@ -77,8 +77,9 @@ function Get-JkSpaceLog {
     $p = Join-Path (Get-JkCacheDir) 'space.log'
     if (-not [IO.File]::Exists($p)) { return @() }
     @(foreach ($l in [IO.File]::ReadAllLines($p)) {
-            $f = $l.Split("`t")
-            if ($f.Count -eq 3) { [pscustomobject]@{ At = [datetime]::ParseExact($f[0], 's', $script:Inv); Key = $f[1]; Bytes = [double]$f[2] } }
+            # a line jk cannot read (a hand edit, a write cut short) is skipped: it stopped jk space
+            $f = $l.Split("`t"); $at = [datetime]::MinValue; $b = 0.0
+            if ($f.Count -eq 3 -and [datetime]::TryParseExact($f[0], 's', $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$at) -and [double]::TryParse($f[2], [Globalization.NumberStyles]::Float, $script:Inv, [ref]$b)) { [pscustomobject]@{ At = $at; Key = $f[1]; Bytes = $b } }
         })
 }
 
@@ -114,7 +115,8 @@ function Get-JkDiskLog {
     $p = Join-Path (Get-JkCacheDir) 'disk.log'
     if (-not [IO.File]::Exists($p)) { return @() }
     @(foreach ($l in [IO.File]::ReadAllLines($p)) {
-            if ($l -match '^(\d{4}-\d{2}-\d{2})\t(\d+)$') { [pscustomobject]@{ Date = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd', $script:Inv); Free = [double]$Matches[2] } }
+            $d = ConvertFrom-JkDateText $(if ($l -match '^(\d{4}-\d{2}-\d{2})\t(\d+)$') { $Matches[1] })
+            if ($d) { [pscustomobject]@{ Date = $d; Free = [double]$Matches[2] } }
         })
 }
 

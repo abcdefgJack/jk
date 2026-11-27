@@ -269,15 +269,22 @@ function Invoke-JkTidyRun {
     Say ('  ' + (Paint 'bold green' 'jk tidy apply') + " moves $(Format-JkCount $moving.Count 'file'): $where" + (Paint 'gray' "  (undo: jk tidy undo)"))
 }
 
+# Folders this run made for moves that all failed, if they are still empty: never one that was there.
+function Remove-JkEmptyMoveDirs([string[]]$Dirs) {
+    foreach ($d in @($Dirs | Select-Object -Unique)) {
+        if ((Test-Path -LiteralPath $d -PathType Container) -and -not (Get-ChildItem -LiteralPath $d -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $d -ErrorAction SilentlyContinue }
+    }
+}
+
 function Invoke-JkTidyApply([string]$Path, $Plan) {
     $moving = @($Plan | Where-Object { $_.Status -eq 'move' })
     if ($moving.Count -eq 0) { Say (Paint 'green' "  Nothing to move. $($script:G.check)"); return }
     $log = New-Object System.Collections.Generic.List[object]
-    $failed = 0
+    $failed = 0; $made = @()
     foreach ($p in $moving) {
         $destDir = Join-Path $Path $p.Category
         if ($p.Dest) { $destDir = $p.Dest }
-        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
+        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null; $made += $destDir }
         try {
             $dest = Get-JkUniquePath $destDir $p.File.Name
             Move-Item -LiteralPath $p.File.FullName -Destination $dest -ErrorAction Stop
@@ -292,6 +299,9 @@ function Invoke-JkTidyApply([string]$Path, $Plan) {
             Say (Paint 'red' "  skipped $($p.File.Name): $($_.Exception.Message)")
         }
     }
+    # nothing moved (every file open somewhere): no batch, or jk tidy undo would take back this
+    # empty one instead of the last real one; and no folder made for it is left behind
+    if (-not $log.Count) { Remove-JkEmptyMoveDirs $made; Say (Paint 'yellow' "  nothing was moved: $(Format-JkCount $failed 'file') could not be (probably open in another program)"); return }
     $dir = Get-JkPath 'tidy'
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     # milliseconds: two batches in the same second must not share (and overwrite) one undo log

@@ -19,7 +19,8 @@ function Get-JkRotateFlip([int]$Orientation) {
 # An image file as JPEG bytes, upright, RGB, at most $MaxSide pixels on its longer side (0 = as is).
 function ConvertTo-JkJpegBytes([string]$Path, [int]$MaxSide = 0, [int]$Quality = 90) {
     Add-Type -AssemblyName System.Drawing
-    $img = [Drawing.Image]::FromFile($Path)
+    # Windows reports a picture it cannot read (cut short, or not what its name says) as "Out of memory"
+    try { $img = [Drawing.Image]::FromFile($Path) } catch { throw "can't read $(Split-Path $Path -Leaf) as a picture: it is damaged, or not the kind of file its name says" }
     try {
         $o = 1
         if ($img.PropertyIdList -contains 0x0112) { $o = [int]([BitConverter]::ToUInt16($img.GetPropertyItem(0x0112).Value, 0)) }
@@ -128,6 +129,9 @@ function Invoke-JkPdf {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Files, [string]$Out, [switch]$A4, [switch]$Small, [switch]$Force)
     if (-not @($Files | Where-Object { $_ }).Count -or $Files[0] -match '^(?i)(help|-h|--help|\?)$') { Show-JkHelp 'pdf'; return }
     $inputs = @(Resolve-JkPdfInputs $Files)
+    # an iPhone's own photo format, which Windows' picture reader cannot open
+    $heic = @($inputs | Where-Object { [IO.Path]::GetExtension($_) -match '^(?i)\.(heic|heif)$' })
+    if ($heic.Count) { throw "$(Split-Path $heic[0] -Leaf)$(if ($heic.Count -gt 1) { " and $($heic.Count - 1) more are" } else { ' is' }) HEIC, which jk cannot read: send the photos as JPEG (on the iPhone: Settings > Camera > Formats > Most Compatible), or open them in Photos and save a copy as .jpg" }
     $inputs = @($inputs | Where-Object { $script:JkImageExt -contains [IO.Path]::GetExtension($_).ToLower() -or [IO.Path]::GetExtension($_).ToLower() -eq '.pdf' })
     if (-not $inputs.Count) { throw 'no images or PDFs among those files (jpg, png, bmp, gif, tif, pdf)' }
     $here = (Get-Location).ProviderPath

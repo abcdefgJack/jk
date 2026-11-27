@@ -51,7 +51,8 @@ function Format-JkClockName([string]$Text) {
     $t = ($Text -replace '\s+', ' ').Trim().ToLowerInvariant()
     # UTC, GMT, NYC
     if ($t -match '^[a-z]{2,3}$') { return $t.ToUpperInvariant() }
-    (Get-Culture).TextInfo.ToTitleCase($t)
+    # invariant: Turkish would title "istanbul" with a dotted capital I, which jk time rm istanbul then misses
+    $script:Inv.TextInfo.ToTitleCase($t)
 }
 
 # The place or day word a typo was meant to be ("bejing" -> Beijing, "tomorow" -> tomorrow), or $null.

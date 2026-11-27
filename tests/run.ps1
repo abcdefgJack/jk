@@ -1737,6 +1737,158 @@ Test 'damaged records stop no screen: a huge id, term dates and breaks that do n
         $script:JkDueCache = $null
     }
 }
+Test 'more damage stops no screen: a running focus session, a done stamp, a reminder as it fires, a stock price of 0, a feed date, a log line, a photo jk cannot read' {
+    $saved = $env:JK_HOME; $savedCache = $env:JK_CACHE; $savedNow = $env:JK_NOW
+    $env:JK_HOME = Join-Path $saved 'damaged-2'; $env:JK_CACHE = Join-Path $saved 'damaged-2-cache'; $script:JkConfigCache = $null; $script:JkDueCache = $null
+    New-Item -ItemType Directory -Force -Path $env:JK_HOME, $env:JK_CACHE | Out-Null
+    $origBg = ${function:Start-JkBackground}; $origNotify = ${function:Show-JkNotify}
+    $savedCulture = [Threading.Thread]::CurrentThread.CurrentCulture
+    try {
+        function script:Start-JkBackground { param([string]$Script, [hashtable]$Env = @{}, [string]$WaitUntil) [pscustomobject]@{ Id = 0; StartTime = (Get-Date) } }
+        $said = { param([string[]]$Argv) @(& { jk @Argv } 6>&1 | ForEach-Object { "$_" }) -join "`n" }
+        $errs = { param([string]$Out) ($Out -split "`n" | Where-Object { $_ -match '^\s*jk: ' }) -join ' / ' }
+        # a running session no screen can read stopped every jk focus, stop included
+        foreach ($bad in '"oops"', '{"id":"a","start":"yesterday","seconds":600,"pid":0}', '{"id":"a","start":"2026-11-27T09:00:00","seconds":"lots","pid":0}', '{"id":"a","start":"2026-11-27T09:00:00","seconds":600,"pid":"99999999999"}') {
+            foreach ($cmd in @(@('focus', 'status'), @('focus', 'stop'), @('focus', 'log'), @())) {
+                Write-JkText (Get-JkPath 'focus.json') ('{"active":' + $bad + ',"sessions":[]}')
+                $out = & $said $cmd
+                Assert-Eq (& $errs $out) '' "running session $bad, jk $($cmd -join ' ')"
+            }
+        }
+        $out = & $said @('focus', 'stop')
+        Assert-True ($out -match 'damaged \(jk doctor names it\)') "stop says why nothing stopped: $out"
+        # kept: a new session runs beside it, and once that one ends it is back where it was
+        $out = & $said @('focus', '25', 'cs350')
+        Assert-True ($out -match 'Focus for 25m') "a new session starts: $out"
+        $raw = [IO.File]::ReadAllText((Get-JkPath 'focus.json'))
+        Assert-True ($raw -match '"unreadableActive"' -and $raw -match '99999999999') "the damaged one is kept beside it: $raw"
+        $null = & $said @('focus', 'stop')
+        $j = [IO.File]::ReadAllText((Get-JkPath 'focus.json')) | ConvertFrom-Json
+        Assert-Eq ([string]$j.active.pid) '99999999999' 'and back as it was once the new one ends'
+        Assert-True ($null -eq $j.PSObject.Properties['unreadableActive']) 'with no set-aside field left in the file'
+        # a finished to-do whose done stamp does not read stopped jk todo
+        Write-JkText (Get-JkPath 'todo.json') '{"nextId":3,"items":[{"id":1,"text":"read ch 4","created":"2026-11-25T09:00:00","due":null,"done":true,"doneAt":"yesterday"},{"id":2,"text":"email TA","created":"2026-11-25T09:00:00","due":null,"done":true,"doneAt":5}]}'
+        $out = & $said @('todo')
+        Assert-Eq (& $errs $out) '' 'jk todo with done stamps that do not read'
+        # a space log line cut short or edited by hand stopped jk space
+        [IO.File]::WriteAllLines((Join-Path $env:JK_CACHE 'space.log'), [string[]]@("2026-11-02T18:38:20`tconda`t9451091782", "2026-11-0`tdownloads`t12", "2026-11-03T08:00:00`twechat`tlots"))
+        $log = @(Get-JkSpaceLog)
+        Assert-Eq $log.Count 1 'the two lines that do not read are skipped'
+        Assert-Eq $log[0].Key 'conda' 'the good one is read'
+        [IO.File]::WriteAllLines((Join-Path $env:JK_CACHE 'disk.log'), [string[]]@("2026-11-20`t71081708749", "2026-13-45`t65870512128"))
+        Assert-Eq (@(Get-JkDiskLog) | ForEach-Object { $_.Date.ToString('yyyy-MM-dd', $script:Inv) }) '2026-11-20' 'a disk log day that is no day is skipped'
+        # jk doctor reads background.log's stamps: one cut short stopped it
+        Assert-Eq (ConvertFrom-JkLogStamp '2026-11-27T07:45:02') ([datetime]'2026-11-27T07:45:02') 'a stamp as jk writes it'
+        Assert-Eq (ConvertFrom-JkLogStamp 'garbage') ([datetime]::MinValue) 'and one that does not'
+        Write-JkText (Get-JkPath 'background.log') ("2026-13-45T07:45:02 sync: boom`ngarbage tick: weather fresh`n")
+        $out = @(& { Invoke-JkDoctor } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match 'last morning run' -and $out -notmatch '(?m)^\s*jk: ') "jk doctor with stamps that do not read: $(($out -split "`n" | Select-Object -Last 3) -join ' / ')"
+        Assert-True ($out -match 'unreadable focus timer\s.*2026-11-27T09:00:00') "and it names the running session set aside: $(($out -split "`n" | Where-Object { $_ -match 'focus' }) -join ' / ')"
+        # a close of 0 (a halted day, a bad tick) turned every number on the screen to NaN, and a
+        # reply with no trading hours stopped jk stocks altogether
+        $env:JK_NOW = '2026-11-25T08:00:00'
+        $ny = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+        $days = @(); $d = [datetime]'2026-11-24'
+        while ($days.Count -lt 60) { if ($d.DayOfWeek -notin 'Saturday', 'Sunday') { $days = @($d) + $days }; $d = $d.AddDays(-1) }
+        $ts = @($days | ForEach-Object { [DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($_.AddHours(9.5), $ny)).ToUnixTimeSeconds() })
+        $closes = @(for ($i = 0; $i -lt 60; $i++) { 100 + ($i % 3) }); $closes[40] = 0; $closes[50] = -37.6
+        $j = [ordered]@{ chart = [ordered]@{ result = @([ordered]@{ meta = [ordered]@{ currency = 'USD'; symbol = 'ZZ'; fullExchangeName = 'NYSE'; longName = 'Z'; regularMarketPrice = 101; regularMarketTime = $ts[-1] }; timestamp = $ts; indicators = [ordered]@{ quote = @([ordered]@{ close = $closes }) } }); error = $null } }
+        Write-JkText (Get-JkStockCachePath 'ZZ') ((Get-Date).ToUniversalTime().ToString('o') + "`n" + (ConvertTo-Json $j -Depth 10 -Compress))
+        $out = & $said @('stocks', 'ZZ')
+        Assert-Eq (& $errs $out) '' 'jk stocks ZZ with no trading hours in the reply'
+        Assert-True ($out -cnotmatch 'NaN|Infinity' -and $out -match 'the last 10 days against their ranges') "no NaN for a close of 0 or below: $out"
+        Assert-Eq @((Get-JkStock 'ZZ').Bars).Count 58 'the two closes no stock can have are left out'
+        # one event whose start does not read stopped the whole feed, every morning
+        $ics = @('BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:a', 'SUMMARY:CS 350 A4 - Due', 'DTSTART:20261130T2359Z', 'END:VEVENT',
+            'BEGIN:VEVENT', 'UID:b', 'SUMMARY:CS 350 A5 - Due', 'DTSTART;VALUE=DATE:202612', 'END:VEVENT',
+            'BEGIN:VEVENT', 'UID:c', 'SUMMARY:CS 350 A6 - Due', 'DTSTART:20261205T235900Z', 'DTEND:garbage', 'END:VEVENT', 'END:VCALENDAR') -join "`r`n"
+        $feed = @(ConvertFrom-JkIcs $ics)
+        Assert-Eq (@($feed | ForEach-Object { $_.Uid }) -join ',') 'c' 'the event that reads is kept, its unreadable end dropped'
+        Assert-Eq $script:JkIcsUnreadable 2 'the two whose start does not read are counted'
+        Assert-True ($null -eq $feed[0].End -and $null -eq $feed[0].PSObject.Properties['Bad']) 'with no end and no marker of its own'
+        $f = Join-Path $env:JK_HOME 'learn.ics'
+        [IO.File]::WriteAllText($f, $ics)
+        $out = (Invoke-JkDueSync $f 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-True ($out -match '1 new' -and $out -match 'left out 2 events whose date jk cannot read') "the sync goes through and says what it left out: $out"
+        Invoke-JkDueSync $f -Quiet
+        Assert-True ([IO.File]::ReadAllText((Get-JkPath 'background.log')) -match 'sync: left out 2 events') 'the morning sync logs it for jk doctor'
+        # a reminder leaves the file as it fires: a created stamp or deadline id that did not read
+        # stopped its popup there, and the reminder was gone without a word
+        Write-JkText (Get-JkPath 'reminders.json') '{"nextId":7,"items":[{"id":5,"text":"call home","at":"2026-11-26T18:00:00","created":"garbage","pid":"","spawned":"","key":"","dueId":0},{"id":6,"text":"book room","at":"2026-11-26T18:00:00","created":"2026-11-26T09:00:00","pid":"","spawned":"","key":"","dueId":"abc"}]}'
+        $script:Popped = @()
+        function script:Show-JkNotify { param([string]$Title, [string[]]$Lines, $Accent, [int]$Seconds, [switch]$Sound, [switch]$Wait) $script:Popped += , $Title; 'stub' }
+        Complete-JkReminder -Id 5; Complete-JkReminder -Id 6
+        Assert-Eq ($script:Popped -join ',') 'call home,book room' 'both reminders still pop up'
+        # a photo Windows cannot read was "Out of memory"; an iPhone's HEIC photos were dropped unsaid
+        $pics = Join-Path $env:JK_HOME 'pics'; New-Item -ItemType Directory -Force $pics | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $pics 'page1.jpg'), [byte[]](0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3))
+        foreach ($n in 'IMG_1.HEIC', 'IMG_2.heic') { [IO.File]::WriteAllText((Join-Path $pics $n), 'x') }
+        Push-Location $pics
+        try {
+            $out = & $said @('pdf', 'page1.jpg')
+            Assert-True ($out -match "can't read page1\.jpg as a picture") "a damaged photo: $out"
+            $out = & $said @('pdf', '*.heic')
+            Assert-True ($out -match 'IMG_1\.HEIC and 1 more are HEIC, which jk cannot read: send the photos as JPEG') "HEIC photos: $out"
+            Assert-Eq @(Get-ChildItem $pics -Filter *.pdf).Count 0 'and no PDF is left half-written'
+        } finally { Pop-Location }
+        # every screenshot open in another program: no empty batch for jk tidy undo to take back in
+        # place of the last real one, and no month folder left behind (one that was there stays)
+        $shots = Join-Path $env:JK_HOME 'shots'; New-Item -ItemType Directory -Force $shots, (Join-Path $shots '2026-09') | Out-Null
+        $locks = @(foreach ($m in 8, 9) {
+                $f = Join-Path $shots "Screenshot 2026-0$m-15.png"; [IO.File]::WriteAllBytes($f, [byte[]](1, 2, 3))
+                (Get-Item -LiteralPath $f).LastWriteTime = [datetime]"2026-0$m-15T12:00:00"
+                [IO.File]::Open($f, 'Open', 'Read', 'None')
+            })
+        try { $out = @(& { Invoke-JkShotsFile -Path $shots } 6>&1 | ForEach-Object { "$_" }) -join "`n" } finally { foreach ($l in $locks) { $l.Dispose() } }
+        Assert-True ($out -match 'nothing was filed: 2 screenshots could not be moved') "all moves failed: $out"
+        Assert-Eq @(Get-ChildItem (Get-JkPath 'tidy') -Filter *.json -ErrorAction SilentlyContinue).Count 0 'no empty undo batch'
+        Assert-True (-not (Test-Path (Join-Path $shots '2026-08')) -and (Test-Path (Join-Path $shots '2026-09'))) 'the folder it made is gone, the one that was there stays'
+        # a session's minutes as a list or past a year passed the loader's check and broke every sum
+        foreach ($bad in '[]', '"999999999999999999999999999999"', '-5') {
+            Write-JkText (Get-JkPath 'focus.json') ('{"active":null,"sessions":[{"label":"cs350 a4","start":"2026-11-25T07:00:00","planned":25,"actual":' + $bad + ',"completed":true},{"label":"cs350 a4","start":"2026-11-25T08:00:00","planned":25,"actual":25,"completed":true}]}')
+            foreach ($cmd in @(@('focus', 'log'), @('plan'), @('review'), @())) { Assert-Eq (& $errs (& $said $cmd)) '' "a session of $bad minutes, jk $($cmd -join ' ')" }
+            Assert-Eq @((Get-JkFocusData).sessions).Count 1 "the session of $bad minutes is set aside, the other counted"
+        }
+        # a new record's id: never one in use, whatever nextId says (a word, or left behind by a hand edit)
+        Write-JkText (Get-JkPath 'todo.json') '{"nextId":"abc","items":[{"id":1,"text":"a","created":"2026-11-25T09:00:00","due":null,"done":false,"doneAt":null},{"id":5,"text":"b","created":"2026-11-25T09:00:00","due":null,"done":false,"doneAt":null}]}'
+        $out = & $said @('todo', 'add', 'read', 'ch', '5')
+        Assert-Eq (& $errs $out) '' 'jk todo add with a nextId that is a word'
+        Assert-Eq ((Get-JkTodoData).items | ForEach-Object { $_.id }) @(1, 5, 6) 'the new to-do takes the next free id'
+        Write-JkText (Get-JkPath 'todo.json') '{"nextId":1,"items":[{"id":1,"text":"a","created":"2026-11-25T09:00:00","due":null,"done":false,"doneAt":null},{"id":2,"text":"b","created":"2026-11-25T09:00:00","due":null,"done":false,"doneAt":null}]}'
+        $null = & $said @('todo', 'add', 'email', 'TA')
+        Assert-Eq ((Get-JkTodoData).items | ForEach-Object { $_.id }) @(1, 2, 3) 'a nextId behind the ids in use hands out no duplicate'
+        Assert-Eq ([int](Get-JkTodoData).nextId) 4 'and is caught up'
+        $dd = [pscustomobject]@{ nextId = 'zz'; events = @([pscustomobject]@{ id = 7 }); unreadable = @([pscustomobject]@{ id = '12' }) }
+        $e = New-JkEvent -Data $dd -Course 'cs350' -Date ([datetime]'2026-12-01') -Title 'A5'
+        Assert-Eq "$($e.id)|$($dd.nextId)" '13|14' 'a deadline id passes the set-aside ones too'
+        Write-JkText (Get-JkPath 'classes.json') '{"nextId":"x","items":[{"id":2,"course":"cs350","kind":"LEC","days":["Tue"],"start":"10:00","end":"11:20","room":"","from":"","to":""}]}'
+        $out = & $said @('class', 'add', 'cs350', 'mon', '14:30-15:50')
+        Assert-Eq (& $errs $out) '' 'jk class add with a nextId that is a word'
+        Assert-Eq ((Get-JkClassData).items | ForEach-Object { $_.id }) @(2, 3) 'the new class takes the next free id'
+        Write-JkText (Get-JkPath 'reminders.json') '{"nextId":1,"items":[{"id":3,"text":"x","at":"2027-01-01T09:00:00","created":"2026-11-26T09:00:00","pid":"","spawned":"","key":"","dueId":0}]}'
+        $r = New-JkReminder -At ([datetime]'2027-01-02T09:00:00') -Text 'y'
+        Assert-Eq ((Get-JkReminderData).items | ForEach-Object { $_.id }) @(3, 4) 'and the new reminder'
+        # an extra component (jk grade add) with a weight that is not a percent stopped jk grade and
+        # jk plan; a nextExtra that was a word stopped jk grade add, and one behind made a second x2
+        Write-JkText (Get-JkPath 'deadlines.json') '{"version":1,"term":null,"courses":[{"key":"cs350","code":"CS 350","name":"","color":"F87171","final":""}],"events":[],"nextId":1}'; $script:JkDueCache = $null
+        Write-JkText (Get-JkPath 'grades.json') '{"scores":[],"extras":[{"id":"x1","course":"cs350","title":"Participation","weight":"garbage","score":100},{"id":"x2","course":"cs350","title":"Bonus","weight":2,"score":[]}],"targets":[],"pass":[],"nextExtra":"many"}'
+        foreach ($cmd in @(@('grade'), @('grade', 'cs350'), @('plan'))) { Assert-Eq (& $errs (& $said $cmd)) '' "extras that do not read, jk $($cmd -join ' ')" }
+        $out = @(& { Add-JkGradeExtra 'cs350' 'Quiz bonus' -Weight 3 } 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-Eq (& $errs $out) '' 'jk grade add with a nextExtra that is a word'
+        $raw = [IO.File]::ReadAllText((Get-JkPath 'grades.json')) | ConvertFrom-Json
+        Assert-Eq (@($raw.extras | ForEach-Object { $_.id } | Sort-Object) -join ',') 'x1,x2,x3' 'the new extra takes x3, and the two set aside are kept'
+        $doc = @(Invoke-JkDoctor 6>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'unreadable grade extra\s' })
+        Assert-Eq $doc.Count 1 'jk doctor names them'
+        # a place name in Turkish: "istanbul" titled as Istanbul, not with a dotted capital I
+        [Threading.Thread]::CurrentThread.CurrentCulture = New-Object Globalization.CultureInfo 'tr-TR'
+        Assert-Eq (Format-JkClockName 'istanbul') 'Istanbul' 'a place titled the same in any language'
+    } finally {
+        [Threading.Thread]::CurrentThread.CurrentCulture = $savedCulture
+        Set-Item function:script:Start-JkBackground $origBg; Set-Item function:script:Show-JkNotify $origNotify
+        $env:JK_HOME = $saved; $env:JK_CACHE = $savedCache; $env:JK_NOW = $savedNow
+        $script:JkConfigCache = $null; $script:JkDueCache = $null
+    }
+}
 Test 'odd inputs: a number too big says so, and a long calendar line folds between characters, not inside an emoji' {
     Assert-Eq (Format-JkErrorText 'Cannot convert value "5999999999940" to type "System.Int32". Error: "Value was either too large or too small for an Int32."') 'that number is out of range' 'jk in 99999999999'
     $face = [char]::ConvertFromUtf32(0x1F600)

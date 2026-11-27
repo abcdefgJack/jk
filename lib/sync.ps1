@@ -41,15 +41,18 @@ function ConvertFrom-JkIcsDate([string]$Value, [string]$Params) {
     throw "unreadable calendar date '$Value'"
 }
 
-# Parses VEVENTs (alarms inside an event are skipped so their DESCRIPTION cannot leak in).
+# Parses VEVENTs (alarms inside an event are skipped so their DESCRIPTION cannot leak in). An event
+# whose start no one can read is left out and counted in $script:JkIcsUnreadable: one such event in
+# LEARN's feed stopped the whole sync, every morning, until it was gone.
 function ConvertFrom-JkIcs([string]$Text) {
+    $script:JkIcsUnreadable = 0
     $unfolded = [regex]::Replace($Text, '\r?\n[ \t]', '')
     $events = New-Object System.Collections.Generic.List[object]
     $cur = $null; $depth = 0
     foreach ($line in ($unfolded -split '\r?\n')) {
-        if ($line -eq 'BEGIN:VEVENT') { $cur = @{ Summary = ''; Description = ''; Location = ''; Categories = ''; Uid = ''; Start = $null; End = $null; Recurring = $false }; $depth = 0; continue }
+        if ($line -eq 'BEGIN:VEVENT') { $cur = @{ Summary = ''; Description = ''; Location = ''; Categories = ''; Uid = ''; Start = $null; End = $null; Recurring = $false; Bad = $false }; $depth = 0; continue }
         if ($null -eq $cur) { continue }
-        if ($line -eq 'END:VEVENT') { if ($cur.Start) { $events.Add([pscustomobject]$cur) }; $cur = $null; continue }
+        if ($line -eq 'END:VEVENT') { if ($cur.Bad) { $script:JkIcsUnreadable++ } elseif ($cur.Start) { $cur.Remove('Bad'); $events.Add([pscustomobject]$cur) }; $cur = $null; continue }
         if ($line -match '^BEGIN:') { $depth++; continue }
         if ($line -match '^END:') { $depth--; continue }
         if ($depth -gt 0) { continue }
@@ -63,8 +66,9 @@ function ConvertFrom-JkIcs([string]$Text) {
             'CATEGORIES' { $cur.Categories = ConvertFrom-JkIcsText $value }
             'UID' { $cur.Uid = $value.Trim() }
             'RRULE' { $cur.Recurring = $true }
-            'DTSTART' { $cur.Start = ConvertFrom-JkIcsDate $value $m.Groups[2].Value }
-            'DTEND' { $cur.End = ConvertFrom-JkIcsDate $value $m.Groups[2].Value }
+            'DTSTART' { try { $cur.Start = ConvertFrom-JkIcsDate $value $m.Groups[2].Value } catch { $cur.Bad = $true } }
+            # an end no one can read only loses the end: the start is the deadline then
+            'DTEND' { try { $cur.End = ConvertFrom-JkIcsDate $value $m.Groups[2].Value } catch { $cur.End = $null } }
         }
     }
     $events
@@ -258,6 +262,8 @@ function Invoke-JkDueSync {
     Set-JkState 'lastSync' ((Get-Date).ToString('s', $script:Inv))
     $cmap = Get-JkCourseMap $data
     if ($Quiet) {
+        # out of sight, events left out go to the log, where jk doctor finds them
+        if ($script:JkIcsUnreadable) { try { Add-Content -LiteralPath (Get-JkPath 'background.log') -Value ((Get-Date).ToString('s', $script:Inv) + " sync: left out $(Format-JkCount $script:JkIcsUnreadable 'event') whose date jk cannot read") } catch { } }
         # the morning task syncs out of sight: keep what moved for the morning popup to mention
         if ($moved.Count) {
             $notes = @($moved | ForEach-Object { "$(Get-JkCourseLabel $_.Event $cmap) $($_.Event.title) to $(Format-JkMovedWhen $_.Event)" })
@@ -267,6 +273,7 @@ function Invoke-JkDueSync {
     }
     $origin = 'file'; if ($isUrl) { $origin = ([Uri]($Source -replace '^(?i)webcal://', 'https://')).Host }
     Say ((Paint 'green' "  synced $($script:G.check)") + "  $($added.Count) new, $updated updated, $same unchanged" + (Paint 'gray' "  $($script:G.dot) $(Format-JkCount $feed.Count 'event') in the feed from $origin"))
+    if ($script:JkIcsUnreadable) { Say (Paint 'yellow' "  left out $(Format-JkCount $script:JkIcsUnreadable 'event') whose date jk cannot read") }
     foreach ($m in $moved) {
         $from = $m.From.ToString('ddd MMM d', $script:Inv); if ($m.Event.time) { $from += ' ' + (Format-JkTime $m.From.ToString('HH:mm', $script:Inv)) }
         Say ('  ' + (Paint 'amber' 'moved ') + (Paint 'gray' "#$($m.Event.id) ") + (Paint "#$(Get-JkCourseColor $m.Event.course $cmap)" (Get-JkCourseLabel $m.Event $cmap)) + ' ' + (Paint 'white' ([string]$m.Event.title)) + (Paint 'gray' "   $from $($script:G.arrow) ") + (Paint 'white' (Format-JkMovedWhen $m.Event)))

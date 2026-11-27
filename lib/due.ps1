@@ -143,7 +143,7 @@ function Resolve-JkCourse {
 function New-JkEvent {
     param($Data, [string]$Course, [datetime]$Date, [string]$Time, [string]$Title, [string]$Weight, [string]$Note, [string]$Kind = 'due', [string]$End)
     $e = [pscustomobject][ordered]@{
-        id     = [int]$Data.nextId
+        id     = (Get-JkNextId $Data 'events')
         course = $Course
         date   = $Date.ToString('yyyy-MM-dd', $script:Inv)
         time   = $Time
@@ -155,7 +155,7 @@ function New-JkEvent {
         done   = $false
         doneAt = $null
     }
-    $Data.nextId = [int]$Data.nextId + 1
+    $Data.nextId = [int]$e.id + 1
     $Data.events = @($Data.events) + $e
     $e
 }

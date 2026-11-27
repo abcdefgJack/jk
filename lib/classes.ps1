@@ -345,7 +345,7 @@ function Add-JkClass {
     $range = ConvertTo-JkTimeRange $Time
     $d = Get-JkClassData
     $item = [pscustomobject][ordered]@{
-        id     = [int]$d.nextId
+        id     = (Get-JkNextId $d 'items')
         course = $c.key
         kind   = $Kind.ToUpper()
         days   = @(ConvertTo-JkDays ($Days -join ','))
@@ -355,7 +355,7 @@ function Add-JkClass {
         from   = $(if ($From) { (ConvertTo-JkDate $From).ToString('yyyy-MM-dd', $script:Inv) } else { '' })
         to     = $(if ($To) { (ConvertTo-JkDate $To).ToString('yyyy-MM-dd', $script:Inv) } else { '' })
     }
-    $d.nextId = [int]$d.nextId + 1
+    $d.nextId = [int]$item.id + 1
     $d.items = @($d.items) + $item
     Save-JkClassData $d
     Say ((Paint 'green' "  added $($script:G.check)") + "  #$($item.id) $($c.code) $($item.kind)  $(@($item.days) -join ' ')  $(Format-JkTime $item.start) $($script:G.dash) $(Format-JkTime $item.end)  $Room")
@@ -456,8 +456,8 @@ function Import-JkClasses {
         $course = Resolve-JkCourse $due $c.Course -Create
         $dup = @($d.items | Where-Object { $_.course -eq $course.key -and $_.kind -eq $c.Kind -and $_.start -eq $c.Start -and ((@($_.days) -join ',') -eq (@($c.Days) -join ',')) })
         if ($dup) { $skipped++; continue }
-        $d.items = @($d.items) + [pscustomobject][ordered]@{ id = [int]$d.nextId; course = $course.key; kind = $c.Kind; days = @($c.Days); start = $c.Start; end = $c.End; room = $c.Room; from = $c.From; to = $c.To }
-        $d.nextId = [int]$d.nextId + 1
+        $d.items = @($d.items) + [pscustomobject][ordered]@{ id = (Get-JkNextId $d 'items'); course = $course.key; kind = $c.Kind; days = @($c.Days); start = $c.Start; end = $c.End; room = $c.Room; from = $c.From; to = $c.To }
+        $d.nextId = [int]@($d.items)[-1].id + 1
         $added++
     }
     $tests = 0
@@ -630,8 +630,8 @@ function Select-JkSections {
         $dup = @($d.items | Where-Object { $_.course -eq $s.course -and $_.kind -eq $s.kind -and $_.start -eq $s.start -and ((@($_.days) -join ',') -eq (@($s.days) -join ',')) })
         if ($dup) { Say (Paint 'gray' "  already there: $($c.code) $($s.kind) $sec"); continue }
         $clash = @($d.items | Where-Object { $_.course -ne $s.course -and (Test-JkClassOverlap $_ $s) } | ForEach-Object { Format-JkClassLabel $_ $cmap })
-        $item = [pscustomobject][ordered]@{ id = [int]$d.nextId; course = $s.course; kind = $s.kind; days = @($s.days); start = $s.start; end = $s.end; room = [string]$s.room; from = ''; to = '' }
-        $d.nextId = [int]$d.nextId + 1
+        $item = [pscustomobject][ordered]@{ id = (Get-JkNextId $d 'items'); course = $s.course; kind = $s.kind; days = @($s.days); start = $s.start; end = $s.end; room = [string]$s.room; from = ''; to = '' }
+        $d.nextId = [int]$item.id + 1
         $d.items = @($d.items) + $item
         Say ((Paint 'green' "  added $($script:G.check)") + "  #$($item.id) $($c.code) $($s.kind) $sec  $(@($s.days) -join ' ')  $(Format-JkTime $s.start) $($script:G.dash) $(Format-JkTime $s.end)  $($s.room)" + $(if ($clash) { Paint 'orange' "  (clashes with $($clash -join ', '))" } else { '' }))
     }

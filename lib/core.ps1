@@ -134,6 +134,28 @@ function ConvertFrom-JkDateText($Value) {
     $null
 }
 
+# The id for a new record in $Data.$List: nextId, but never one a record already has (set-aside
+# ones included). A nextId that did not read stopped every add; one left behind by a hand edit or a
+# file brought back from a backup handed out an id in use, and "done 3" then meant two things.
+function Get-JkNextId($Data, [string]$List) {
+    $raw = Get-JkProp $Data 'nextId' $null
+    $n = $(if (Test-JkIdText $raw) { [Math]::Max(1, [int][string]$raw) } else { 1 })
+    foreach ($r in @(@($Data.$List) + @(Get-JkProp $Data 'unreadable' @()))) {
+        # most ids are plain numbers: only the rest go through the slower check (a sync adds dozens)
+        $i = $(if ($r -is [pscustomobject]) { $r.id } else { $null })
+        if ($i -is [int]) { if ($i -ge $n) { $n = $i + 1 } }
+        elseif (Test-JkIdText $i) { $v = [int][string]$i; if ($v -ge $n) { $n = $v + 1 } }
+    }
+    $n
+}
+
+# The stamp that opens a log line ("2026-11-27T07:45:02"), or MinValue for one that does not read.
+function ConvertFrom-JkLogStamp([string]$Text) {
+    $d = [datetime]::MinValue
+    if ([datetime]::TryParse($Text, $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$d)) { return $d }
+    [datetime]::MinValue
+}
+
 function Test-JkDateText([string]$Value) {
     $d = [datetime]::MinValue
     [datetime]::TryParseExact($Value, 'yyyy-MM-dd', $script:Inv, [Globalization.DateTimeStyles]::None, [ref]$d)
