@@ -52,7 +52,7 @@ function New-JkReminder {
     $lock = Enter-JkReminderLock
     try {
         $d = Get-JkReminderData
-        $id = [int](Get-JkProp $d 'nextId' 1)
+        $id = Get-JkNextId $d 'items'
         $d.nextId = $id + 1
         # spawn first, then save once with the pid: the timer needs over a second just to load,
         # so the record is on disk long before it can fire
@@ -102,7 +102,9 @@ function Complete-JkReminder {
     $at = [datetime]::Parse([string]$item.at, $script:Inv)
     $lines = @()
     $accent = $script:JkPalette.amber
-    $dueId = [int](Get-JkProp $item 'dueId' 0)
+    # a field no one can read only loses its line: the reminder has left the file by now, so a
+    # popup stopped here was a reminder lost without a word
+    $dueId = 0; $null = [int]::TryParse([string](Get-JkProp $item 'dueId' 0), [ref]$dueId)
     $key = [string](Get-JkProp $item 'key' '')
     if ($key.StartsWith('class:')) {
         # set up the next class first: this popup can stay up until it is dismissed
@@ -174,7 +176,7 @@ function Complete-JkReminder {
         return
     }
     elseif ($Missed) { $lines += "Missed while the computer was off $($script:G.dot) was due $(Format-JkTime $at.ToString('HH:mm', $script:Inv)) $($at.ToString('ddd MMM d', $script:Inv))" }
-    else { $lines += "Set $(Format-JkRelTime ([datetime]::Parse([string]$item.created, $script:Inv)))" }
+    elseif (($set = ConvertFrom-JkLogStamp ([string](Get-JkProp $item 'created' ''))) -gt [datetime]::MinValue) { $lines += "Set $(Format-JkRelTime $set)" }
     # reminders stay until dismissed; a class alert closes itself 10 minutes into the class, so a day
     # away from the PC does not leave a pile of stale "starts in 10m" cards
     $stay = 0

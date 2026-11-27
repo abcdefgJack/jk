@@ -20,16 +20,39 @@ function Get-JkGradeData {
     $isPct = { param($v) $n = 0.0; ($v -is [string] -or $v -is [ValueType]) -and [double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n) -and $n -ge 0 -and $n -le 100 }
     Split-JkUnreadable $d 'pass' { param($r) [string]$r.course -and (& $isPct $r.min) } -Aside 'unreadablePass'
     Split-JkUnreadable $d 'targets' { param($r) [string]$r.course -and (& $isPct $r.target) } -Aside 'unreadableTargets'
+    # an extra component (jk grade add) with no id, no course, a weight that is not a percent, or a
+    # mark that is not a number: it stopped jk grade and the course's screens
+    Split-JkUnreadable $d 'extras' {
+        param($r)
+        $n = 0.0
+        if (-not ([string]$r.id -and [string]$r.course -and (& $isPct $r.weight))) { return $false }
+        $sp = $r.PSObject.Properties['score']
+        if (-not $sp -or $null -eq $sp.Value -or [string]$sp.Value -eq '') { return $true }
+        ($sp.Value -is [string] -or $sp.Value -is [ValueType]) -and [double]::TryParse([string]$sp.Value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n) -and $n -ge 0 -and $n -le 1000
+    } -Aside 'unreadableExtras'
     $d
+}
+
+# The id for a new extra component, "x" and a number: nextExtra, but never one already in use (a
+# hand edit, or grades.json brought back from a backup, left it behind; a word stopped jk grade add)
+function Get-JkNextExtraId($Data) {
+    $raw = Get-JkProp $Data 'nextExtra' $null
+    $n = $(if (Test-JkIdText $raw) { [Math]::Max(1, [int][string]$raw) } else { 1 })
+    foreach ($x in @(@($Data.extras) + @(Get-JkProp $Data 'unreadableExtras' @()))) {
+        if ([string](Get-JkProp $x 'id' '') -match '^x(\d{1,9})$') { $v = [int]$Matches[1]; if ($v -ge $n) { $n = $v + 1 } }
+    }
+    $n
 }
 
 function Save-JkGradeData($Data) {
     foreach ($p in 'scores', 'extras', 'targets', 'pass') { if ($null -ne (Get-JkProp $Data $p)) { $Data.$p = @($Data.$p) } }
-    Save-JkWithUnreadable $Data 'targets' {
-        Save-JkWithUnreadable $Data 'pass' {
-            Save-JkWithUnreadable $Data 'scores' { Save-JkJson 'grades.json' $Data }
-        } -Aside 'unreadablePass'
-    } -Aside 'unreadableTargets'
+    Save-JkWithUnreadable $Data 'extras' {
+        Save-JkWithUnreadable $Data 'targets' {
+            Save-JkWithUnreadable $Data 'pass' {
+                Save-JkWithUnreadable $Data 'scores' { Save-JkJson 'grades.json' $Data }
+            } -Aside 'unreadablePass'
+        } -Aside 'unreadableTargets'
+    } -Aside 'unreadableExtras'
 }
 
 function ConvertTo-JkPercent([string]$Text) {
@@ -704,8 +727,9 @@ function Add-JkGradeExtra {
     $c = Resolve-JkCourse $due $Course
     if (-not $c) { throw "unknown course '$Course'" }
     $gd = Get-JkGradeData
-    $id = 'x' + [int]$gd.nextExtra
-    $gd.nextExtra = [int]$gd.nextExtra + 1
+    $n = Get-JkNextExtraId $gd
+    $id = 'x' + $n
+    $gd.nextExtra = $n + 1
     $sc = $null
     if ($Score) { $sc = ConvertTo-JkPercent $Score }
     $gd.extras = @($gd.extras) + [pscustomobject]@{ id = $id; course = $c.key; title = $Title; weight = $Weight; score = $sc }

@@ -56,7 +56,8 @@ function Show-JkTodo {
     $d = Get-JkTodoData
     $now = Get-JkNow
     $open = @($d.items | Where-Object { -not $_.done } | Sort-Object @{ Expression = { $x = Get-JkTodoDue $_; if ($x) { $x } else { [datetime]::MaxValue } } }, id)
-    $doneToday = @($d.items | Where-Object { $_.done -and $_.doneAt -and ([datetime]::Parse([string]$_.doneAt, [Globalization.CultureInfo]::InvariantCulture)).Date -eq $now.Date })
+    # a done stamp no one can read (a hand edit) only means "not done today": it stopped jk todo
+    $doneToday = @($d.items | Where-Object { $at = $null; if ($_.done) { $at = Get-JkDoneAt $_ }; $at -and $at.Date -eq $now.Date })
     $doneAll = @($d.items | Where-Object { $_.done })
     Write-JkHeader 'To-do' "$($open.Count) open $($script:G.dot) $($doneToday.Count) done today"
     $w = Get-JkWidth
@@ -146,8 +147,8 @@ function Add-JkTodo {
     $d = Get-JkTodoData
     $dueIso = $null
     if ($Due) { $dueIso = ConvertTo-JkTodoDue $Due }
-    $item = [pscustomobject][ordered]@{ id = [int]$d.nextId; text = $t; created = (Get-JkNow).ToString('s', [Globalization.CultureInfo]::InvariantCulture); due = $dueIso; done = $false; doneAt = $null }
-    $d.nextId = [int]$d.nextId + 1
+    $item = [pscustomobject][ordered]@{ id = (Get-JkNextId $d 'items'); text = $t; created = (Get-JkNow).ToString('s', [Globalization.CultureInfo]::InvariantCulture); due = $dueIso; done = $false; doneAt = $null }
+    $d.nextId = [int]$item.id + 1
     $d.items = @($d.items) + $item
     Save-JkTodoData $d
     Say ((Paint 'green' "  added $($script:G.check)") + (Format-JkTodoLine $item ((Get-JkWidth) - 10)))

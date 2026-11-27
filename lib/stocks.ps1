@@ -90,14 +90,16 @@ function ConvertFrom-JkStockJson([string]$Text, [string]$Symbol) {
     for ($i = 0; $i -lt $ts.Count; $i++) {
         $c = $q.close[$i]
         if ($null -eq $c -and $i -eq $ts.Count - 1 -and $null -ne $m.regularMarketPrice -and [long]$m.regularMarketTime -ge [long]$ts[$i]) { $c = $m.regularMarketPrice }
-        if ($null -eq $c) { continue }
+        # no price at all, or none a stock can have (a halted day's 0, a bad tick): its log turned
+        # every number on the line to NaN
+        if ($null -eq $c -or -not ([double]$c -gt 0) -or [double]::IsInfinity([double]$c)) { continue }
         $d = $(if ($null -ne $off) { [DateTimeOffset]::FromUnixTimeSeconds([long]$ts[$i] + [long]$off).UtcDateTime.Date } else { (ConvertFrom-JkUnixToNy $ts[$i]).Date })
         $byDay[$d.ToString('yyyy-MM-dd', $script:Inv)] = [pscustomobject]@{ Date = $d; Close = [double]$c }
     }
     $bars = @($byDay.Values)
     if (-not $bars.Count) { throw "no prices for $Symbol" }
     $reg = $m.currentTradingPeriod.regular
-    $price = $(if ($null -ne $m.regularMarketPrice) { [double]$m.regularMarketPrice } else { $bars[-1].Close })
+    $price = $(if ($null -ne $m.regularMarketPrice -and [double]$m.regularMarketPrice -gt 0) { [double]$m.regularMarketPrice } else { $bars[-1].Close })
     $name = [string]$m.longName; if (-not $name) { $name = [string]$m.shortName }
     [pscustomobject]@{
         Symbol = $(if ($m.symbol) { ([string]$m.symbol).ToUpperInvariant() } else { $Symbol })
@@ -464,7 +466,8 @@ function Show-JkStock([string]$Symbol) {
     if ($x.Tried) { & $row 'ranges held' ((Format-JkPctOf $x.Held $x.Tried) + (Paint 'gray' " of the last $($x.Tried) days (aim: 80%)")) }
     & $row '6 months' (Paint 'blue' (Get-JkSparkline $x.Closes ([Math]::Min(63, [Math]::Max(20, (Get-JkWidth) - 20)))))
     # the last ten settled days, each against the range the 20 days before it gave
-    $sessionDay = (ConvertTo-JkMarketTime $s $s.Open).Date
+    # a reply with no trading hours (Yahoo leaves them out at times) has no session to set apart
+    $sessionDay = $(if ($s.Open) { (ConvertTo-JkMarketTime $s $s.Open).Date } else { $null })
     $bars = @($s.Bars | Where-Object { $x.State -notin 'open', 'after' -or $_.Date -lt $sessionDay })
     $c = [double[]]@($bars | ForEach-Object { $_.Close })
     $n = $c.Count

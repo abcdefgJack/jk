@@ -74,16 +74,17 @@ function Invoke-JkShotsFile {
     $todo = @(Get-JkShotsToFile @(Get-JkShots $Path) (Get-Date))
     if (-not $todo.Count) { Say (Paint 'green' "  Nothing to file: only this month's screenshots are loose. $($script:G.check)"); return }
     $log = New-Object System.Collections.Generic.List[object]
-    $failed = 0
+    $failed = 0; $made = @()
     foreach ($s in $todo) {
         $dir = Join-Path $Path ($s.Modified.ToString('yyyy-MM', $script:Inv))
-        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null; $made += $dir }
         try {
             $dest = Get-JkUniquePath $dir $s.Name
             Move-Item -LiteralPath $s.Path -Destination $dest -ErrorAction Stop
             $log.Add([pscustomobject]@{ from = $s.Path; to = $dest })
         } catch { $failed++ }
     }
+    if (-not $log.Count) { Remove-JkEmptyMoveDirs $made; Say (Paint 'yellow' "  nothing was filed: $(Format-JkCount $failed 'screenshot') could not be moved (open in another program?)"); return }
     $dirLog = Get-JkPath 'tidy'
     if (-not (Test-Path -LiteralPath $dirLog)) { New-Item -ItemType Directory -Path $dirLog | Out-Null }
     Save-JkJson "tidy\$((Get-Date).ToString('yyyyMMdd-HHmmss-fff', $script:Inv)).json" ([pscustomobject]@{ root = $Path; at = (Get-Date).ToString('s'); moves = $log.ToArray() })
